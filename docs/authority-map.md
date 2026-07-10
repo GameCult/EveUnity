@@ -21,7 +21,7 @@ drivers, asset-provider hooks, package release, runtime tests, and captures.
 ## Outputs
 
 - disposable Unity scene projection
-- `gamecult.eve.command.v1` intents sent through the advertised boundary
+- `gamecult.eve.command_invocation.v1` intents sent through the advertised boundary
 - runtime capability, test, release, and capture evidence
 - owner-controlled PlayMode capture from `TestProject`
 
@@ -41,7 +41,7 @@ projection shells may not implement Sai, Norn, or TeX semantics.
 
 Initial connect, refresh, reconnect, and terminal-receipt reconciliation all
 consume provider surface documents. Movement, focus, target, and action input
-all become `gamecult.eve.command.v1` through the provider-advertised command
+all become `gamecult.eve.command_invocation.v1` through the provider-advertised command
 boundary.
 
 ## Cut Line

@@ -2,11 +2,17 @@
   "name": "GameCult.EveUnity.GenericClient.PlayModeTests",
   "rootNamespace": "GameCult.EveUnity.GenericClient.PlayModeTests",
   "references": [
+    "GameCult.CultLib",
     "GameCult.Eve.Surface",
     "GameCult.Eve.UnityScene"
   ],
   "includePlatforms": [],
   "excludePlatforms": [],
+  "overrideReferences": true,
+  "precompiledReferences": [
+    "GameCult.Caching.dll",
+    "GameCult.Caching.MessagePack.dll"
+  ],
   "autoReferenced": false,
   "optionalUnityReferences": [
     "TestAssemblies"

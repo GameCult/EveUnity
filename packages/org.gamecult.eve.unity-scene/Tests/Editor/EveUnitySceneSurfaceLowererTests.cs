@@ -818,12 +818,6 @@ namespace GameCult.Eve.UnityScene.Tests
             Assert.That(client.LastReceipt.IsProviderOwned, Is.True);
             Assert.That(sceneSink.ConfiguredWorlds.Count, Is.EqualTo(1));
 
-            source.Stage(new EveUnitySceneProviderSurfaceSnapshot(
-                PlayableArpgDocument(includeRaider: false, playerPosition: "30,0,30"),
-                Advertisement("aetheria.daemon.game"),
-                "cultmesh://aetheria/eve/surfaces/aetheria.daemon.game",
-                2));
-
             receiptSource.Publish(new EveUnitySceneCommandReceipt(
                 "aetheria.daemon.move_intent.reconciled",
                 "aetheria.daemon.commands",
@@ -831,9 +825,20 @@ namespace GameCult.Eve.UnityScene.Tests
                 "reconciled",
                 "Aetheria",
                 "AetheriaRuntimeDaemonCommandBoundaryDocument",
-                "aetheria.eve_command_acceptance_status.v1",
+                "gamecult.eve.command_receipt.v1",
                 "aetheria",
-                "aetheria.daemon.game"));
+                "aetheria.daemon.game",
+                sourceVersion: 2));
+
+            Assert.That(client.LastReceipt.State, Is.EqualTo("pending"));
+            Assert.That(client.ActiveVersion, Is.EqualTo(1));
+
+            source.Stage(new EveUnitySceneProviderSurfaceSnapshot(
+                PlayableArpgDocument(includeRaider: false, playerPosition: "30,0,30"),
+                Advertisement("aetheria.daemon.game"),
+                "cultmesh://aetheria/eve/surfaces/aetheria.daemon.game",
+                2));
+            client.Refresh();
 
             Assert.That(client.LastReceipt.State, Is.EqualTo("reconciled"));
             Assert.That(client.ActiveVersion, Is.EqualTo(2));

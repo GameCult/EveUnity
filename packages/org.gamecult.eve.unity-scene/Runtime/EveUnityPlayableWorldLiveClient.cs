@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using GameCult.Eve.Surface;
 
 #nullable enable
@@ -11,6 +12,8 @@ namespace GameCult.Eve.UnityScene
         private readonly EveUnityPlayableWorldPresenter _presenter;
         private readonly IEveUnitySceneCommandReceiptSource? _receiptSource;
         private readonly bool _refreshOnTerminalReceipt;
+        private readonly List<EveUnitySceneCommandReceipt> _pendingReceipts =
+            new List<EveUnitySceneCommandReceipt>();
         private bool _connected;
         private bool _receiptConnected;
 
@@ -113,6 +116,7 @@ namespace GameCult.Eve.UnityScene
             }
 
             _connection.Disconnect();
+            _pendingReceipts.Clear();
         }
 
         public void Dispose()
@@ -142,15 +146,47 @@ namespace GameCult.Eve.UnityScene
         private void OnProjectionUpdated(EveUnitySceneProjection projection)
         {
             LastPresentation = _presenter.Apply(projection);
+            PublishReceiptsWhoseStateIsVisible();
         }
 
         private void OnReceiptAvailable(EveUnitySceneCommandReceipt receipt)
         {
-            LastReceipt = receipt ?? throw new ArgumentNullException(nameof(receipt));
-            ReceiptAvailable?.Invoke(receipt);
+            if (receipt == null) throw new ArgumentNullException(nameof(receipt));
+
+            if (receipt.SourceVersion > ActiveVersion)
+            {
+                _pendingReceipts.Add(receipt);
+                if (_refreshOnTerminalReceipt && receipt.ShouldRefreshProviderSurface)
+                {
+                    Refresh();
+                    PublishReceiptsWhoseStateIsVisible();
+                }
+                return;
+            }
 
             if (_refreshOnTerminalReceipt && receipt.ShouldRefreshProviderSurface)
                 Refresh();
+
+            PublishReceipt(receipt);
+        }
+
+        private void PublishReceiptsWhoseStateIsVisible()
+        {
+            for (var index = _pendingReceipts.Count - 1; index >= 0; index--)
+            {
+                var receipt = _pendingReceipts[index];
+                if (receipt.SourceVersion > ActiveVersion)
+                    continue;
+
+                _pendingReceipts.RemoveAt(index);
+                PublishReceipt(receipt);
+            }
+        }
+
+        private void PublishReceipt(EveUnitySceneCommandReceipt receipt)
+        {
+            LastReceipt = receipt;
+            ReceiptAvailable?.Invoke(receipt);
         }
 
         private EveUnityPlayableWorldPresentation RequirePresentation()
@@ -179,7 +215,8 @@ namespace GameCult.Eve.UnityScene
             string providerId = "",
             string surfaceId = "",
             string message = "",
-            DateTimeOffset? issuedAtUtc = null)
+            DateTimeOffset? issuedAtUtc = null,
+            long sourceVersion = 0)
         {
             ReceiptId = receiptId ?? "";
             Command = command ?? "";
@@ -192,6 +229,7 @@ namespace GameCult.Eve.UnityScene
             SurfaceId = surfaceId ?? "";
             Message = message ?? "";
             IssuedAtUtc = issuedAtUtc;
+            SourceVersion = sourceVersion;
         }
 
         public string Schema { get; }
@@ -215,6 +253,8 @@ namespace GameCult.Eve.UnityScene
         public string Message { get; }
 
         public DateTimeOffset? IssuedAtUtc { get; }
+
+        public long SourceVersion { get; }
 
         public bool IsProviderOwned => !string.IsNullOrWhiteSpace(OwnerRepo) && !string.Equals(OwnerRepo, "EveUnity", StringComparison.Ordinal);
 

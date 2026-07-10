@@ -102,7 +102,7 @@
                                  }
                              ],
     "commandTransport":  {
-                             "schema":  "gamecult.eve.command.v1",
+                             "schema":  "gamecult.eve.command_invocation.v1",
                              "status":  "provider-shell-contract-skeleton",
                              "emitter":  "EveUnitySceneSurfaceLowerer.CreateCommandIntent",
                              "clientId":  "unity-scene",

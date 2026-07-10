@@ -2,6 +2,8 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
+using GameCult.Caching;
+using GameCult.Caching.MessagePack;
 using GameCult.Eve.Surface;
 using GameCult.Eve.UnityScene;
 using NUnit.Framework;
@@ -12,6 +14,50 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
 {
     public sealed class GenericWorldCaptureTests
     {
+        [Test]
+        public void CoreProviderDocumentsRoundTripThroughCultCacheSerialization()
+        {
+            var advertisement = new EveProviderAdvertisementDocument(
+                "eve.world-smoke",
+                "eve-world-smoke",
+                "eve.local",
+                "Generic world",
+                "game.daemon",
+                "127.0.0.1:7777",
+                "2026-07-10T00:00:00Z",
+                new EveProviderFreshness("fresh", "2026-07-10T00:00:00Z", 5000),
+                new[] { EveSurfaceDocument.SchemaId, EveCommandReceiptDocument.SchemaId },
+                Array.Empty<EveProviderWitness>(),
+                new[]
+                {
+                    new EveAdvertisedSurface(
+                        "eve.world-smoke.surface",
+                        EveSurfaceDocument.SchemaId,
+                        "surface:eve.world-smoke",
+                        "cultmesh-record",
+                        "active",
+                        "interactive-world",
+                        new EveWorldInteractionAdvertisement(
+                            "provider-authored-world-surface",
+                            Array.Empty<string>(),
+                            "world.commands",
+                            "commands:eve.world-smoke",
+                            EveCommandReceiptDocument.SchemaId,
+                            "receipts:eve.world-smoke",
+                            "assets:eve.world-smoke",
+                            new[] { "unity-scene" },
+                            "provider-owns-world-state-command-acceptance-and-receipts"))
+                },
+                Array.Empty<EveAdvertisedCommand>());
+
+            var payload = CultDocumentMessagePackSerialization.Serialize(advertisement);
+            var decoded = CultDocumentMessagePackSerialization.Deserialize<EveProviderAdvertisementDocument>(payload);
+
+            Assert.That(decoded.ProviderId, Is.EqualTo("eve.world-smoke"));
+            Assert.That(decoded.Surfaces.Count, Is.EqualTo(1));
+            Assert.That(decoded.Surfaces[0].WorldInteraction.CommandRecordRef, Is.EqualTo("commands:eve.world-smoke"));
+        }
+
         [UnityTest]
         public IEnumerator GenericClientRendersWorldSmokeAndEmitsCommand()
         {

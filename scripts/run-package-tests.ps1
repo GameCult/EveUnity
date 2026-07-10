@@ -30,7 +30,11 @@ $originalManifest = Get-Content -Raw -LiteralPath $manifestPath
 
 try {
   $manifest = $originalManifest | ConvertFrom-Json
-  $dependency = "file:" + ($packageRoot -replace '\\', '/')
+  $manifestUri = [Uri] (($AetheriaRoot.TrimEnd('\\') + '\\'))
+  $packageUri = [Uri] (($packageRoot.TrimEnd('\\') + '\\'))
+  $relativePackageRoot = [Uri]::UnescapeDataString(
+    $manifestUri.MakeRelativeUri($packageUri).ToString()).TrimEnd('/')
+  $dependency = "file:" + ($relativePackageRoot -replace '\\', '/')
   $manifest.dependencies.'org.gamecult.eve.unity-scene' = $dependency
   $testables = @($manifest.testables) | Where-Object { $_ }
   if ($testables -notcontains 'org.gamecult.eve.unity-scene') {
@@ -71,4 +75,3 @@ if ($null -eq $run -or [int] $run.failed -gt 0) {
 
 Write-Host "EveUnity consumer tests: $($run.passed) passed, $($run.total) total"
 Write-Host "Results: $resultsPath"
-

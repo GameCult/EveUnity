@@ -1,0 +1,209 @@
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.IO;
+using GameCult.Eve.Surface;
+using GameCult.Eve.UnityScene;
+using NUnit.Framework;
+using UnityEngine;
+using UnityEngine.TestTools;
+
+namespace GameCult.EveUnity.GenericClient.PlayModeTests
+{
+    public sealed class GenericWorldCaptureTests
+    {
+        [UnityTest]
+        public IEnumerator GenericClientRendersWorldSmokeAndEmitsCommand()
+        {
+            var hostObject = new GameObject("EveUnity Generic Client");
+            var sceneRoot = new GameObject("World Projection");
+            var provider = hostObject.AddComponent<WorldSmokeProvider>();
+            var host = hostObject.AddComponent<EveUnityPlayableWorldClientHost>();
+            var cameraObject = new GameObject("Capture Camera");
+            var lightObject = new GameObject("World Light");
+            var ground = GameObject.CreatePrimitive(PrimitiveType.Plane);
+            RenderTexture target = null;
+            Texture2D pixels = null;
+
+            try
+            {
+                provider.CurrentDocument = WorldDocument();
+                host.Configure(sceneRoot.transform, provider, provider);
+                var presentation = host.Connect();
+
+                Assert.That(presentation.ActiveEntities, Is.EqualTo(3));
+                Assert.That(
+                    sceneRoot.GetComponentsInChildren<EveUnityPlayableWorldEntityMarker>(),
+                    Has.Length.EqualTo(3));
+                foreach (var marker in sceneRoot.GetComponentsInChildren<EveUnityPlayableWorldEntityMarker>())
+                {
+                    var renderer = marker.GetComponent<Renderer>();
+                    renderer.material.color = marker.Controllable
+                        ? new Color(0.18f, 0.75f, 1f)
+                        : marker.EntityKind == "enemy"
+                            ? new Color(1f, 0.25f, 0.2f)
+                            : new Color(1f, 0.78f, 0.15f);
+                }
+
+                ground.name = "Projection Ground";
+                ground.transform.position = new Vector3(0f, -0.65f, 3f);
+                ground.transform.localScale = new Vector3(2.2f, 1f, 2.2f);
+                ground.GetComponent<Renderer>().material.color = new Color(0.12f, 0.16f, 0.18f);
+
+                host.SubmitMoveVectorIntent("player", 0f, 1f);
+                Assert.That(provider.Submitted, Has.Count.EqualTo(1));
+                Assert.That(provider.Submitted[0].ProviderId, Is.EqualTo("eve.world-smoke"));
+
+                var light = lightObject.AddComponent<Light>();
+                light.type = LightType.Directional;
+                light.intensity = 1.4f;
+                lightObject.transform.rotation = Quaternion.Euler(45f, -35f, 0f);
+
+                var camera = cameraObject.AddComponent<Camera>();
+                camera.clearFlags = CameraClearFlags.SolidColor;
+                camera.backgroundColor = new Color(0.035f, 0.055f, 0.08f, 1f);
+                camera.transform.position = new Vector3(10f, 8f, -12f);
+                camera.transform.LookAt(new Vector3(0f, 1f, 3f));
+                target = new RenderTexture(640, 360, 24, RenderTextureFormat.ARGB32);
+                camera.targetTexture = target;
+
+                yield return null;
+                camera.Render();
+                RenderTexture.active = target;
+                pixels = new Texture2D(640, 360, TextureFormat.RGB24, false);
+                pixels.ReadPixels(new Rect(0, 0, 640, 360), 0, 0);
+                pixels.Apply();
+
+                var changedPixels = 0;
+                var background = camera.backgroundColor;
+                foreach (var pixel in pixels.GetPixels())
+                {
+                    if (Mathf.Abs(pixel.r - background.r) +
+                        Mathf.Abs(pixel.g - background.g) +
+                        Mathf.Abs(pixel.b - background.b) > 0.08f)
+                        changedPixels++;
+                }
+                Assert.That(changedPixels, Is.GreaterThan(500));
+
+                var capturePath = Environment.GetEnvironmentVariable("EVEUNITY_CAPTURE_PATH");
+                if (string.IsNullOrWhiteSpace(capturePath))
+                {
+                    capturePath = Path.GetFullPath(Path.Combine(
+                        Application.dataPath,
+                        "..",
+                        "..",
+                        "artifacts",
+                        "playmode",
+                        "world-smoke.png"));
+                }
+                Directory.CreateDirectory(Path.GetDirectoryName(capturePath));
+                File.WriteAllBytes(capturePath, pixels.EncodeToPNG());
+                Assert.That(new FileInfo(capturePath).Length, Is.GreaterThan(1024));
+            }
+            finally
+            {
+                RenderTexture.active = null;
+                var camera = cameraObject.GetComponent<Camera>();
+                if (camera != null) camera.targetTexture = null;
+                if (target != null) UnityEngine.Object.DestroyImmediate(target);
+                if (pixels != null) UnityEngine.Object.DestroyImmediate(pixels);
+                UnityEngine.Object.DestroyImmediate(lightObject);
+                UnityEngine.Object.DestroyImmediate(cameraObject);
+                UnityEngine.Object.DestroyImmediate(ground);
+                UnityEngine.Object.DestroyImmediate(sceneRoot);
+                UnityEngine.Object.DestroyImmediate(hostObject);
+            }
+        }
+
+        private static EveUnitySceneProviderSurfaceDocument WorldDocument()
+        {
+            var entities = new[]
+            {
+                Entity("player-node", "player", "player", "Vanguard", "0,0,0", "1.2", true),
+                Entity("enemy-node", "enemy", "enemy", "Raider", "3,0,4", "1", false),
+                Entity("landmark-node", "landmark", "landmark", "Beacon", "-4,0,6", "1.8", false)
+            };
+            var document = new EveSurfaceDocument(
+                "eve.world-smoke",
+                "game.runtime",
+                "Generic interactive world",
+                1,
+                "2026-07-10T00:00:00Z",
+                new EveSurfaceTree(
+                    "eve.world-smoke.surface",
+                    new EveSurfaceComponent(
+                        "world.root",
+                        "surface",
+                        Props(),
+                        new[]
+                        {
+                            new EveSurfaceComponent(
+                                "world.scene",
+                                "world.scene3d",
+                                Props(
+                                    ("playerEntityId", "player"),
+                                    ("movementCommand", "world.move"),
+                                    ("inputProfile", "third-person"),
+                                    ("cameraRig", "third-person-orbit")),
+                                entities)
+                        }),
+                    Array.Empty<EveStyleToken>()),
+                Array.Empty<EveCommandTemplate>());
+            return new EveUnitySceneProviderSurfaceDocument(
+                document,
+                new EveUnitySceneProviderSurfaceAdvertisement(
+                    "eve.world-smoke.surface",
+                    "interactive-world",
+                    new EveUnitySceneWorldInteraction(
+                        "provider-authored-world-surface",
+                        "world.commands",
+                        "gamecult.eve.command_receipt.v1",
+                        "provider-owns-world-state-command-acceptance-and-receipts")),
+                "cultmesh://eve.world-smoke/surfaces/world",
+                1);
+        }
+
+        private static EveSurfaceComponent Entity(
+            string nodeId,
+            string entityId,
+            string entityKind,
+            string label,
+            string position,
+            string radius,
+            bool controllable)
+        {
+            return new EveSurfaceComponent(
+                nodeId,
+                "world.entity3d",
+                Props(
+                    ("entityId", entityId),
+                    ("entityKind", entityKind),
+                    ("label", label),
+                    ("position", position),
+                    ("radius", radius),
+                    ("assetRef", $"cultmesh://eve.world-smoke/assets/{entityKind}"),
+                    ("selectable", "true"),
+                    ("controllable", controllable ? "true" : "false"),
+                    ("moveCommand", controllable ? "world.move" : "")),
+                Array.Empty<EveSurfaceComponent>());
+        }
+
+        private static Dictionary<string, string> Props(params (string Key, string Value)[] values)
+        {
+            var props = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var value in values) props[value.Key] = value.Value;
+            return props;
+        }
+
+        private sealed class WorldSmokeProvider : MonoBehaviour,
+            IEveUnitySceneProviderSurfaceDocumentSource,
+            IEveUnitySceneCommandSink
+        {
+            public EveUnitySceneProviderSurfaceDocument CurrentDocument { get; set; }
+            public string SinkKind => "world-smoke-command-sink";
+            public List<EveSurfaceCommandRequest> Submitted { get; } = new List<EveSurfaceCommandRequest>();
+            public event Action<EveUnitySceneProviderSurfaceDocument> DocumentAvailable;
+            public void Submit(EveSurfaceCommandRequest request) => Submitted.Add(request);
+        }
+    }
+}

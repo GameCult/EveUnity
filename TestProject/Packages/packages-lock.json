@@ -1,0 +1,66 @@
+{
+  "dependencies": {
+    "com.unity.ext.nunit": {
+      "version": "2.0.5",
+      "depth": 1,
+      "source": "builtin",
+      "dependencies": {}
+    },
+    "com.unity.test-framework": {
+      "version": "1.6.0",
+      "depth": 0,
+      "source": "builtin",
+      "dependencies": {
+        "com.unity.ext.nunit": "2.0.3",
+        "com.unity.modules.imgui": "1.0.0",
+        "com.unity.modules.jsonserialize": "1.0.0"
+      }
+    },
+    "org.gamecult.cultlib": {
+      "version": "file:../../../CultLib/artifacts/unity/org.gamecult.cultlib",
+      "depth": 0,
+      "source": "local",
+      "dependencies": {}
+    },
+    "org.gamecult.eve.surface": {
+      "version": "file:../../../Eve/packages/org.gamecult.eve.surface",
+      "depth": 0,
+      "source": "local",
+      "dependencies": {
+        "org.gamecult.cultlib": "1.0.3"
+      }
+    },
+    "org.gamecult.eve.unity-scene": {
+      "version": "file:../../packages/org.gamecult.eve.unity-scene",
+      "depth": 0,
+      "source": "local",
+      "dependencies": {
+        "org.gamecult.eve.surface": "0.1.0"
+      }
+    },
+    "com.unity.modules.imageconversion": {
+      "version": "1.0.0",
+      "depth": 0,
+      "source": "builtin",
+      "dependencies": {}
+    },
+    "com.unity.modules.imgui": {
+      "version": "1.0.0",
+      "depth": 1,
+      "source": "builtin",
+      "dependencies": {}
+    },
+    "com.unity.modules.jsonserialize": {
+      "version": "1.0.0",
+      "depth": 1,
+      "source": "builtin",
+      "dependencies": {}
+    },
+    "com.unity.modules.physics": {
+      "version": "1.0.0",
+      "depth": 0,
+      "source": "builtin",
+      "dependencies": {}
+    }
+  }
+}

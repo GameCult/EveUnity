@@ -1,0 +1,14 @@
+{
+  "name": "GameCult.EveUnity.GenericClient.PlayModeTests",
+  "rootNamespace": "GameCult.EveUnity.GenericClient.PlayModeTests",
+  "references": [
+    "GameCult.Eve.Surface",
+    "GameCult.Eve.UnityScene"
+  ],
+  "includePlatforms": [],
+  "excludePlatforms": [],
+  "autoReferenced": false,
+  "optionalUnityReferences": [
+    "TestAssemblies"
+  ]
+}

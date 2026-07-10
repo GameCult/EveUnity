@@ -23,6 +23,7 @@ drivers, asset-provider hooks, package release, runtime tests, and captures.
 - disposable Unity scene projection
 - `gamecult.eve.command.v1` intents sent through the advertised boundary
 - runtime capability, test, release, and capture evidence
+- owner-controlled PlayMode capture from `TestProject`
 
 ## Derived State
 
@@ -50,3 +51,9 @@ receipts, adapter, and provider conformance scenarios. Eve retains contracts
 and conformance policy. EveUnity retains only generic Unity projection and its
 runtime lifecycle.
 
+## Capture Proofs
+
+`TestProject` proves that a clean Unity project can install CultLib, Eve
+contracts, and EveUnity without Aetheria or Brokkr assemblies. Its world-smoke
+capture is the generic control witness. The product witness must use the same
+client body against a separately running provider daemon.

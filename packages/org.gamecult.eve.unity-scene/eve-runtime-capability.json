@@ -7,7 +7,7 @@
                        "ownerRepo":  "EveUnity",
                        "currentHostRepo":  "EveUnity",
                        "splitTarget":  "EveUnity",
-                       "graduationTrigger":  "Graduated: EveUnity owns the provider-agnostic Unity scene package, release lifecycle, and runtime tests. Real Unity frame capture and live CultMesh transport remain active lifecycle work.",
+        "graduationTrigger":  "Graduated: EveUnity owns the provider-agnostic Unity scene package, release lifecycle, runtime tests, and generic PlayMode capture. The Aetheria daemon product witness remains active lifecycle work.",
                        "splitHandoff":  {
                                             "manifestPath":  "",
                                             "smokeCommand":  ""
@@ -170,7 +170,7 @@
                                },
                       "capture":  {
                                       "ownerRepo":  "EveUnity",
-                                      "status":  "pending-unity-frame-capture",
+                                      "status":  "partial-world-smoke-playmode-capture",
                                       "captureContract":  {
                                                               "ownerRepo":  "EveUnity",
                                                               "runtimeId":  "unity-scene",
@@ -195,18 +195,27 @@
                                                               "publishProof":  "Unity scene screenshot or frame-capture PNG artifact is attached to the runtime conformance report from EveUnity."
                                                           },
                                       "evidencePaths":  [
-                                                            "scripts/build-capture-request.ps1"
+                                                            "scripts/build-capture-request.ps1",
+                                                            "scripts/run-playmode-capture.ps1",
+                                                            "TestProject/Assets/Tests/PlayMode/GenericWorldCaptureTests.cs",
+                                                            "artifacts/playmode/world-smoke.png"
                                                         ],
                                       "pendingProofs":  [
-                                                            "Unity scene screenshot or frame-capture PNG artifact is attached to the runtime conformance report."
+                                                            "Attach the Aetheria daemon PlayMode PNG; the generic world-smoke control is captured by EveUnity."
                                                         ]
                                   }
                   },
     "capture":  {
-                    "status":  "pending-unity-frame-capture",
-                    "note":  "A real Unity PNG/frame capture driven by a provider surface remains active lifecycle work.",
+                    "status":  "partial-world-smoke-playmode-capture",
+                    "note":  "The generic world-smoke PlayMode PNG passes; the separately running Aetheria daemon capture remains active lifecycle work.",
                     "artifacts":  [
-
+                                      {
+                                          "kind":  "png",
+                                          "schema":  "gamecult.eve.runtime_frame_capture.v1",
+                                          "path":  "artifacts/playmode/world-smoke.png",
+                                          "providerId":  "eve.world-smoke",
+                                          "surfaceId":  "eve.world-smoke.surface"
+                                      }
                                   ]
                 }
 }

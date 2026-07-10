@@ -15,7 +15,11 @@ surface.
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\run-package-tests.ps1
 powershell -ExecutionPolicy Bypass -File .\scripts\pack.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\run-playmode-capture.ps1
 ```
 
 See [docs/authority-map.md](docs/authority-map.md) for the live boundary.
 
+`TestProject` is the owner-controlled minimal Unity consumer. It depends on the
+generated CultLib UPM package and Eve contracts directly, contains no Aetheria
+assemblies, and produces the generic `eve.world-smoke` PlayMode PNG control.

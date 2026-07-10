@@ -2,7 +2,10 @@ artifacts/
 Library/
 Logs/
 Temp/
+TestProject/Library/
+TestProject/Logs/
+TestProject/Temp/
+TestProject/UserSettings/
 obj/
 *.csproj
 *.sln
-

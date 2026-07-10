@@ -97,7 +97,7 @@ namespace GameCult.Eve.UnityScene
 
         private static EveUnityPlayableWorldProjection? BuildPlayableWorld(EveSurfaceComponent root)
         {
-            var worldRoot = FindFirst(root, component => string.Equals(component.Kind, "world.scene3d", StringComparison.Ordinal));
+            var worldRoot = FindFirst(root, component => IsWorldScene(component.Kind));
             if (worldRoot == null)
                 return null;
 
@@ -222,7 +222,7 @@ namespace GameCult.Eve.UnityScene
         {
             if (string.IsNullOrWhiteSpace(componentKind))
                 return "empty";
-            if (string.Equals(componentKind, "world.scene3d", StringComparison.Ordinal))
+            if (IsWorldScene(componentKind))
                 return "playable-world-root";
             if (string.Equals(componentKind, "world.entity3d", StringComparison.Ordinal))
                 return "playable-world-entity";
@@ -252,6 +252,12 @@ namespace GameCult.Eve.UnityScene
             if (componentKind.StartsWith("text.", StringComparison.Ordinal) || string.Equals(componentKind, "label", StringComparison.Ordinal))
                 return "scene-label";
             return "scene-node";
+        }
+
+        private static bool IsWorldScene(string componentKind)
+        {
+            return string.Equals(componentKind, "world.scene3d", StringComparison.Ordinal) ||
+                   string.Equals(componentKind, "world.scene2d", StringComparison.Ordinal);
         }
     }
 

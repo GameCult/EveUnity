@@ -103,9 +103,9 @@ try {
   }
   if (-not $ready) { throw "Aetheria daemon did not open CultMesh port $Port. See $daemonLogPath" }
 
-  $env:EVEUNITY_PROVIDER_ENDPOINT = "rudp://127.0.0.1:$Port"
-  $env:EVEUNITY_PROVIDER_ID = "aetheria.daemon"
-  $env:EVEUNITY_SURFACE_ID = "aetheria.game"
+  $env:EVEUNITY_RENDEZVOUS_ENDPOINT = "rudp://127.0.0.1:$Port"
+  Remove-Item Env:EVEUNITY_PROVIDER_ID -ErrorAction SilentlyContinue
+  Remove-Item Env:EVEUNITY_SURFACE_ID -ErrorAction SilentlyContinue
   $env:EVEUNITY_REPLICA_PATH = $replicaPath
   $env:EVEUNITY_AETHERIA_CAPTURE_PATH = $capturePath
   $env:EVEUNITY_ASSET_CACHE_PATH = $assetCachePath

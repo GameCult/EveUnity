@@ -15,6 +15,7 @@
                    },
     "supportedFeatures":  [
                               "providerAdvertisements",
+                              "verseDiscovery",
                               "commandTransport",
                               "providerSurfaceSession",
                               "providerSurfaceSource",
@@ -84,6 +85,7 @@
                                                            "packages/org.gamecult.eve.unity-scene/Runtime/EveUnitySceneClientSession.cs",
                                                            "packages/org.gamecult.eve.unity-scene/Runtime/EveUnitySceneProviderConnection.cs",
                                                            "packages/org.gamecult.eve.unity-scene/Runtime/EveUnitySceneLiveProviderBridge.cs",
+                                                           "packages/org.gamecult.eve.unity-scene/Runtime/CultMesh/EveUnityCultMeshProviderDiscovery.cs",
                                                            "packages/org.gamecult.eve.unity-scene/Runtime/EveUnityPlayableWorldLiveClient.cs",
                                                            "packages/org.gamecult.eve.unity-scene/Runtime/EveUnityPlayableWorldRuntime.cs",
                                                            "packages/org.gamecult.eve.unity-scene/Runtime/EveUnityPlayableWorldClientHost.cs",

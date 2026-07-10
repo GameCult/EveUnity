@@ -165,12 +165,12 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
         [Timeout(300000)]
         public IEnumerator GenericCultMeshClientLowersAndMovesAdvertisedWorld()
         {
-            var endpoint = Environment.GetEnvironmentVariable("EVEUNITY_PROVIDER_ENDPOINT");
-            if (string.IsNullOrWhiteSpace(endpoint))
-                Assert.Ignore("EVEUNITY_PROVIDER_ENDPOINT is not configured for the live provider witness.");
+            var rendezvousEndpoint = Environment.GetEnvironmentVariable("EVEUNITY_RENDEZVOUS_ENDPOINT");
+            if (string.IsNullOrWhiteSpace(rendezvousEndpoint))
+                Assert.Ignore("EVEUNITY_RENDEZVOUS_ENDPOINT is not configured for the live provider witness.");
 
-            var providerId = Environment.GetEnvironmentVariable("EVEUNITY_PROVIDER_ID") ?? "aetheria.daemon";
-            var surfaceId = Environment.GetEnvironmentVariable("EVEUNITY_SURFACE_ID") ?? "aetheria.game";
+            var providerId = Environment.GetEnvironmentVariable("EVEUNITY_PROVIDER_ID") ?? "";
+            var surfaceId = Environment.GetEnvironmentVariable("EVEUNITY_SURFACE_ID") ?? "";
             var replicaPath = Environment.GetEnvironmentVariable("EVEUNITY_REPLICA_PATH") ??
                               Path.Combine(Application.temporaryCachePath, $"eve-unity-{Guid.NewGuid():N}.cc");
             var capturePath = Environment.GetEnvironmentVariable("EVEUNITY_AETHERIA_CAPTURE_PATH") ??
@@ -191,8 +191,20 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
 
             try
             {
+                var selection = new EveUnityCultMeshProviderDiscovery().Discover(
+                    rendezvousEndpoint,
+                    providerId,
+                    surfaceId,
+                    "interactive-world");
+                Assert.That(selection.VerseId, Is.Not.Empty);
+                Assert.That(selection.ProviderId, Is.Not.Empty);
+                Assert.That(selection.SurfaceId, Is.Not.Empty);
                 transport = new EveUnityCultMeshLiveProviderTransport(
-                    replicaPath, endpoint, providerId, surfaceId, $"eve-unity-test-{Guid.NewGuid():N}");
+                    replicaPath,
+                    selection.Endpoint,
+                    selection.ProviderId,
+                    selection.SurfaceId,
+                    $"eve-unity-test-{Guid.NewGuid():N}");
                 var publicationDeadline = Time.realtimeSinceStartup + 10f;
                 while (true)
                 {

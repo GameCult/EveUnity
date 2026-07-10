@@ -12,6 +12,8 @@ drivers, asset-provider hooks, package release, runtime tests, and captures.
 
 ## Inputs
 
+- CultMesh rendezvous endpoint
+- CultMesh Verse catalog
 - `gamecult.eve.provider_advertisement.v1`
 - `gamecult.eve.surface.v1`
 - provider asset-manifest documents
@@ -39,10 +41,11 @@ projection shells may not implement Sai, Norn, or TeX semantics.
 
 ## Shared Paths
 
-Initial connect, refresh, reconnect, and terminal-receipt reconciliation all
-consume provider surface documents. Movement, focus, target, and action input
-all become `gamecult.eve.command_invocation.v1` through the provider-advertised command
-boundary.
+Initial connect discovers a Verse endpoint and selects a provider surface by
+semantic kind. Refresh, reconnect, and terminal-receipt reconciliation consume
+that provider's surface documents. Movement, focus, target, and action input all
+become `gamecult.eve.command_invocation.v1` through the provider-advertised
+command boundary.
 
 ## Cut Line
 
@@ -55,5 +58,7 @@ runtime lifecycle.
 
 `TestProject` proves that a clean Unity project can install CultLib, Eve
 contracts, and EveUnity without Aetheria or Brokkr assemblies. Its world-smoke
-capture is the generic control witness. The product witness must use the same
-client body against a separately running provider daemon.
+capture is the generic control witness. The Aetheria product witness gives the
+same client only a rendezvous endpoint, then proves Verse discovery, provider
+selection, asset loading, movement, commands, receipts, and rendered capture
+against a separately running daemon.

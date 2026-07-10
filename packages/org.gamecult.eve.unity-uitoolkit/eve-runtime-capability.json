@@ -65,7 +65,7 @@
   "lifecycle": {
     "release": {
       "ownerRepo": "EveUnity",
-      "status": "upm-package-artifact-smoke",
+      "status": "tagged-upm-release",
       "packageName": "org.gamecult.eve.unity-uitoolkit",
       "packageManifest": "packages/org.gamecult.eve.unity-uitoolkit/package.json",
       "releaseContract": {
@@ -95,13 +95,11 @@
         "packages/org.gamecult.eve.unity-uitoolkit/README.md",
         "scripts/pack-uitoolkit.ps1"
       ],
-      "pendingProofs": [
-        "Tagged UPM release cut from EveUnity rather than Eve incubation."
-      ]
+      "pendingProofs": []
     },
     "test": {
       "ownerRepo": "EveUnity",
-      "status": "batchmode-editmode-tests-and-consumer-build-smoke",
+      "status": "released-package-editmode-batchmode",
       "command": "powershell -ExecutionPolicy Bypass -File .\\scripts\\run-uitoolkit-tests.ps1",
       "testContract": {
         "ownerRepo": "EveUnity",
@@ -171,9 +169,7 @@
         "packages/org.gamecult.eve.unity-uitoolkit/Tests/Editor/EveUiToolkitSurfaceLowererTests.cs",
         "scripts/run-uitoolkit-tests.ps1"
       ],
-      "pendingProofs": [
-        "Cut and publish the first tagged EveUnity UI Toolkit package release."
-      ]
+      "pendingProofs": []
     },
     "capture": {
       "ownerRepo": "EveUnity",

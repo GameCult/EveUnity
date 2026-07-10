@@ -28,5 +28,14 @@ namespace GameCult.Eve.UnityScene.Tests
             Assert.That(Shader.Find("Eve/Fields/Splats"), Is.Not.Null);
             Assert.That(File.Exists("Packages/org.gamecult.eve.unity-scene/Runtime/Fields/EveFieldsSplatsCore.hlsl"), Is.True);
         }
+
+        [Test]
+        public void LayerRendererConsumesPluginContractsWithoutProviderBindings()
+        {
+            var render = typeof(EveFieldsSplatLayerRenderer).GetMethod("Render");
+            Assert.That(render, Is.Not.Null);
+            Assert.That(render.GetParameters()[0].ParameterType, Is.EqualTo(typeof(IEveFieldsSplatsDocument)));
+            Assert.That(typeof(EveFieldsSplatLayerRenderer).GetField("GlobalTextureName"), Is.Null);
+        }
     }
 }

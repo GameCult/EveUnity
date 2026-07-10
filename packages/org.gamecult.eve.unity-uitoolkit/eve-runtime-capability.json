@@ -57,8 +57,8 @@
         "packages/org.gamecult.eve.unity-uitoolkit/Runtime/EveUiToolkitSurfaceLowerer.cs",
         "packages/org.gamecult.eve.unity-uitoolkit/Runtime/TeXMathUiToolkitProjectionAdapter.cs",
         "packages/org.gamecult.eve.unity-uitoolkit/Tests/Editor/EveUiToolkitSurfaceLowererTests.cs",
-        "web/fixtures/aetheria.provider-advertisement.json",
-        "web/fixtures/eve-world-smoke.provider-advertisement.json"
+        "../Eve/web/fixtures/aetheria.provider-advertisement.json",
+        "../Eve/web/fixtures/eve-world-smoke.provider-advertisement.json"
       ]
     }
   ],
@@ -183,7 +183,7 @@
         "runtimeId": "unity-uitoolkit",
         "targetId": "unity-uitoolkit",
         "requestSchema": "gamecult.eve.runtime_capture_request.v1",
-        "requestBuilder": "tools/eveunity/eveunity-capture-contract.mjs",
+        "requestBuilder": "scripts/build-uitoolkit-capture-request.ps1",
         "advertisementPath": "web/fixtures/aetheria.provider-advertisement.json",
         "captureKind": "unity-editor-or-batchmode-png",
         "artifactKind": "png",
@@ -207,13 +207,7 @@
         "publishProof": "Unity editor or batchmode capture artifact is attached to the runtime conformance report from EveUnity."
       },
       "evidencePaths": [
-        "tools/eveunity/eveunity-capture-contract.mjs",
-        "tools/eveunity/eveunity-capture-contract.test.mjs",
-        "scripts/run-eveunity-capture-contract-smoke.ps1",
-        "tools/eveunity/eveunity-uitoolkit-capture-artifact.mjs",
-        "tools/eveunity/eveunity-uitoolkit-capture-artifact.test.mjs",
-        "scripts/run-eveunity-uitoolkit-capture-smoke.ps1",
-        "web/fixtures/aetheria.provider-advertisement.json"
+        "packages/org.gamecult.eve.unity-uitoolkit/eve-runtime-capability.json"
       ],
       "pendingProofs": [
         "Unity batchmode or editor capture artifact attached to the runtime conformance report."

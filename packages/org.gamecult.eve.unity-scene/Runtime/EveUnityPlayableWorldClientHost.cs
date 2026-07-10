@@ -1,0 +1,204 @@
+using System;
+using System.Collections.Generic;
+using GameCult.Eve.Surface;
+using UnityEngine;
+
+#nullable enable
+
+namespace GameCult.Eve.UnityScene
+{
+    public sealed class EveUnityPlayableWorldClientHost : MonoBehaviour
+    {
+        [SerializeField] private Transform? sceneRoot;
+        [SerializeField] private MonoBehaviour? providerSurfaceDocuments;
+        [SerializeField] private MonoBehaviour? commandSink;
+        [SerializeField] private MonoBehaviour? assetManifestDocuments;
+        [SerializeField] private MonoBehaviour? receiptSource;
+        [SerializeField] private MonoBehaviour? fallbackAssetProvider;
+        [SerializeField] private bool connectOnEnable;
+        [SerializeField] private bool refreshInUpdate = true;
+        [SerializeField] private float refreshIntervalSeconds = 0.1f;
+
+        private float _nextRefreshAt;
+
+        public EveUnityPlayableWorldRuntime? Runtime { get; private set; }
+
+        public EveUnityPlayableWorldProjection? ActiveWorld => Runtime?.ActiveWorld;
+
+        public EveUnitySceneProjection? ActiveProjection => Runtime?.ActiveProjection;
+
+        public EveUnityPlayableWorldPresentation? LastPresentation => Runtime?.LastPresentation;
+
+        public EveUnitySceneCommandReceipt? LastReceipt => Runtime?.LastReceipt;
+
+        public long ActiveVersion => Runtime?.ActiveVersion ?? 0;
+
+        public Transform SceneRoot => sceneRoot == null ? transform : sceneRoot;
+
+        public bool ConnectOnEnable
+        {
+            get => connectOnEnable;
+            set => connectOnEnable = value;
+        }
+
+        public void Configure(
+            Transform? sceneRoot,
+            MonoBehaviour providerSurfaceDocuments,
+            MonoBehaviour commandSink,
+            MonoBehaviour? assetManifestDocuments = null,
+            MonoBehaviour? receiptSource = null,
+            MonoBehaviour? fallbackAssetProvider = null)
+        {
+            this.sceneRoot = sceneRoot;
+            this.providerSurfaceDocuments = providerSurfaceDocuments;
+            this.commandSink = commandSink;
+            this.assetManifestDocuments = assetManifestDocuments;
+            this.receiptSource = receiptSource;
+            this.fallbackAssetProvider = fallbackAssetProvider;
+        }
+
+        public EveUnityPlayableWorldPresentation Connect()
+        {
+            Disconnect();
+            RefreshProviderSources();
+
+            Runtime = EveUnityPlayableWorldRuntime.CreateForGameObjectScene(
+                SceneRoot,
+                Required<IEveUnitySceneProviderSurfaceDocumentSource>(
+                    providerSurfaceDocuments,
+                    nameof(providerSurfaceDocuments)),
+                Required<IEveUnitySceneCommandSink>(
+                    commandSink,
+                    nameof(commandSink)),
+                Optional<IEveUnityPlayableWorldAssetManifestDocumentSource>(assetManifestDocuments),
+                Optional<IEveUnitySceneCommandReceiptSource>(receiptSource),
+                Optional<IEveUnityGameObjectAssetProvider>(fallbackAssetProvider));
+
+            return Runtime.Connect();
+        }
+
+        public EveUnityPlayableWorldPresentation Refresh()
+        {
+            RefreshProviderSources();
+            if (Runtime == null)
+                return Connect();
+
+            return Runtime.Refresh();
+        }
+
+        public EveSurfaceCommandRequest SubmitMoveIntent(
+            string entityId,
+            float targetX,
+            float targetY,
+            float targetZ,
+            DateTimeOffset? issuedAt = null)
+        {
+            return RequireRuntime().SubmitMoveIntent(entityId, targetX, targetY, targetZ, issuedAt);
+        }
+
+        public EveSurfaceCommandRequest SubmitMoveVectorIntent(
+            string entityId,
+            float directionX,
+            float directionY,
+            float scalarValue = 1f,
+            DateTimeOffset? issuedAt = null)
+        {
+            return RequireRuntime().SubmitMoveVectorIntent(entityId, directionX, directionY, scalarValue, issuedAt);
+        }
+
+        public EveSurfaceCommandRequest SubmitFocusIntent(
+            string entityId,
+            DateTimeOffset? issuedAt = null)
+        {
+            return RequireRuntime().SubmitFocusIntent(entityId, issuedAt);
+        }
+
+        public EveSurfaceCommandRequest SubmitTargetIntent(
+            string sourceEntityId,
+            string targetEntityId,
+            DateTimeOffset? issuedAt = null)
+        {
+            return RequireRuntime().SubmitTargetIntent(sourceEntityId, targetEntityId, issuedAt);
+        }
+
+        public EveSurfaceCommandRequest SubmitActionIntent(
+            string entityId,
+            string actionId,
+            DateTimeOffset? issuedAt = null)
+        {
+            return RequireRuntime().SubmitActionIntent(entityId, actionId, issuedAt);
+        }
+
+        public void Disconnect()
+        {
+            Runtime?.Dispose();
+            Runtime = null;
+        }
+
+        private void OnEnable()
+        {
+            if (connectOnEnable)
+                Connect();
+        }
+
+        private void Update()
+        {
+            if (!refreshInUpdate || Runtime == null)
+                return;
+
+            if (Time.unscaledTime < _nextRefreshAt)
+                return;
+
+            _nextRefreshAt = Time.unscaledTime + Math.Max(0.01f, refreshIntervalSeconds);
+            Refresh();
+        }
+
+        private void OnDisable()
+        {
+            Disconnect();
+        }
+
+        private void OnDestroy()
+        {
+            Disconnect();
+        }
+
+        private EveUnityPlayableWorldRuntime RequireRuntime()
+        {
+            if (Runtime == null)
+                throw new InvalidOperationException("Eve Unity playable world client host is not connected.");
+
+            return Runtime;
+        }
+
+        private void RefreshProviderSources()
+        {
+            var refreshed = new HashSet<MonoBehaviour>();
+            RefreshProvider(providerSurfaceDocuments, refreshed);
+            RefreshProvider(assetManifestDocuments, refreshed);
+            RefreshProvider(receiptSource, refreshed);
+            RefreshProvider(commandSink, refreshed);
+        }
+
+        private static void RefreshProvider(MonoBehaviour? behaviour, ISet<MonoBehaviour> refreshed)
+        {
+            if (behaviour is IEveUnityProviderRefreshSource refreshSource && refreshed.Add(behaviour))
+                refreshSource.Refresh();
+        }
+
+        private static T Required<T>(MonoBehaviour? behaviour, string fieldName) where T : class
+        {
+            var resolved = behaviour as T;
+            if (resolved == null)
+                throw new InvalidOperationException(
+                    $"Eve Unity playable world client host requires '{fieldName}' to implement {typeof(T).Name}.");
+
+            return resolved;
+        }
+
+        private static T? Optional<T>(MonoBehaviour? behaviour) where T : class
+        {
+            return behaviour as T;
+        }
+    }
+}

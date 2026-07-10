@@ -1,0 +1,211 @@
+{
+    "schema":  "gamecult.eve.runtime_capability.v1",
+    "runtimeId":  "unity-scene",
+    "title":  "Unity / Scene",
+    "owner":  "EveUnity",
+    "incubation":  {
+                       "ownerRepo":  "EveUnity",
+                       "currentHostRepo":  "EveUnity",
+                       "splitTarget":  "EveUnity",
+                       "graduationTrigger":  "Graduated: EveUnity owns the provider-agnostic Unity scene package, release lifecycle, and runtime tests. Real Unity frame capture and live CultMesh transport remain active lifecycle work.",
+                       "splitHandoff":  {
+                                            "manifestPath":  "",
+                                            "smokeCommand":  ""
+                                        }
+                   },
+    "supportedFeatures":  [
+                              "providerAdvertisements",
+                              "commandTransport",
+                              "providerSurfaceSession",
+                              "providerSurfaceSource",
+                              "providerSurfaceDocumentSource",
+                              "liveProviderTransportBridge",
+                              "livePlayableWorldClient",
+                              "providerCommandReceipts",
+                              "providerAssetManifestDocumentSource",
+                              "playableWorldClientHost",
+                              "playableWorldClientBootstrap",
+                              "playableWorldInputDriver",
+                              "playableWorldCameraRig",
+                              "sceneGraphProjection",
+                              "playableWorldProjection",
+                              "playableWorldRuntimeHost",
+                              "playableWorldScenePresentation",
+                              "unityGameObjectSceneSink",
+                              "providerAssetManifestResolution",
+                              "providerAssetManifestSource",
+                              "embeddedDocuments"
+                          ],
+    "supportedPlugins":  [
+                             {
+                                 "pluginId":  "sai.vn",
+                                 "capabilities":  [
+                                                      "vn.stage",
+                                                      "story.choose",
+                                                      "story.continue",
+                                                      "story.jump"
+                                                  ],
+                                 "projectionAdapter":  "SaiVisualNovelUnitySceneProjectionAdapter"
+                             },
+                             {
+                                 "pluginId":  "norn.graph",
+                                 "capabilities":  [
+                                                      "embed.norn"
+                                                  ],
+                                 "projectionAdapter":  "NornGraphUnitySceneProjectionAdapter"
+                             },
+                             {
+                                 "pluginId":  "tex.math",
+                                 "capabilities":  [
+                                                      "embed.tex",
+                                                      "tex.inline",
+                                                      "tex.block",
+                                                      "tex.scene-placement"
+                                                  ],
+                                 "projectionAdapter":  "TeXMathUnitySceneProjectionAdapter"
+                             }
+                         ],
+    "unsupportedPlugins":  [
+
+                           ],
+    "worldSurfaceLowering":  [
+                                 {
+                                     "targetId":  "unity-scene",
+                                     "surfaceKinds":  [
+                                                          "interactive-world"
+                                                      ],
+                                     "projectionKinds":  [
+                                                             "provider-authored-world-surface"
+                                                         ],
+                                     "supportLevel":  "unity-playable-world-scene-command-surface",
+                                     "ownership":  "runtime-lowers-provider-world-surface-without-owning-world-state",
+                                     "evidencePaths":  [
+                                                           "packages/org.gamecult.eve.unity-scene/Runtime/EveUnitySceneSurfaceLowerer.cs",
+                                                           "packages/org.gamecult.eve.unity-scene/Runtime/EveUnitySceneClientSession.cs",
+                                                           "packages/org.gamecult.eve.unity-scene/Runtime/EveUnitySceneProviderConnection.cs",
+                                                           "packages/org.gamecult.eve.unity-scene/Runtime/EveUnitySceneLiveProviderBridge.cs",
+                                                           "packages/org.gamecult.eve.unity-scene/Runtime/EveUnityPlayableWorldLiveClient.cs",
+                                                           "packages/org.gamecult.eve.unity-scene/Runtime/EveUnityPlayableWorldRuntime.cs",
+                                                           "packages/org.gamecult.eve.unity-scene/Runtime/EveUnityPlayableWorldClientHost.cs",
+                                                           "packages/org.gamecult.eve.unity-scene/Runtime/EveUnityPlayableWorldClientBootstrap.cs",
+                                                           "packages/org.gamecult.eve.unity-scene/Runtime/EveUnityPlayableWorldInputDriver.cs",
+                                                           "packages/org.gamecult.eve.unity-scene/Runtime/EveUnityPlayableWorldCameraRig.cs",
+                                                           "packages/org.gamecult.eve.unity-scene/Runtime/EveUnityProviderRefreshSource.cs",
+                                                           "packages/org.gamecult.eve.unity-scene/Runtime/EveUnityPlayableWorldPresenter.cs",
+                                                           "packages/org.gamecult.eve.unity-scene/Runtime/EveUnityGameObjectPlayableWorldSceneSink.cs",
+                                                           "packages/org.gamecult.eve.unity-scene/Runtime/EveUnityPlayableWorldAssetManifest.cs",
+                                                           "packages/org.gamecult.eve.unity-scene/Runtime/SaiVisualNovelUnitySceneProjectionAdapter.cs",
+                                                           "packages/org.gamecult.eve.unity-scene/Runtime/NornGraphUnitySceneProjectionAdapter.cs",
+                                                           "packages/org.gamecult.eve.unity-scene/Runtime/TeXMathUnitySceneProjectionAdapter.cs",
+                                                           "packages/org.gamecult.eve.unity-scene/Tests/Editor/EveUnitySceneSurfaceLowererTests.cs"
+                                                       ]
+                                 }
+                             ],
+    "commandTransport":  {
+                             "schema":  "gamecult.eve.command.v1",
+                             "status":  "provider-shell-contract-skeleton",
+                             "emitter":  "EveUnitySceneSurfaceLowerer.CreateCommandIntent",
+                             "clientId":  "unity-scene",
+                             "authority":  "Unity scene input emits command intents through provider-advertised command boundaries; providers accept, deny, and publish receipts."
+                         },
+    "lifecycle":  {
+                      "release":  {
+                                      "ownerRepo":  "EveUnity",
+                                      "status":  "owner-repo-upm-artifact",
+                                      "releaseContract":  {
+                                                              "ownerRepo":  "EveUnity",
+                                                              "packageName":  "org.gamecult.eve.unity-scene",
+                                                              "packageRoot":  "packages/org.gamecult.eve.unity-scene",
+                                                              "versionSource":  "packages/org.gamecult.eve.unity-scene/package.json",
+                                                              "tagPattern":  "eveunity-scene-v{version}",
+                                                              "artifactKind":  "upm-package",
+                                                              "requestSchema":  "gamecult.eve.runtime_release_request.v1",
+                                                              "requestBuilder":  "tools/eveunity/eveunity-release-contract.mjs",
+                                                              "artifactBuilder":  "tools/eveunity/eveunity-release-artifact.mjs",
+                                                              "artifactPattern":  "artifacts/eveunity-scene-release/{version}/org.gamecult.eve.unity-scene-{version}.tgz",
+                                                              "publishProof":  "Tagged Unity scene package release is created from the EveUnity repository.",
+                                                              "requiredPackageDependencies":  [
+                                                                                                  {
+                                                                                                      "packageName":  "org.gamecult.eve.surface",
+                                                                                                      "version":  "0.1.0",
+                                                                                                      "packageManager":  "upm",
+                                                                                                      "ownerRepo":  "Eve",
+                                                                                                      "purpose":  "Shared Unity DTOs for gamecult.eve.surface.v1 documents."
+                                                                                                  }
+                                                                                              ]
+                                                          },
+                                      "evidencePaths":  [
+                                                            "packages/org.gamecult.eve.unity-scene/package.json",
+                                                            "packages/org.gamecult.eve.unity-scene/Runtime/GameCult.Eve.UnityScene.asmdef",
+                                                            "scripts/pack.ps1"
+                                                        ],
+                                      "pendingProofs":  [
+                                                            "Cut and publish the first tagged EveUnity package release."
+                                                        ]
+                                  },
+                      "test":  {
+                                   "ownerRepo":  "EveUnity",
+                                   "status":  "unity-scene-editmode-batchmode",
+                                   "testContract":  {
+                                                        "ownerRepo":  "EveUnity",
+                                                        "runnerKind":  "unity-editmode-batchmode",
+                                                        "runnerScript":  "scripts/run-package-tests.ps1",
+                                                        "consumerProject":  "E:\\Projects\\Aetheria",
+                                                        "packageName":  "org.gamecult.eve.unity-scene",
+                                                        "testAssembly":  "GameCult.Eve.UnityScene.Tests",
+                                                        "testPlatform":  "EditMode",
+                                                        "resultsArtifact":  "artifacts/aetheria-unity-scene-editmode/{stamp}/unity-editmode-results.xml",
+                                                        "logArtifact":  "artifacts/aetheria-unity-scene-editmode/{stamp}/unity-editmode.log",
+                                                        "manifestMutation":  "Temporarily adds org.gamecult.eve.unity-scene to Aetheria Unity testables, runs GameCult.Eve.UnityScene.Tests, and restores Packages/manifest.json."
+                                                    },
+                                   "evidencePaths":  [
+                                                         "packages/org.gamecult.eve.unity-scene/Tests/Editor/GameCult.Eve.UnityScene.Tests.asmdef",
+                                                         "packages/org.gamecult.eve.unity-scene/Tests/Editor/EveUnitySceneSurfaceLowererTests.cs",
+                                                         "scripts/run-package-tests.ps1"
+                                                     ],
+                                   "pendingProofs":  [
+                                                         "Move the Aetheria consumer scenario into a provider-owned conformance pack that installs EveUnity from its owner repository."
+                                                     ]
+                               },
+                      "capture":  {
+                                      "ownerRepo":  "EveUnity",
+                                      "status":  "pending-unity-frame-capture",
+                                      "captureContract":  {
+                                                              "ownerRepo":  "EveUnity",
+                                                              "runtimeId":  "unity-scene",
+                                                              "targetId":  "unity-scene",
+                                                              "requestSchema":  "gamecult.eve.runtime_capture_request.v1",
+                                                              "requestBuilder":  "tools/eveunity/eveunity-capture-contract.mjs",
+                                                              "advertisementPath":  "GameCult/Aetheria:web/fixtures/aetheria.provider-advertisement.json",
+                                                              "captureKind":  "unity-scene-frame-png",
+                                                              "artifactKind":  "png",
+                                                              "artifactPattern":  "artifacts/eveunity-scene-capture/{stamp}/unity-scene.png",
+                                                              "conformanceAttachment":  "runtime.captureArtifacts[]",
+                                                              "requiredProvider":  "aetheria",
+                                                              "requiredSurface":  "aetheria.daemon.game",
+                                                              "additionalProviderSurfaces":  [
+                                                                                                 {
+                                                                                                     "providerId":  "eve.world-smoke",
+                                                                                                     "surfaceId":  "eve.world-smoke.surface",
+                                                                                                     "purpose":  "Generic non-product interactive-world capture control."
+                                                                                                 }
+                                                                                             ],
+                                                              "authority":  "Capture observes Unity scene projection only; provider state, command acceptance, and receipts stay provider-owned.",
+                                                              "publishProof":  "Unity scene screenshot or frame-capture PNG artifact is attached to the runtime conformance report from EveUnity."
+                                                          },
+                                      "evidencePaths":  [
+
+                                                        ],
+                                      "pendingProofs":  [
+                                                            "Unity scene screenshot or frame-capture PNG artifact is attached to the runtime conformance report."
+                                                        ]
+                                  }
+                  },
+    "capture":  {
+                    "status":  "pending-unity-frame-capture",
+                    "note":  "A real Unity PNG/frame capture driven by a provider surface remains active lifecycle work.",
+                    "artifacts":  [
+
+                                  ]
+                }
+}

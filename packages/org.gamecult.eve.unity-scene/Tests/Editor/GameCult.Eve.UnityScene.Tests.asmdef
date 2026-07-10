@@ -1,0 +1,19 @@
+{
+    "name": "GameCult.Eve.UnityScene.Tests",
+    "rootNamespace": "GameCult.Eve.UnityScene.Tests",
+    "references": [
+        "GameCult.Eve.Surface",
+        "GameCult.Eve.UnityScene"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

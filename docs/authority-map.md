@@ -1,0 +1,52 @@
+# EveUnity Authority Map
+
+## Objective
+
+Lower provider-authored Eve surfaces into a playable Unity scene without
+importing provider product code into the generic runtime.
+
+## Owner
+
+EveUnity owns Unity scene projection, `GameObject` lifecycle, camera and input
+drivers, asset-provider hooks, package release, runtime tests, and captures.
+
+## Inputs
+
+- `gamecult.eve.provider_advertisement.v1`
+- `gamecult.eve.surface.v1`
+- provider asset-manifest documents
+- provider command receipts
+- Unity input and local presentation assets
+
+## Outputs
+
+- disposable Unity scene projection
+- `gamecult.eve.command.v1` intents sent through the advertised boundary
+- runtime capability, test, release, and capture evidence
+
+## Derived State
+
+`ActiveWorld`, scene objects, transforms, markers, camera pose, asset caches,
+presentation counters, and receipt display state are projections. They are not
+world truth.
+
+## Forbidden Writers
+
+Unity transforms, input drivers, camera rigs, scene sinks, asset caches, and
+pending receipts may not mutate or simulate provider world state. Plugin
+projection shells may not implement Sai, Norn, or TeX semantics.
+
+## Shared Paths
+
+Initial connect, refresh, reconnect, and terminal-receipt reconciliation all
+consume provider surface documents. Movement, focus, target, and action input
+all become `gamecult.eve.command.v1` through the provider-advertised command
+boundary.
+
+## Cut Line
+
+Aetheria retains its daemon, authored surfaces, assets, command acceptance,
+receipts, adapter, and provider conformance scenarios. Eve retains contracts
+and conformance policy. EveUnity retains only generic Unity projection and its
+runtime lifecycle.
+

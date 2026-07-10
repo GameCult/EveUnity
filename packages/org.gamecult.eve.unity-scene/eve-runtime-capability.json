@@ -129,7 +129,7 @@
                                                                                                       "packageName":  "org.gamecult.eve.surface",
                                                                                                       "version":  "0.1.0",
                                                                                                       "packageManager":  "upm",
-                                                                                                      "ownerRepo":  "Eve",
+                "ownerRepo":  "EveUnity",
                                                                                                       "purpose":  "Shared Unity DTOs for gamecult.eve.surface.v1 documents."
                                                                                                   }
                                                                                               ]

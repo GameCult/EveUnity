@@ -1,0 +1,239 @@
+{
+  "schema": "gamecult.eve.runtime_capability.v1",
+  "runtimeId": "unity-uitoolkit",
+  "title": "Unity / UI Toolkit",
+  "owner": "EveUnity",
+  "incubation": {
+    "ownerRepo": "EveUnity",
+    "currentHostRepo": "EveUnity",
+    "splitTarget": "EveUnity",
+    "graduationTrigger": "Graduated: EveUnity owns the UI Toolkit package, plugin projection adapters, package build, and Unity tests."
+  },
+  "supportedFeatures": [
+    "embeddedDocuments"
+  ],
+  "supportedPlugins": [
+    {
+      "pluginId": "sai.vn",
+      "capabilities": [
+        "vn.stage",
+        "story.choose",
+        "story.continue",
+        "story.jump"
+      ],
+      "projectionAdapter": "SaiVisualNovelUiToolkitProjectionAdapter"
+    },
+    {
+      "pluginId": "norn.graph",
+      "capabilities": [
+        "embed.norn"
+      ],
+      "projectionAdapter": "NornGraphUiToolkitProjectionAdapter"
+    },
+    {
+      "pluginId": "tex.math",
+      "capabilities": [
+        "embed.tex",
+        "tex.inline",
+        "tex.block"
+      ],
+      "projectionAdapter": "TeXMathUiToolkitProjectionAdapter"
+    }
+  ],
+  "unsupportedPlugins": [],
+  "commandTransport": {
+    "schema": "gamecult.eve.command_invocation.v1",
+    "emitter": "EveUiToolkitSurfaceLowerer.EmitCommand",
+    "clientId": "unity-uitoolkit"
+  },
+  "worldSurfaceLowering": [
+    {
+      "targetId": "unity-uitoolkit",
+      "surfaceKinds": ["interactive-world", "interactive-world-editor"],
+      "projectionKinds": ["provider-authored-world-surface", "provider-authored-world-editor-surface"],
+      "supportLevel": "ui-toolkit-semantic-command-surface",
+      "ownership": "runtime-lowers-provider-world-surface-without-owning-world-state",
+      "evidencePaths": [
+        "packages/org.gamecult.eve.unity-uitoolkit/Runtime/EveUiToolkitSurfaceLowerer.cs",
+        "packages/org.gamecult.eve.unity-uitoolkit/Runtime/TeXMathUiToolkitProjectionAdapter.cs",
+        "packages/org.gamecult.eve.unity-uitoolkit/Tests/Editor/EveUiToolkitSurfaceLowererTests.cs",
+        "web/fixtures/aetheria.provider-advertisement.json",
+        "web/fixtures/eve-world-smoke.provider-advertisement.json"
+      ]
+    }
+  ],
+  "lifecycle": {
+    "release": {
+      "ownerRepo": "EveUnity",
+      "status": "upm-package-artifact-smoke",
+      "packageName": "org.gamecult.eve.unity-uitoolkit",
+      "packageManifest": "packages/org.gamecult.eve.unity-uitoolkit/package.json",
+      "releaseContract": {
+        "ownerRepo": "EveUnity",
+        "packageName": "org.gamecult.eve.unity-uitoolkit",
+        "packageRoot": "packages/org.gamecult.eve.unity-uitoolkit",
+        "versionSource": "packages/org.gamecult.eve.unity-uitoolkit/package.json",
+        "tagPattern": "eveunity-uitoolkit-v{version}",
+        "artifactKind": "upm-package",
+        "requestSchema": "gamecult.eve.runtime_release_request.v1",
+        "requestBuilder": "scripts/pack-uitoolkit.ps1",
+        "artifactBuilder": "scripts/pack-uitoolkit.ps1",
+        "artifactPattern": "artifacts/eveunity-uitoolkit-release/{version}/org.gamecult.eve.unity-uitoolkit-{version}.tgz",
+        "publishProof": "Tagged UPM release is created from the EveUnity repo and references this package root.",
+        "requiredPackageDependencies": [
+          {
+            "packageName": "org.gamecult.eve.surface",
+            "version": "0.1.0",
+            "packageManager": "upm",
+            "ownerRepo": "EveUnity",
+            "purpose": "Shared Unity DTOs for gamecult.eve.surface.v1 documents."
+          }
+        ]
+      },
+      "evidencePaths": [
+        "packages/org.gamecult.eve.unity-uitoolkit/package.json",
+        "packages/org.gamecult.eve.unity-uitoolkit/README.md",
+        "scripts/pack-uitoolkit.ps1"
+      ],
+      "pendingProofs": [
+        "Tagged UPM release cut from EveUnity rather than Eve incubation."
+      ]
+    },
+    "test": {
+      "ownerRepo": "EveUnity",
+      "status": "batchmode-editmode-tests-and-consumer-build-smoke",
+      "command": "powershell -ExecutionPolicy Bypass -File .\\scripts\\run-uitoolkit-tests.ps1",
+      "testContract": {
+        "ownerRepo": "EveUnity",
+        "runnerKind": "unity-editmode-batchmode",
+        "runnerScript": "scripts/run-uitoolkit-tests.ps1",
+        "consumerProject": "E:\\Projects\\Aetheria",
+        "unityExeDefault": "C:\\Program Files\\Unity\\Hub\\Editor\\6000.4.2f1\\Editor\\Unity.exe",
+        "packageName": "org.gamecult.eve.unity-uitoolkit",
+        "testAssembly": "GameCult.Eve.UnityUIToolkit.Tests",
+        "testPlatform": "EditMode",
+        "resultsArtifact": "artifacts/aetheria-unity-editmode/{stamp}/unity-editmode-results.xml",
+        "logArtifact": "artifacts/aetheria-unity-editmode/{stamp}/unity-editmode.log",
+        "manifestMutation": "Temporarily adds org.gamecult.eve.unity-uitoolkit to Aetheria Packages/manifest.json testables and restores the manifest after the run.",
+        "managedAssemblyDependencies": [
+          {
+            "assemblyName": "GameCult.Caching.dll",
+            "packageId": "GameCult.Caching",
+            "packageManager": "nuget",
+            "ownerRepo": "CultLib",
+            "resolutionMode": "Unity precompiled reference during EveUnity incubation.",
+            "dependencyContract": {
+              "sourceAuthority": "CultLib",
+              "packageSource": "nuget",
+              "packageId": "GameCult.Caching",
+              "assemblyName": "GameCult.Caching.dll",
+              "versionPolicy": "CultLib-owned package version stream.",
+              "unityResolution": "EveUnity consumes this as a Unity precompiled reference during incubation.",
+              "handoffRequirement": "EveUnity split must resolve this through CultLib's NuGet/package feed or a documented Unity import without vendoring CultLib ownership into Eve."
+            }
+          },
+          {
+            "assemblyName": "GameCult.Mesh.dll",
+            "packageId": "GameCult.Mesh",
+            "packageManager": "nuget",
+            "ownerRepo": "CultLib",
+            "resolutionMode": "Unity precompiled reference during EveUnity incubation.",
+            "dependencyContract": {
+              "sourceAuthority": "CultLib",
+              "packageSource": "nuget",
+              "packageId": "GameCult.Mesh",
+              "assemblyName": "GameCult.Mesh.dll",
+              "versionPolicy": "CultLib-owned package version stream.",
+              "unityResolution": "EveUnity consumes this as a Unity precompiled reference during incubation.",
+              "handoffRequirement": "EveUnity split must resolve this through CultLib's NuGet/package feed or a documented Unity import without vendoring CultLib ownership into Eve."
+            }
+          },
+          {
+            "assemblyName": "MessagePack.Annotations.dll",
+            "packageId": "MessagePack.Annotations",
+            "packageManager": "nuget",
+            "ownerRepo": "CultLib",
+            "resolutionMode": "Unity precompiled reference during EveUnity incubation.",
+            "dependencyContract": {
+              "sourceAuthority": "CultLib",
+              "packageSource": "nuget",
+              "packageId": "MessagePack.Annotations",
+              "assemblyName": "MessagePack.Annotations.dll",
+              "versionPolicy": "CultLib-owned transitive package version stream.",
+              "unityResolution": "EveUnity consumes this as a Unity precompiled reference during incubation.",
+              "handoffRequirement": "EveUnity split must resolve this through CultLib's NuGet/package feed or a documented Unity import without vendoring CultLib ownership into Eve."
+            }
+          }
+        ]
+      },
+      "evidencePaths": [
+        "packages/org.gamecult.eve.unity-uitoolkit/Tests/Editor/GameCult.Eve.UnityUIToolkit.Tests.asmdef",
+        "packages/org.gamecult.eve.unity-uitoolkit/Tests/Editor/EveUiToolkitSurfaceLowererTests.cs",
+        "scripts/run-uitoolkit-tests.ps1"
+      ],
+      "pendingProofs": [
+        "Cut and publish the first tagged EveUnity UI Toolkit package release."
+      ]
+    },
+    "capture": {
+      "ownerRepo": "EveUnity",
+      "status": "pending-editor-capture",
+      "captureContract": {
+        "ownerRepo": "EveUnity",
+        "runtimeId": "unity-uitoolkit",
+        "targetId": "unity-uitoolkit",
+        "requestSchema": "gamecult.eve.runtime_capture_request.v1",
+        "requestBuilder": "tools/eveunity/eveunity-capture-contract.mjs",
+        "advertisementPath": "web/fixtures/aetheria.provider-advertisement.json",
+        "captureKind": "unity-editor-or-batchmode-png",
+        "artifactKind": "png",
+        "artifactPattern": "artifacts/eveunity-uitoolkit-capture/{stamp}/unity-uitoolkit.png",
+        "conformanceAttachment": "runtime.captureArtifacts[]",
+        "requiredProvider": "aetheria",
+        "requiredSurface": "aetheria.daemon.game",
+        "additionalProviderSurfaces": [
+          {
+            "providerId": "eve.world-smoke",
+            "surfaceId": "eve.world-smoke.surface",
+            "purpose": "Generic non-product interactive-world capture control."
+          },
+          {
+            "providerId": "aetheria",
+            "surfaceId": "aetheria.daemon.editor",
+            "purpose": "Aetheria interactive-world-editor capture control."
+          }
+        ],
+        "authority": "Capture observes runtime projection only; provider state, command acceptance, and receipts stay provider-owned.",
+        "publishProof": "Unity editor or batchmode capture artifact is attached to the runtime conformance report from EveUnity."
+      },
+      "evidencePaths": [
+        "tools/eveunity/eveunity-capture-contract.mjs",
+        "tools/eveunity/eveunity-capture-contract.test.mjs",
+        "scripts/run-eveunity-capture-contract-smoke.ps1",
+        "tools/eveunity/eveunity-uitoolkit-capture-artifact.mjs",
+        "tools/eveunity/eveunity-uitoolkit-capture-artifact.test.mjs",
+        "scripts/run-eveunity-uitoolkit-capture-smoke.ps1",
+        "web/fixtures/aetheria.provider-advertisement.json"
+      ],
+      "pendingProofs": [
+        "Unity batchmode or editor capture artifact attached to the runtime conformance report."
+      ]
+    }
+  },
+  "capture": {
+    "status": "json-projection",
+    "note": "Unity UI Toolkit attaches a provider-advertisement-backed gamecult.eve.unity_uitoolkit_projection.v1 JSON projection artifact; Unity editor or batchmode PNG capture remains an EveUnity split blocker.",
+    "artifacts": [
+      {
+        "kind": "json-projection",
+        "schema": "gamecult.eve.unity_uitoolkit_projection.v1",
+        "path": "artifacts/eveunity-uitoolkit-capture/latest/unity-uitoolkit-projection.json",
+        "runtimeId": "unity-uitoolkit",
+        "providerId": "aetheria",
+        "surfaceId": "aetheria.daemon.game",
+        "sourceSurfacePath": "web/fixtures/aetheria-world-surface.json",
+        "requestPath": "artifacts/eveunity-uitoolkit-capture/latest/capture-request.json"
+      }
+    ]
+  }
+}

@@ -1,0 +1,27 @@
+{
+    "name": "GameCult.Eve.UnityUIToolkit.Tests",
+    "rootNamespace": "GameCult.Eve.UnityUIToolkit.Tests",
+    "references": [
+        "GameCult.Eve.UnityUIToolkit",
+        "GameCult.Eve.Surface",
+        "GameCult.Mesh"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "GameCult.Caching.dll",
+        "GameCult.Mesh.dll",
+        "MessagePack.Annotations.dll"
+    ],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ],
+    "noEngineReferences": false
+}

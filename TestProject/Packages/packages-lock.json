@@ -23,7 +23,7 @@
       "dependencies": {}
     },
     "org.gamecult.eve.surface": {
-      "version": "file:../../../Eve/packages/org.gamecult.eve.surface",
+      "version": "file:../../packages/org.gamecult.eve.surface",
       "depth": 0,
       "source": "local",
       "dependencies": {

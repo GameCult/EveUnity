@@ -4,6 +4,8 @@ param(
   [string] $CultLibRoot = "E:\Projects\CultLib",
   [int] $Port = 3076,
   [string] $OutputDirectory = "artifacts\aetheria-daemon",
+  [ValidateSet("auto", "cold", "warm")]
+  [string] $CacheState = "auto",
   [switch] $SkipAssetBundleBuild
 )
 
@@ -16,6 +18,8 @@ $unityLogPath = Join-Path $outputRoot "unity.log"
 $bundleBuildLogPath = Join-Path $outputRoot "asset-bundle-build.log"
 $daemonLogPath = Join-Path $outputRoot "aetheria-daemon.log"
 $capturePath = Join-Path $outputRoot "aetheria-daemon-world.png"
+$factsPath = Join-Path $outputRoot "witness-facts.json"
+$witnessPath = Join-Path $outputRoot "runtime-witness.json"
 $replicaPath = Join-Path $outputRoot "eve-unity-replica.cc"
 $assetCachePath = Join-Path $outputRoot "asset-cache"
 $statePath = Join-Path $outputRoot "aetheria-witness-state.cc"
@@ -26,6 +30,15 @@ foreach ($required in @($UnityExe, $projectRoot, $daemonProject, (Join-Path $Cul
 }
 
 New-Item -ItemType Directory -Force -Path $outputRoot | Out-Null
+if ($CacheState -eq "cold" -and (Test-Path -LiteralPath $assetCachePath)) {
+  Remove-Item -LiteralPath $assetCachePath -Recurse -Force
+}
+$cacheWasWarm = @(Get-ChildItem -LiteralPath $assetCachePath -Filter *.bundle -File -ErrorAction SilentlyContinue).Count -gt 0
+if ($CacheState -eq "warm" -and -not $cacheWasWarm) {
+  throw "Warm witness requested without an existing verified bundle cache at $assetCachePath"
+}
+$observedCacheState = if ($cacheWasWarm) { "warm" } else { "cold" }
+$witnessStartedAt = [DateTimeOffset]::UtcNow
 foreach ($ephemeralPath in @(
   $replicaPath,
   "$replicaPath.records",
@@ -96,6 +109,7 @@ try {
   $env:EVEUNITY_REPLICA_PATH = $replicaPath
   $env:EVEUNITY_AETHERIA_CAPTURE_PATH = $capturePath
   $env:EVEUNITY_ASSET_CACHE_PATH = $assetCachePath
+  $env:EVEUNITY_WITNESS_FACTS_PATH = $factsPath
   $arguments = @(
     "-batchmode", "-projectPath", $projectRoot,
     "-runTests", "-testPlatform", "PlayMode",
@@ -113,11 +127,60 @@ try {
   $run = $results.SelectSingleNode("//test-run")
   if ($null -eq $run -or [int]$run.passed -ne 1 -or [int]$run.failed -ne 0) { throw "Live world witness did not pass: $resultsPath" }
   if (-not (Test-Path $capturePath) -or (Get-Item $capturePath).Length -lt 1024) { throw "Live world capture is missing: $capturePath" }
+  if (-not (Test-Path $factsPath)) { throw "Live world witness facts are missing: $factsPath" }
+  $facts = Get-Content -LiteralPath $factsPath -Raw | ConvertFrom-Json
+  $capture = Get-Item -LiteralPath $capturePath
+  $resultsArtifact = Get-Item -LiteralPath $resultsPath
+  $durationMs = [Math]::Round(([DateTimeOffset]::UtcNow - $witnessStartedAt).TotalMilliseconds, 3)
+  $testDurationMs = [Math]::Round(([double]$run.duration) * 1000, 3)
+  $witness = [ordered]@{
+    schema = "gamecult.eve.runtime_witness.v1"
+    witnessId = "eveunity.aetheria.game.$observedCacheState"
+    runtimeId = "unity-scene"
+    runtimeOwnerRepo = "EveUnity"
+    providerId = "aetheria.daemon"
+    surfaceId = "aetheria.game"
+    projectionKind = "provider-authored-world-surface"
+    status = "pass"
+    generatedAtUtc = [DateTimeOffset]::UtcNow.ToString("O")
+    execution = [ordered]@{
+      cacheState = $observedCacheState
+      durationMs = $durationMs
+      testDurationMs = $testDurationMs
+    }
+    assertions = $facts
+    receipts = @($facts.receipts)
+    screenshotMetrics = [ordered]@{
+      width = 640
+      height = 360
+      encodedSizeBytes = $capture.Length
+      sha256 = (Get-FileHash -LiteralPath $capture.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+    }
+    artifacts = @(
+      [ordered]@{
+        kind = "unity-frame-png"
+        path = $capture.Name
+        sha256 = (Get-FileHash -LiteralPath $capture.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+        sizeBytes = $capture.Length
+        width = 640
+        height = 360
+      },
+      [ordered]@{
+        kind = "unity-test-results"
+        path = $resultsArtifact.Name
+        sha256 = (Get-FileHash -LiteralPath $resultsArtifact.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+        sizeBytes = $resultsArtifact.Length
+      }
+    )
+    authority = "runtime-observes-provider-advertisement-assets-command-receipts-and-republished-surface-versions"
+  }
+  $witness | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $witnessPath -Encoding UTF8
   Write-Host "Aetheria daemon world witness: passed"
   Write-Host "Capture: $capturePath"
+  Write-Host "Runtime witness: $witnessPath"
 }
 finally {
   if ($null -ne $daemon -and -not $daemon.HasExited) { Stop-Process -Id $daemon.Id -Force }
-  Remove-Item Env:EVEUNITY_PROVIDER_ENDPOINT, Env:EVEUNITY_PROVIDER_ID, Env:EVEUNITY_SURFACE_ID, Env:EVEUNITY_REPLICA_PATH, Env:EVEUNITY_AETHERIA_CAPTURE_PATH, Env:EVEUNITY_ASSET_CACHE_PATH -ErrorAction SilentlyContinue
+  Remove-Item Env:EVEUNITY_PROVIDER_ENDPOINT, Env:EVEUNITY_PROVIDER_ID, Env:EVEUNITY_SURFACE_ID, Env:EVEUNITY_REPLICA_PATH, Env:EVEUNITY_AETHERIA_CAPTURE_PATH, Env:EVEUNITY_ASSET_CACHE_PATH, Env:EVEUNITY_WITNESS_FACTS_PATH -ErrorAction SilentlyContinue
   Remove-Item Env:AETHERIA_TRACE_EVE_SNAPSHOTS -ErrorAction SilentlyContinue
 }

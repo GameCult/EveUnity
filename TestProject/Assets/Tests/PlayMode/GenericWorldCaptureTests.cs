@@ -183,6 +183,11 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             EveUnityCultMeshLiveProviderTransport transport = null;
             EveUnitySceneLiveProviderBridge bridge = null;
             EveUnityPlayableWorldRuntime runtime = null;
+            WitnessReceipt movementReceipt = null;
+            WitnessReceipt focusReceipt = null;
+            WitnessReceipt actionReceipt = null;
+            long initialVersion = 0;
+            float movementDistance = 0f;
 
             try
             {
@@ -223,7 +228,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     Is.GreaterThan(1),
                     "The generic client substituted its primitive fallback instead of the provider-authored AssetBundle prefab.");
                 var initialPosition = marker.transform.position;
-                var initialVersion = runtime.ActiveVersion;
+                initialVersion = runtime.ActiveVersion;
                 var request = runtime.SubmitMoveVectorIntent(playerId, 1f, 0f, 1f);
 
                 var deadline = Time.realtimeSinceStartup + 12f;
@@ -243,7 +248,9 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     runtime.LastReceipt.Message);
                 Assert.That(runtime.LastReceipt.SourceVersion, Is.GreaterThan(initialVersion));
                 Assert.That(runtime.ActiveVersion, Is.GreaterThan(initialVersion));
-                Assert.That(Vector3.Distance(FindMarker(root, playerId).transform.position, initialPosition), Is.GreaterThan(0.01f));
+                movementDistance = Vector3.Distance(FindMarker(root, playerId).transform.position, initialPosition);
+                Assert.That(movementDistance, Is.GreaterThan(0.01f));
+                movementReceipt = WitnessReceipt.From("movement", runtime.LastReceipt);
 
                 var movementVersion = runtime.ActiveVersion;
                 var focus = runtime.SubmitFocusIntent(playerId);
@@ -259,6 +266,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 Assert.That(runtime.LastReceipt.CommandId, Is.EqualTo(focus.CommandId));
                 Assert.That(runtime.LastReceipt.State, Is.EqualTo("accepted").Or.EqualTo("reconciled"));
                 Assert.That(runtime.LastReceipt.SourceVersion, Is.GreaterThan(movementVersion));
+                focusReceipt = WitnessReceipt.From("targeting", runtime.LastReceipt);
 
                 var focusVersion = runtime.ActiveVersion;
                 var action = runtime.SubmitActionIntent(playerId, "0");
@@ -278,6 +286,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     runtime.LastReceipt.Message);
                 Assert.That(runtime.LastReceipt.SourceVersion, Is.GreaterThan(focusVersion));
                 Assert.That(runtime.ActiveVersion, Is.GreaterThanOrEqualTo(runtime.LastReceipt.SourceVersion));
+                actionReceipt = WitnessReceipt.From("action", runtime.LastReceipt);
 
                 var light = lightObject.AddComponent<Light>();
                 light.type = LightType.Directional;
@@ -320,6 +329,13 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(capturePath)));
                 File.WriteAllBytes(capturePath, pixels.EncodeToPNG());
                 Assert.That(new FileInfo(capturePath).Length, Is.GreaterThan(1024));
+                WriteWitnessFacts(
+                    initialVersion,
+                    runtime.ActiveVersion,
+                    movementDistance,
+                    movementReceipt,
+                    focusReceipt,
+                    actionReceipt);
             }
             finally
             {
@@ -334,6 +350,66 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 UnityEngine.Object.DestroyImmediate(lightObject);
                 UnityEngine.Object.DestroyImmediate(cameraObject);
                 UnityEngine.Object.DestroyImmediate(root);
+            }
+        }
+
+        private static void WriteWitnessFacts(
+            long initialVersion,
+            long finalVersion,
+            float movementDistance,
+            WitnessReceipt movement,
+            WitnessReceipt targeting,
+            WitnessReceipt action)
+        {
+            var path = Environment.GetEnvironmentVariable("EVEUNITY_WITNESS_FACTS_PATH");
+            if (string.IsNullOrWhiteSpace(path)) return;
+            var document = new WitnessFacts
+            {
+                providerAdvertisement = true,
+                providerAssets = true,
+                movement = movement != null,
+                targeting = targeting != null,
+                action = action != null,
+                initialVersion = initialVersion,
+                finalVersion = finalVersion,
+                movementDistance = movementDistance,
+                receipts = new[] { movement, targeting, action }
+            };
+            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path)));
+            File.WriteAllText(path, JsonUtility.ToJson(document, true));
+        }
+
+        [Serializable]
+        private sealed class WitnessFacts
+        {
+            public bool providerAdvertisement;
+            public bool providerAssets;
+            public bool movement;
+            public bool targeting;
+            public bool action;
+            public long initialVersion;
+            public long finalVersion;
+            public float movementDistance;
+            public WitnessReceipt[] receipts;
+        }
+
+        [Serializable]
+        private sealed class WitnessReceipt
+        {
+            public string commandKind;
+            public string commandId;
+            public string state;
+            public long sourceVersion;
+
+            public static WitnessReceipt From(string commandKind, EveUnitySceneCommandReceipt receipt)
+            {
+                return new WitnessReceipt
+                {
+                    commandKind = commandKind,
+                    commandId = receipt.CommandId,
+                    state = receipt.State,
+                    sourceVersion = receipt.SourceVersion
+                };
             }
         }
 

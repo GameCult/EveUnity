@@ -177,7 +177,7 @@
                                                               "targetId":  "unity-scene",
                                                               "requestSchema":  "gamecult.eve.runtime_capture_request.v1",
                                                               "requestBuilder":  "scripts/build-capture-request.ps1",
-                                                              "advertisementPath":  "GameCult/Aetheria:web/fixtures/aetheria.provider-advertisement.json",
+                                                              "advertisementPath":  "Aetheria:conformance/eve/aetheria.provider-advertisement.json",
                                                               "captureKind":  "unity-scene-frame-png",
                                                               "artifactKind":  "png",
                                                               "artifactPattern":  "artifacts/eveunity-scene-capture/{stamp}/unity-scene.png",

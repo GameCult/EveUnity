@@ -57,7 +57,7 @@
         "packages/org.gamecult.eve.unity-uitoolkit/Runtime/EveUiToolkitSurfaceLowerer.cs",
         "packages/org.gamecult.eve.unity-uitoolkit/Runtime/TeXMathUiToolkitProjectionAdapter.cs",
         "packages/org.gamecult.eve.unity-uitoolkit/Tests/Editor/EveUiToolkitSurfaceLowererTests.cs",
-        "../Eve/web/fixtures/aetheria.provider-advertisement.json",
+        "../Aetheria/conformance/eve/aetheria.provider-advertisement.json",
         "../Eve/web/fixtures/eve-world-smoke.provider-advertisement.json"
       ]
     }
@@ -184,7 +184,7 @@
         "targetId": "unity-uitoolkit",
         "requestSchema": "gamecult.eve.runtime_capture_request.v1",
         "requestBuilder": "scripts/build-uitoolkit-capture-request.ps1",
-        "advertisementPath": "web/fixtures/aetheria.provider-advertisement.json",
+        "advertisementPath": "../Aetheria/conformance/eve/aetheria.provider-advertisement.json",
         "captureKind": "unity-editor-or-batchmode-png",
         "artifactKind": "png",
         "artifactPattern": "artifacts/eveunity-uitoolkit-capture/{stamp}/unity-uitoolkit.png",
@@ -226,7 +226,7 @@
         "runtimeId": "unity-uitoolkit",
         "providerId": "aetheria",
         "surfaceId": "aetheria.daemon.game",
-        "sourceSurfacePath": "web/fixtures/aetheria-world-surface.json",
+        "sourceSurfacePath": "../Aetheria/conformance/eve/aetheria-world-surface.json",
         "requestPath": "artifacts/eveunity-uitoolkit-capture/latest/capture-request.json"
       }
     ]

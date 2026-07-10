@@ -58,7 +58,7 @@ namespace GameCult.Eve.UnityScene
                 resolvedProvider);
             var resolvedFallbackAssetProvider = ResolveOptionalBehaviour<IEveUnityGameObjectAssetProvider>(
                 fallbackAssetProvider,
-                null);
+                resolvedProvider);
 
             sceneRoot = ResolveSceneRoot();
             resolvedHost.ConnectOnEnable = false;

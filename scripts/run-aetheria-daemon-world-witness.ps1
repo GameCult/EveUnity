@@ -1,6 +1,7 @@
 param(
   [string] $UnityExe = "C:\Program Files\Unity\Hub\Editor\6000.4.2f1\Editor\Unity.exe",
   [string] $AetheriaRoot = "E:\Projects\Aetheria",
+  [string] $ClientProject = "ReleaseConsumerProject",
   [int] $Port = 3076,
   [string] $OutputDirectory = "artifacts\aetheria-daemon",
   [ValidateSet("auto", "cold", "warm")]
@@ -10,7 +11,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$projectRoot = "ReleaseConsumerProject"
+$projectRoot = $ClientProject
 $outputRoot = if ([IO.Path]::IsPathRooted($OutputDirectory)) { $OutputDirectory } else { Join-Path $repoRoot $OutputDirectory }
 $resultsPath = Join-Path $outputRoot "results.xml"
 $unityLogPath = Join-Path $outputRoot "unity.log"
@@ -126,8 +127,9 @@ try {
   if (-not (Test-Path $factsPath)) { throw "Live world witness facts are missing: $factsPath" }
   $facts = Get-Content -LiteralPath $factsPath -Raw | ConvertFrom-Json
   $releaseLock = Get-Content -LiteralPath (Join-Path $repoRoot "ReleaseConsumerProject\Packages\packages-lock.json") -Raw | ConvertFrom-Json
-  $facts | Add-Member -NotePropertyName releasedPackageClient -NotePropertyValue $true
-  $facts | Add-Member -NotePropertyName clientProject -NotePropertyValue "ReleaseConsumerProject"
+  $releasedPackageClient = $projectRoot -eq "ReleaseConsumerProject"
+  $facts | Add-Member -NotePropertyName releasedPackageClient -NotePropertyValue $releasedPackageClient
+  $facts | Add-Member -NotePropertyName clientProject -NotePropertyValue $projectRoot
   $facts | Add-Member -NotePropertyName eveUnityPackageCommit -NotePropertyValue $releaseLock.dependencies.'org.gamecult.eve.unity-scene'.hash
   $facts | Add-Member -NotePropertyName cultLibPackageCommit -NotePropertyValue $releaseLock.dependencies.'org.gamecult.cultlib'.hash
   $capture = Get-Item -LiteralPath $capturePath

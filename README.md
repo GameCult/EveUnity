@@ -13,6 +13,10 @@ discover a Verse from one CultMesh rendezvous endpoint, select an advertised
 Aetheria's daemon-published 3D ARPG surface is the product witness; no Aetheria
 assembly is part of the client.
 
+`EveUnityCultMeshPlayableWorldProvider` is the shipped composition root. Its
+provider, surface, and Verse filters default to empty, so a client can select by
+the generic `interactive-world` contract alone.
+
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\run-package-tests.ps1
 powershell -ExecutionPolicy Bypass -File .\scripts\pack.ps1

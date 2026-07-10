@@ -45,7 +45,13 @@
                                      "field.surface2d",
                                      "gravity.surface"
                                  ],
-                                 "projectionAdapter": "EveFieldsSplatRasterizer"
+                                 "projectionAdapter": "EveFieldsSplatRasterizer",
+                                 "evidencePaths": [
+                                     "Runtime/Fields/EveFieldsSplatRasterizer.cs",
+                                     "Runtime/Fields/EveFieldsSplatLayerRenderer.cs",
+                                     "Tests/Editor/EveFieldsUnitySceneProjectionTests.cs",
+                                     "artifacts/fields-surface/latest/unity-fields.png"
+                                 ]
                              },
                              {
                                  "pluginId":  "sai.vn",

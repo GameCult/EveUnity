@@ -215,7 +215,7 @@
                                                             "scripts/run-playmode-capture.ps1",
                                                             "ReleaseConsumerProject/Assets/Tests/PlayMode/GenericWorldCaptureTests.cs",
                                                             "scripts/run-aetheria-daemon-world-witness.ps1",
-                                                            "artifacts/aetheria-daemon/aetheria-daemon-world.png"
+                                                            "conformance/captures/aetheria-daemon/aetheria-daemon-world.png"
                                                         ],
                                       "pendingProofs":  [
 
@@ -229,14 +229,14 @@
                                       {
                                           "kind":  "png",
                                           "schema":  "gamecult.eve.runtime_frame_capture.v1",
-                                          "path":  "artifacts/playmode/world-smoke.png",
+                                          "path":  "conformance/captures/world-smoke/world-smoke.png",
                                           "providerId":  "eve.world-smoke",
                                           "surfaceId":  "eve.world-smoke.surface"
                                       },
                                       {
                                           "kind":  "png",
                                           "schema":  "gamecult.eve.runtime_frame_capture.v1",
-                                          "path":  "artifacts/aetheria-daemon/aetheria-daemon-world.png",
+                                          "path":  "conformance/captures/aetheria-daemon/aetheria-daemon-world.png",
                                           "providerId":  "aetheria.daemon",
                                           "surfaceId":  "aetheria.game"
                                       }

@@ -1,11 +1,12 @@
 {
     "name": "org.gamecult.eve.unity-scene",
     "displayName": "Eve Unity Scene Lowering",
-    "version": "0.1.1",
+    "version": "0.1.2",
     "unity": "2021.3",
     "description": "Provider-agnostic Unity scene shell for gamecult.eve.surface.v1 interactive world surfaces.",
     "dependencies": {
         "org.gamecult.cultlib": "1.0.3",
+        "org.gamecult.eve.plugin-fields": "0.1.1",
         "org.gamecult.eve.surface": "0.1.0"
     },
     "keywords": [

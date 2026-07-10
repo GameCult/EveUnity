@@ -3,7 +3,8 @@
     "rootNamespace": "GameCult.Eve.UnityScene.Tests",
     "references": [
         "GameCult.Eve.Surface",
-        "GameCult.Eve.UnityScene"
+        "GameCult.Eve.UnityScene",
+        "GameCult.Eve.PluginFields"
     ],
     "includePlatforms": [
         "Editor"

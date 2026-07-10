@@ -22,6 +22,12 @@
       "source": "local",
       "dependencies": {}
     },
+    "org.gamecult.eve.plugin-fields": {
+      "version": "file:../../../EvePlugins/plugins/eve-plugin-fields/unity/org.gamecult.eve.plugin-fields",
+      "depth": 0,
+      "source": "local",
+      "dependencies": {}
+    },
     "org.gamecult.eve.surface": {
       "version": "file:../../packages/org.gamecult.eve.surface",
       "depth": 0,
@@ -36,6 +42,7 @@
       "source": "local",
       "dependencies": {
         "org.gamecult.cultlib": "1.0.3",
+        "org.gamecult.eve.plugin-fields": "0.1.1",
         "org.gamecult.eve.surface": "0.1.0"
       }
     },

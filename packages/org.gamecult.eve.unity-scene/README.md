@@ -14,3 +14,8 @@ provides every bootstrap port. Provider, surface, and Verse IDs are optional
 selection filters; they are not product knowledge required by the client.
 
 The package never imports provider product assemblies.
+
+`fields.surface` projection consumes the plugin-owned
+`org.gamecult.eve.plugin-fields` contracts. `EveFieldsSplatRasterizer` owns the
+Unity structured-buffer and RenderTexture lowering without importing provider
+document classes.

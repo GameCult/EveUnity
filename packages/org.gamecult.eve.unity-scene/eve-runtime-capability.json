@@ -40,6 +40,14 @@
                           ],
     "supportedPlugins":  [
                              {
+                                 "pluginId": "fields.surface",
+                                 "capabilities": [
+                                     "field.surface2d",
+                                     "gravity.surface"
+                                 ],
+                                 "projectionAdapter": "EveFieldsSplatRasterizer"
+                             },
+                             {
                                  "pluginId":  "sai.vn",
                                  "capabilities":  [
                                                       "vn.stage",

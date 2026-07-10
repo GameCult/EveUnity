@@ -2,7 +2,8 @@
     "name": "GameCult.Eve.UnityScene",
     "rootNamespace": "GameCult.Eve.UnityScene",
     "references": [
-        "GameCult.Eve.Surface"
+        "GameCult.Eve.Surface",
+        "GameCult.Eve.PluginFields"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

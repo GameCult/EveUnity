@@ -6,6 +6,7 @@
     "com.unity.modules.physics": "1.0.0",
     "com.unity.modules.uielements": "1.0.0",
     "org.gamecult.cultlib": "file:../../../CultLib/artifacts/unity/org.gamecult.cultlib",
+    "org.gamecult.eve.plugin-fields": "file:../../../EvePlugins/plugins/eve-plugin-fields/unity/org.gamecult.eve.plugin-fields",
     "org.gamecult.eve.surface": "file:../../packages/org.gamecult.eve.surface",
     "org.gamecult.eve.unity-scene": "file:../../packages/org.gamecult.eve.unity-scene",
     "org.gamecult.eve.unity-uitoolkit": "file:../../packages/org.gamecult.eve.unity-uitoolkit"

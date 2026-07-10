@@ -3,7 +3,8 @@ param(
   [string] $AetheriaRoot = "E:\Projects\Aetheria",
   [string] $CultLibRoot = "E:\Projects\CultLib",
   [int] $Port = 3076,
-  [string] $OutputDirectory = "artifacts\aetheria-daemon"
+  [string] $OutputDirectory = "artifacts\aetheria-daemon",
+  [switch] $SkipAssetBundleBuild
 )
 
 $ErrorActionPreference = "Stop"
@@ -12,9 +13,11 @@ $projectRoot = Join-Path $repoRoot "TestProject"
 $outputRoot = if ([IO.Path]::IsPathRooted($OutputDirectory)) { $OutputDirectory } else { Join-Path $repoRoot $OutputDirectory }
 $resultsPath = Join-Path $outputRoot "results.xml"
 $unityLogPath = Join-Path $outputRoot "unity.log"
+$bundleBuildLogPath = Join-Path $outputRoot "asset-bundle-build.log"
 $daemonLogPath = Join-Path $outputRoot "aetheria-daemon.log"
 $capturePath = Join-Path $outputRoot "aetheria-daemon-world.png"
 $replicaPath = Join-Path $outputRoot "eve-unity-replica.cc"
+$assetCachePath = Join-Path $outputRoot "asset-cache"
 $statePath = Join-Path $outputRoot "aetheria-witness-state.cc"
 $daemonProject = Join-Path $AetheriaRoot "Aetheria.State.Daemon\Aetheria.State.Daemon.csproj"
 
@@ -39,6 +42,25 @@ foreach ($ephemeralPath in @(
 }
 powershell -ExecutionPolicy Bypass -File (Join-Path $CultLibRoot "scripts\build-unity-package.ps1")
 if ($LASTEXITCODE -ne 0) { throw "CultLib Unity package build failed with exit code $LASTEXITCODE" }
+
+if (-not $SkipAssetBundleBuild) {
+  $bundleBuilder = Start-Process -FilePath $UnityExe -ArgumentList @(
+    "-batchmode", "-quit", "-projectPath", $AetheriaRoot,
+    "-executeMethod", "Aetheria.Editor.EveAssetBundleBuilder.BuildWindows",
+    "-logFile", $bundleBuildLogPath
+  ) -PassThru -WindowStyle Hidden
+  Write-Host "AssetBundle builder PID: $($bundleBuilder.Id)"
+  Write-Host "AssetBundle build log: $bundleBuildLogPath"
+  Write-Host "Poll: Get-Content '$bundleBuildLogPath' -Tail 20"
+  if (-not $bundleBuilder.WaitForExit(240000)) {
+    Stop-Process -Id $bundleBuilder.Id -Force -ErrorAction SilentlyContinue
+    throw "Aetheria AssetBundle build exceeded 240 seconds. See $bundleBuildLogPath"
+  }
+  if ($bundleBuilder.ExitCode -ne 0) {
+    Get-Content $bundleBuildLogPath -Tail 160
+    throw "Aetheria AssetBundle build failed with exit code $($bundleBuilder.ExitCode)"
+  }
+}
 
 $daemonArguments = @(
   "run", "--project", $daemonProject, "--",
@@ -71,6 +93,7 @@ try {
   $env:EVEUNITY_SURFACE_ID = "aetheria.game"
   $env:EVEUNITY_REPLICA_PATH = $replicaPath
   $env:EVEUNITY_AETHERIA_CAPTURE_PATH = $capturePath
+  $env:EVEUNITY_ASSET_CACHE_PATH = $assetCachePath
   $arguments = @(
     "-batchmode", "-projectPath", $projectRoot,
     "-runTests", "-testPlatform", "PlayMode",
@@ -79,9 +102,9 @@ try {
     "-testResults", $resultsPath, "-logFile", $unityLogPath
   )
   $unity = Start-Process -FilePath $UnityExe -ArgumentList $arguments -PassThru -WindowStyle Hidden
-  if (-not $unity.WaitForExit(90000)) {
+  if (-not $unity.WaitForExit(300000)) {
     Stop-Process -Id $unity.Id -Force -ErrorAction SilentlyContinue
-    throw "Unity witness exceeded 90 seconds. See $unityLogPath"
+    throw "Unity witness exceeded 300 seconds. See $unityLogPath"
   }
   if ($unity.ExitCode -ne 0) { Get-Content $unityLogPath -Tail 160; throw "Unity witness failed with exit code $($unity.ExitCode)" }
   [xml] $results = Get-Content $resultsPath -Raw
@@ -93,6 +116,6 @@ try {
 }
 finally {
   if ($null -ne $daemon -and -not $daemon.HasExited) { Stop-Process -Id $daemon.Id -Force }
-  Remove-Item Env:EVEUNITY_PROVIDER_ENDPOINT, Env:EVEUNITY_PROVIDER_ID, Env:EVEUNITY_SURFACE_ID, Env:EVEUNITY_REPLICA_PATH, Env:EVEUNITY_AETHERIA_CAPTURE_PATH -ErrorAction SilentlyContinue
+  Remove-Item Env:EVEUNITY_PROVIDER_ENDPOINT, Env:EVEUNITY_PROVIDER_ID, Env:EVEUNITY_SURFACE_ID, Env:EVEUNITY_REPLICA_PATH, Env:EVEUNITY_AETHERIA_CAPTURE_PATH, Env:EVEUNITY_ASSET_CACHE_PATH -ErrorAction SilentlyContinue
   Remove-Item Env:AETHERIA_TRACE_EVE_SNAPSHOTS -ErrorAction SilentlyContinue
 }

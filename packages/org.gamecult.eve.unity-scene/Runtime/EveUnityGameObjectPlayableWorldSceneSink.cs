@@ -78,9 +78,19 @@ namespace GameCult.Eve.UnityScene
         private GameObject InstantiateEntity(EveUnityPlayableWorldEntity entity, EveUnityPlayableWorldAssetBinding asset)
         {
             var prefab = _assetProvider.ResolvePrefab(asset);
-            var instance = prefab != null
-                ? UnityEngine.Object.Instantiate(prefab, _root)
-                : GameObject.CreatePrimitive(PrimitiveType.Capsule);
+            GameObject instance;
+            if (prefab != null)
+            {
+                instance = new GameObject(entity.EntityId);
+                instance.transform.SetParent(_root, false);
+                var visual = UnityEngine.Object.Instantiate(prefab, instance.transform);
+                visual.transform.localPosition = Vector3.zero;
+                visual.transform.localRotation = Quaternion.identity;
+            }
+            else
+            {
+                instance = GameObject.CreatePrimitive(PrimitiveType.Capsule);
+            }
 
             if (instance.transform.parent != _root)
                 instance.transform.SetParent(_root, false);

@@ -3,7 +3,8 @@
   "rootNamespace": "GameCult.Eve.UnityScene",
   "references": [
     "GameCult.Eve.Surface",
-    "GameCult.Eve.UnityScene"
+    "GameCult.Eve.UnityScene",
+    "UnityEngine.AssetBundleModule"
   ],
   "includePlatforms": [],
   "excludePlatforms": [],

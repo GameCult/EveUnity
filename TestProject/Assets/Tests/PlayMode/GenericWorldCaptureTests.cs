@@ -209,13 +209,18 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     bridge,
                     bridge,
                     assetManifestDocuments: null,
-                    receiptSource: bridge);
+                    receiptSource: bridge,
+                    fallbackAssetProvider: transport);
                 var initial = runtime.Connect();
                 Assert.That(initial.ActiveEntities, Is.GreaterThan(0));
                 Assert.That(runtime.ActiveWorld.PlayerEntityId, Is.Not.Empty);
 
                 var playerId = runtime.ActiveWorld.PlayerEntityId;
                 var marker = FindMarker(root, playerId);
+                Assert.That(
+                    marker.GetComponentsInChildren<Transform>(includeInactive: true).Length,
+                    Is.GreaterThan(1),
+                    "The generic client substituted its primitive fallback instead of the provider-authored AssetBundle prefab.");
                 var initialPosition = marker.transform.position;
                 var initialVersion = runtime.ActiveVersion;
                 var request = runtime.SubmitMoveVectorIntent(playerId, 1f, 0f, 1f);
@@ -248,15 +253,19 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 camera.backgroundColor = new Color(0.035f, 0.055f, 0.08f, 1f);
                 foreach (var entityMarker in root.GetComponentsInChildren<EveUnityPlayableWorldEntityMarker>())
                 {
-                    var renderer = entityMarker.GetComponent<Renderer>();
-                    renderer.material.color = entityMarker.Controllable
-                        ? new Color(0.18f, 0.75f, 1f)
-                        : entityMarker.EntityKind == "enemy"
-                            ? new Color(1f, 0.25f, 0.2f)
-                            : new Color(1f, 0.78f, 0.15f);
+                    foreach (var renderer in entityMarker.GetComponentsInChildren<Renderer>())
+                    {
+                        renderer.material.color = entityMarker.Controllable
+                            ? new Color(0.18f, 0.75f, 1f)
+                            : entityMarker.EntityKind == "enemy"
+                                ? new Color(1f, 0.25f, 0.2f)
+                                : new Color(1f, 0.78f, 0.15f);
+                    }
                 }
                 var playerMarker = FindMarker(root, playerId);
-                var playerBounds = playerMarker.GetComponent<Renderer>().bounds;
+                var playerRenderer = playerMarker.GetComponentInChildren<Renderer>();
+                Assert.That(playerRenderer, Is.Not.Null, "The provider-authored player prefab has no renderable visual.");
+                var playerBounds = playerRenderer.bounds;
                 var cameraDistance = Mathf.Max(8f, playerBounds.extents.magnitude * 4f);
                 camera.transform.position = playerBounds.center + new Vector3(1f, 0.8f, -1.2f).normalized * cameraDistance;
                 camera.transform.LookAt(playerBounds.center);

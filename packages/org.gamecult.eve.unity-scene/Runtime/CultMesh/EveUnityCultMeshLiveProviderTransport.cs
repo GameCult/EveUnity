@@ -2,11 +2,13 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
 using GameCult.Caching;
 using GameCult.Caching.MessagePack;
 using GameCult.Eve.Surface;
 using GameCult.Mesh;
 using GameCult.Networking;
+using UnityEngine;
 
 #nullable enable
 
@@ -14,6 +16,7 @@ namespace GameCult.Eve.UnityScene
 {
     public sealed class EveUnityCultMeshLiveProviderTransport :
         IEveUnitySceneLiveProviderTransport,
+        IEveUnityGameObjectAssetProvider,
         IDisposable
     {
         private const string RemoteShardId = "provider";
@@ -23,7 +26,10 @@ namespace GameCult.Eve.UnityScene
             typeof(EveProviderAdvertisementDocument),
             typeof(EveSurfaceDocument),
             typeof(EveSurfaceCommandRequest),
-            typeof(EveCommandReceiptDocument)
+            typeof(EveCommandReceiptDocument),
+            typeof(EveAssetCatalogDocument),
+            typeof(CultMeshCdnArtifactManifest),
+            typeof(CultMeshCdnArtifactChunk)
         };
 
         private readonly string _replicaPath;
@@ -33,6 +39,8 @@ namespace GameCult.Eve.UnityScene
         private readonly string _runtimeId;
         private readonly HashSet<string> _pendingCommandIds = new HashSet<string>(StringComparer.Ordinal);
         private readonly HashSet<string> _publishedReceiptIds = new HashSet<string>(StringComparer.Ordinal);
+        private readonly Dictionary<string, GameObject> _prefabs = new Dictionary<string, GameObject>(StringComparer.Ordinal);
+        private readonly List<AssetBundle> _assetBundles = new List<AssetBundle>();
         private CultMeshNode? _node;
         private CultMeshSnapshotEndpoint? _snapshot;
         private CultNetDocumentRegistry? _networkRegistry;
@@ -95,6 +103,7 @@ namespace GameCult.Eve.UnityScene
             EnsureOpen();
             ResolveAdvertisement();
             RefreshSurface();
+            RefreshAssetCatalog();
             RefreshReceipts();
         }
 
@@ -135,6 +144,9 @@ namespace GameCult.Eve.UnityScene
 
         public void Dispose()
         {
+            foreach (var bundle in _assetBundles) bundle.Unload(unloadAllLoadedObjects: false);
+            _assetBundles.Clear();
+            _prefabs.Clear();
             _node?.Dispose();
             _node = null;
             _snapshot = null;
@@ -142,6 +154,12 @@ namespace GameCult.Eve.UnityScene
             _replicaShard = null;
             _pendingCommandIds.Clear();
             _publishedReceiptIds.Clear();
+        }
+
+        public GameObject? ResolvePrefab(EveUnityPlayableWorldAssetBinding asset)
+        {
+            if (asset == null) throw new ArgumentNullException(nameof(asset));
+            return _prefabs.TryGetValue(asset.AssetRef, out var prefab) ? prefab : null;
         }
 
         private void EnsureOpen()
@@ -194,7 +212,7 @@ namespace GameCult.Eve.UnityScene
                         ResponseTimeout = TimeSpan.FromSeconds(10),
                         MessageIdPrefix = "eve-unity",
                         RudpRuntimeId = _runtimeId,
-                        RudpMaxFragmentBytes = 1200
+                        RudpMaxFragmentBytes = 2048
                     }
                 });
         }
@@ -242,6 +260,132 @@ namespace GameCult.Eve.UnityScene
                 surface.Version);
             SurfaceDocumentAvailable?.Invoke(CurrentSurfaceDocument);
             AssetManifestDocumentAvailable?.Invoke(CurrentAssetManifestDocument);
+        }
+
+        private void RefreshAssetCatalog()
+        {
+            var interaction = RequireWorldInteraction();
+            if (string.IsNullOrWhiteSpace(interaction.AssetManifestRecordRef))
+                return;
+
+            var catalog = _snapshot!
+                .FetchDocumentsAsync<EveAssetCatalogDocument>(
+                    recordKeys: new[] { interaction.AssetManifestRecordRef },
+                    schemaIds: new[] { EveAssetCatalogDocument.SchemaId })
+                .GetAwaiter()
+                .GetResult()
+                .FirstOrDefault();
+            if (catalog == null || catalog.Version == CurrentAssetCatalogVersion)
+                return;
+
+            foreach (var bundle in _assetBundles) bundle.Unload(unloadAllLoadedObjects: false);
+            _assetBundles.Clear();
+            _prefabs.Clear();
+            var selected = catalog.Assets
+                .Select(asset => new
+                {
+                    Asset = asset,
+                    Variant = asset.Variants.FirstOrDefault(variant =>
+                        string.Equals(variant.RuntimeId, "unity-scene", StringComparison.Ordinal) &&
+                        string.Equals(variant.Platform, CurrentBundlePlatform(), StringComparison.Ordinal))
+                })
+                .Where(selection => selection.Variant != null)
+                .ToArray();
+            foreach (var group in selected.GroupBy(selection => selection.Variant!.Uri, StringComparer.Ordinal))
+            {
+                var variant = group.First().Variant!;
+                var manifest = _snapshot.FetchDocumentsAsync<CultMeshCdnArtifactManifest>(
+                        recordKeys: new[] { variant.Uri },
+                        schemaIds: new[] { CultMeshCdnSchemaVersions.ArtifactManifest })
+                    .GetAwaiter()
+                    .GetResult();
+                var descriptor = manifest.FirstOrDefault();
+                if (descriptor == null)
+                    throw new InvalidOperationException($"Provider asset bundle manifest '{variant.Uri}' was not available.");
+                var bytes = ReadCachedBundle(descriptor, variant);
+                VerifyBundle(bytes, variant);
+                var bundle = AssetBundle.LoadFromMemory(bytes);
+                if (bundle == null)
+                    throw new InvalidOperationException($"Unity could not load provider asset bundle '{variant.Uri}'.");
+                _assetBundles.Add(bundle);
+                foreach (var selection in group)
+                {
+                    var prefab = bundle.LoadAsset<GameObject>(selection.Variant!.AssetKey);
+                    if (prefab != null)
+                        _prefabs[selection.Asset.AssetRef] = prefab;
+                }
+            }
+
+            CurrentAssetCatalogVersion = catalog.Version;
+        }
+
+        private long CurrentAssetCatalogVersion { get; set; } = -1;
+
+        private static string CurrentBundlePlatform()
+        {
+            return Application.platform == RuntimePlatform.WindowsEditor ||
+                   Application.platform == RuntimePlatform.WindowsPlayer
+                ? "StandaloneWindows64"
+                : Application.platform.ToString();
+        }
+
+        private byte[] ReadBundle(CultMeshCdnArtifactManifest manifest)
+        {
+            var bytes = new byte[checked((int)manifest.SizeBytes)];
+            foreach (var reference in manifest.Chunks.OrderBy(chunk => chunk.Offset))
+            {
+                var chunk = _snapshot!
+                    .FetchDocumentsAsync<CultMeshCdnArtifactChunk>(
+                        recordKeys: new[] { reference.RecordKey },
+                        schemaIds: new[] { CultMeshCdnSchemaVersions.ArtifactChunk })
+                    .GetAwaiter()
+                    .GetResult()
+                    .FirstOrDefault();
+                if (chunk == null)
+                    throw new InvalidOperationException($"Provider asset chunk '{reference.RecordKey}' was not available.");
+                if (chunk.SizeBytes != reference.SizeBytes || chunk.Payload.Length != reference.SizeBytes)
+                    throw new InvalidDataException($"Provider asset chunk '{reference.RecordKey}' size did not match its manifest.");
+                Buffer.BlockCopy(chunk.Payload, 0, bytes, checked((int)reference.Offset), reference.SizeBytes);
+            }
+            return bytes;
+        }
+
+        private byte[] ReadCachedBundle(CultMeshCdnArtifactManifest manifest, EveAssetVariant variant)
+        {
+            var cacheRoot = Environment.GetEnvironmentVariable("EVEUNITY_ASSET_CACHE_PATH");
+            if (string.IsNullOrWhiteSpace(cacheRoot))
+                cacheRoot = Path.Combine(Application.persistentDataPath, "EveUnity", "assets");
+            Directory.CreateDirectory(cacheRoot);
+            var hash = variant.ContentHash.StartsWith("sha256:", StringComparison.Ordinal)
+                ? variant.ContentHash.Substring("sha256:".Length)
+                : variant.ContentHash;
+            var cachePath = Path.Combine(cacheRoot, hash + ".bundle");
+            if (File.Exists(cachePath))
+            {
+                var cached = File.ReadAllBytes(cachePath);
+                VerifyBundle(cached, variant);
+                return cached;
+            }
+
+            var bytes = ReadBundle(manifest);
+            VerifyBundle(bytes, variant);
+            var temporaryPath = cachePath + ".tmp";
+            File.WriteAllBytes(temporaryPath, bytes);
+            if (File.Exists(cachePath)) File.Delete(cachePath);
+            File.Move(temporaryPath, cachePath);
+            return bytes;
+        }
+
+        private static void VerifyBundle(byte[] bytes, EveAssetVariant variant)
+        {
+            if (bytes.LongLength != variant.SizeBytes)
+                throw new InvalidOperationException($"Provider asset bundle '{variant.Uri}' size did not match its catalog.");
+            byte[] digest;
+            using (var sha256 = SHA256.Create())
+                digest = sha256.ComputeHash(bytes);
+            var actual = "sha256:" + string.Concat(digest.Select(value => value.ToString("x2")));
+            if (!string.Equals(actual, variant.ContentHash, StringComparison.Ordinal))
+                throw new InvalidOperationException($"Provider asset bundle '{variant.Uri}' hash did not match its catalog.");
         }
 
         private void RefreshReceipts()

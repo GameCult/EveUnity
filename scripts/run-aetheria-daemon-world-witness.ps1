@@ -69,6 +69,8 @@ $daemonArguments = @(
   "--client-cultmesh-host", "127.0.0.1",
   "--client-cultmesh-advertise-host", "127.0.0.1",
   "--client-cultmesh-port", $Port,
+  "--tick-interval-ms", 250,
+  "--fixed-delta-ms", 20,
   "--no-odin-announcements"
 )
 $env:AETHERIA_TRACE_EVE_SNAPSHOTS = "1"

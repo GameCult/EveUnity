@@ -43,6 +43,7 @@ namespace GameCult.Eve.UnityScene
         private readonly List<AssetBundle> _assetBundles = new List<AssetBundle>();
         private CultMeshNode? _node;
         private CultMeshSnapshotEndpoint? _snapshot;
+        private CultMeshSnapshotSession? _assetSession;
         private CultNetDocumentRegistry? _networkRegistry;
         private CultNetShardDescriptor? _replicaShard;
         private EveProviderAdvertisementDocument? _advertisement;
@@ -148,8 +149,10 @@ namespace GameCult.Eve.UnityScene
             _assetBundles.Clear();
             _prefabs.Clear();
             _node?.Dispose();
+            _assetSession?.Dispose();
             _node = null;
             _snapshot = null;
+            _assetSession = null;
             _networkRegistry = null;
             _replicaShard = null;
             _pendingCommandIds.Clear();
@@ -215,6 +218,19 @@ namespace GameCult.Eve.UnityScene
                         RudpMaxFragmentBytes = 2048
                     }
                 });
+            _assetSession = CultMesh.SnapshotSession(
+                _endpoint,
+                new CultMeshSnapshotRequestOptions
+                {
+                    ShardId = RemoteShardId,
+                    ShardEpoch = 1,
+                    ConnectTimeout = TimeSpan.FromSeconds(5),
+                    ResponseTimeout = TimeSpan.FromSeconds(10),
+                    MessageIdPrefix = "eve-unity-assets",
+                    RudpRuntimeId = $"{_runtimeId}.assets",
+                    RudpMaxFragmentBytes = 2048
+                },
+                _networkRegistry);
         }
 
         private void ResolveAdvertisement()
@@ -294,7 +310,7 @@ namespace GameCult.Eve.UnityScene
             foreach (var group in selected.GroupBy(selection => selection.Variant!.Uri, StringComparer.Ordinal))
             {
                 var variant = group.First().Variant!;
-                var manifest = _snapshot.FetchDocumentsAsync<CultMeshCdnArtifactManifest>(
+                var manifest = _assetSession!.FetchDocumentsAsync<CultMeshCdnArtifactManifest>(
                         recordKeys: new[] { variant.Uri },
                         schemaIds: new[] { CultMeshCdnSchemaVersions.ArtifactManifest })
                     .GetAwaiter()
@@ -332,20 +348,26 @@ namespace GameCult.Eve.UnityScene
         private byte[] ReadBundle(CultMeshCdnArtifactManifest manifest)
         {
             var bytes = new byte[checked((int)manifest.SizeBytes)];
-            foreach (var reference in manifest.Chunks.OrderBy(chunk => chunk.Offset))
+            var references = manifest.Chunks.OrderBy(chunk => chunk.Offset).ToArray();
+            for (var index = 0; index < references.Length; index += 2)
             {
-                var chunk = _snapshot!
+                var batch = references.Skip(index).Take(2).ToArray();
+                var chunks = _assetSession!
                     .FetchDocumentsAsync<CultMeshCdnArtifactChunk>(
-                        recordKeys: new[] { reference.RecordKey },
+                        recordKeys: batch.Select(reference => reference.RecordKey).ToArray(),
                         schemaIds: new[] { CultMeshCdnSchemaVersions.ArtifactChunk })
                     .GetAwaiter()
-                    .GetResult()
-                    .FirstOrDefault();
-                if (chunk == null)
-                    throw new InvalidOperationException($"Provider asset chunk '{reference.RecordKey}' was not available.");
-                if (chunk.SizeBytes != reference.SizeBytes || chunk.Payload.Length != reference.SizeBytes)
-                    throw new InvalidDataException($"Provider asset chunk '{reference.RecordKey}' size did not match its manifest.");
-                Buffer.BlockCopy(chunk.Payload, 0, bytes, checked((int)reference.Offset), reference.SizeBytes);
+                    .GetResult();
+                foreach (var reference in batch)
+                {
+                    var chunk = chunks.FirstOrDefault(candidate =>
+                        string.Equals(candidate.ChunkHash, reference.ChunkHash, StringComparison.Ordinal));
+                    if (chunk == null)
+                        throw new InvalidOperationException($"Provider asset chunk '{reference.RecordKey}' was not available.");
+                    if (chunk.SizeBytes != reference.SizeBytes || chunk.Payload.Length != reference.SizeBytes)
+                        throw new InvalidDataException($"Provider asset chunk '{reference.RecordKey}' size did not match its manifest.");
+                    Buffer.BlockCopy(chunk.Payload, 0, bytes, checked((int)reference.Offset), reference.SizeBytes);
+                }
             }
             return bytes;
         }

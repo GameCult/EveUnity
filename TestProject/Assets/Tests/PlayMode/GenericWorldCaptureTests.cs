@@ -162,6 +162,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
         }
 
         [UnityTest]
+        [Timeout(300000)]
         public IEnumerator GenericCultMeshClientLowersAndMovesAdvertisedWorld()
         {
             var endpoint = Environment.GetEnvironmentVariable("EVEUNITY_PROVIDER_ENDPOINT");
@@ -244,6 +245,40 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 Assert.That(runtime.ActiveVersion, Is.GreaterThan(initialVersion));
                 Assert.That(Vector3.Distance(FindMarker(root, playerId).transform.position, initialPosition), Is.GreaterThan(0.01f));
 
+                var movementVersion = runtime.ActiveVersion;
+                var focus = runtime.SubmitFocusIntent(playerId);
+                var focusDeadline = Time.realtimeSinceStartup + 12f;
+                while (Time.realtimeSinceStartup < focusDeadline &&
+                       (runtime.LastReceipt == null || runtime.LastReceipt.CommandId != focus.CommandId ||
+                        runtime.ActiveVersion < runtime.LastReceipt.SourceVersion))
+                {
+                    yield return new WaitForSecondsRealtime(0.1f);
+                    runtime.Refresh();
+                }
+                Assert.That(runtime.LastReceipt, Is.Not.Null);
+                Assert.That(runtime.LastReceipt.CommandId, Is.EqualTo(focus.CommandId));
+                Assert.That(runtime.LastReceipt.State, Is.EqualTo("accepted").Or.EqualTo("reconciled"));
+                Assert.That(runtime.LastReceipt.SourceVersion, Is.GreaterThan(movementVersion));
+
+                var focusVersion = runtime.ActiveVersion;
+                var action = runtime.SubmitActionIntent(playerId, "0");
+                var actionDeadline = Time.realtimeSinceStartup + 12f;
+                while (Time.realtimeSinceStartup < actionDeadline &&
+                       (runtime.LastReceipt == null || runtime.LastReceipt.CommandId != action.CommandId ||
+                        runtime.ActiveVersion < runtime.LastReceipt.SourceVersion))
+                {
+                    yield return new WaitForSecondsRealtime(0.1f);
+                    runtime.Refresh();
+                }
+                Assert.That(runtime.LastReceipt, Is.Not.Null);
+                Assert.That(runtime.LastReceipt.CommandId, Is.EqualTo(action.CommandId));
+                Assert.That(
+                    runtime.LastReceipt.State,
+                    Is.EqualTo("accepted").Or.EqualTo("reconciled"),
+                    runtime.LastReceipt.Message);
+                Assert.That(runtime.LastReceipt.SourceVersion, Is.GreaterThan(focusVersion));
+                Assert.That(runtime.ActiveVersion, Is.GreaterThanOrEqualTo(runtime.LastReceipt.SourceVersion));
+
                 var light = lightObject.AddComponent<Light>();
                 light.type = LightType.Directional;
                 light.intensity = 1.4f;
@@ -263,11 +298,16 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     }
                 }
                 var playerMarker = FindMarker(root, playerId);
-                var playerRenderer = playerMarker.GetComponentInChildren<Renderer>();
-                Assert.That(playerRenderer, Is.Not.Null, "The provider-authored player prefab has no renderable visual.");
-                var playerBounds = playerRenderer.bounds;
-                var cameraDistance = Mathf.Max(8f, playerBounds.extents.magnitude * 4f);
-                camera.transform.position = playerBounds.center + new Vector3(1f, 0.8f, -1.2f).normalized * cameraDistance;
+                var playerRenderers = playerMarker.GetComponentsInChildren<Renderer>();
+                Assert.That(playerRenderers, Is.Not.Empty, "The provider-authored player prefab has no renderable visual.");
+                var playerBounds = playerRenderers[0].bounds;
+                foreach (var renderer in playerRenderers)
+                    playerBounds.Encapsulate(renderer.bounds);
+                var halfFovRadians = camera.fieldOfView * 0.5f * Mathf.Deg2Rad;
+                var cameraDistance = Mathf.Max(8f, playerBounds.extents.magnitude / Mathf.Tan(halfFovRadians) * 1.35f);
+                camera.nearClipPlane = Mathf.Max(0.01f, cameraDistance * 0.001f);
+                camera.farClipPlane = Mathf.Max(1000f, cameraDistance + playerBounds.size.magnitude * 4f);
+                camera.transform.position = playerBounds.center + new Vector3(1f, 0.65f, -1.2f).normalized * cameraDistance;
                 camera.transform.LookAt(playerBounds.center);
                 target = new RenderTexture(640, 360, 24, RenderTextureFormat.ARGB32);
                 camera.targetTexture = target;

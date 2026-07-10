@@ -207,7 +207,8 @@
         "publishProof": "Unity editor or batchmode capture artifact is attached to the runtime conformance report from EveUnity."
       },
       "evidencePaths": [
-        "packages/org.gamecult.eve.unity-uitoolkit/eve-runtime-capability.json"
+        "packages/org.gamecult.eve.unity-uitoolkit/eve-runtime-capability.json",
+        "scripts/build-uitoolkit-capture-request.ps1"
       ],
       "pendingProofs": [
         "Unity batchmode or editor capture artifact attached to the runtime conformance report."

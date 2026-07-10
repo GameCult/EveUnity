@@ -5,6 +5,7 @@
     "unity": "2021.3",
     "description": "Provider-agnostic Unity scene shell for gamecult.eve.surface.v1 interactive world surfaces.",
     "dependencies": {
+        "org.gamecult.cultlib": "1.0.3",
         "org.gamecult.eve.surface": "0.1.0"
     },
     "keywords": [

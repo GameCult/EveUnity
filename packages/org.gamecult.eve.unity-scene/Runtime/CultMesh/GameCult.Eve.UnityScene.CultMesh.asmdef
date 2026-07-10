@@ -1,0 +1,22 @@
+{
+  "name": "GameCult.Eve.UnityScene.CultMesh",
+  "rootNamespace": "GameCult.Eve.UnityScene",
+  "references": [
+    "GameCult.Eve.Surface",
+    "GameCult.Eve.UnityScene"
+  ],
+  "includePlatforms": [],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": true,
+  "precompiledReferences": [
+    "GameCult.Caching.dll",
+    "GameCult.Caching.MessagePack.dll",
+    "GameCult.Mesh.dll",
+    "GameCult.Networking.dll"
+  ],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
+}

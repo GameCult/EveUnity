@@ -35,6 +35,7 @@
       "depth": 0,
       "source": "local",
       "dependencies": {
+        "org.gamecult.cultlib": "1.0.3",
         "org.gamecult.eve.surface": "0.1.0"
       }
     },

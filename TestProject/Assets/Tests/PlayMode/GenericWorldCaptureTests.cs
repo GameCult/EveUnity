@@ -161,6 +161,123 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             }
         }
 
+        [UnityTest]
+        public IEnumerator GenericCultMeshClientLowersAndMovesAdvertisedWorld()
+        {
+            var endpoint = Environment.GetEnvironmentVariable("EVEUNITY_PROVIDER_ENDPOINT");
+            if (string.IsNullOrWhiteSpace(endpoint))
+                Assert.Ignore("EVEUNITY_PROVIDER_ENDPOINT is not configured for the live provider witness.");
+
+            var providerId = Environment.GetEnvironmentVariable("EVEUNITY_PROVIDER_ID") ?? "aetheria.daemon";
+            var surfaceId = Environment.GetEnvironmentVariable("EVEUNITY_SURFACE_ID") ?? "aetheria.game";
+            var replicaPath = Environment.GetEnvironmentVariable("EVEUNITY_REPLICA_PATH") ??
+                              Path.Combine(Application.temporaryCachePath, $"eve-unity-{Guid.NewGuid():N}.cc");
+            var capturePath = Environment.GetEnvironmentVariable("EVEUNITY_AETHERIA_CAPTURE_PATH") ??
+                              Path.Combine(Application.temporaryCachePath, "aetheria-daemon-world.png");
+            var root = new GameObject("Generic Eve World Projection");
+            var cameraObject = new GameObject("Generic Eve Capture Camera");
+            var lightObject = new GameObject("Generic Eve World Light");
+            RenderTexture target = null;
+            Texture2D pixels = null;
+            EveUnityCultMeshLiveProviderTransport transport = null;
+            EveUnitySceneLiveProviderBridge bridge = null;
+            EveUnityPlayableWorldRuntime runtime = null;
+
+            try
+            {
+                transport = new EveUnityCultMeshLiveProviderTransport(
+                    replicaPath, endpoint, providerId, surfaceId, $"eve-unity-test-{Guid.NewGuid():N}");
+                var publicationDeadline = Time.realtimeSinceStartup + 10f;
+                while (true)
+                {
+                    var published = false;
+                    try
+                    {
+                        transport.Refresh();
+                        published = true;
+                    }
+                    catch (InvalidOperationException) when (Time.realtimeSinceStartup < publicationDeadline)
+                    {
+                    }
+                    if (published) break;
+                    yield return new WaitForSecondsRealtime(0.1f);
+                }
+                bridge = new EveUnitySceneLiveProviderBridge(transport);
+                bridge.Connect();
+                runtime = EveUnityPlayableWorldRuntime.CreateForGameObjectScene(
+                    root.transform, bridge, bridge, bridge, bridge);
+                var initial = runtime.Connect();
+                Assert.That(initial.ActiveEntities, Is.GreaterThan(0));
+                Assert.That(runtime.ActiveWorld.PlayerEntityId, Is.Not.Empty);
+
+                var playerId = runtime.ActiveWorld.PlayerEntityId;
+                var marker = FindMarker(root, playerId);
+                var initialPosition = marker.transform.position;
+                var initialVersion = runtime.ActiveVersion;
+                var request = runtime.SubmitMoveVectorIntent(playerId, 1f, 0f, 1f);
+
+                var deadline = Time.realtimeSinceStartup + 12f;
+                while (Time.realtimeSinceStartup < deadline &&
+                       (runtime.LastReceipt == null || runtime.ActiveVersion <= initialVersion ||
+                        Vector3.Distance(FindMarker(root, playerId).transform.position, initialPosition) < 0.01f))
+                {
+                    yield return new WaitForSecondsRealtime(0.1f);
+                    runtime.Refresh();
+                }
+
+                Assert.That(runtime.LastReceipt, Is.Not.Null);
+                Assert.That(runtime.LastReceipt.CommandId, Is.EqualTo(request.CommandId));
+                Assert.That(runtime.LastReceipt.SourceVersion, Is.GreaterThan(initialVersion));
+                Assert.That(runtime.ActiveVersion, Is.GreaterThan(initialVersion));
+                Assert.That(Vector3.Distance(FindMarker(root, playerId).transform.position, initialPosition), Is.GreaterThan(0.01f));
+
+                var light = lightObject.AddComponent<Light>();
+                light.type = LightType.Directional;
+                light.intensity = 1.4f;
+                lightObject.transform.rotation = Quaternion.Euler(45f, -35f, 0f);
+                var camera = cameraObject.AddComponent<Camera>();
+                camera.clearFlags = CameraClearFlags.SolidColor;
+                camera.backgroundColor = new Color(0.035f, 0.055f, 0.08f, 1f);
+                camera.transform.position = new Vector3(14f, 12f, -16f);
+                camera.transform.LookAt(FindMarker(root, playerId).transform.position);
+                target = new RenderTexture(640, 360, 24, RenderTextureFormat.ARGB32);
+                camera.targetTexture = target;
+                yield return null;
+                camera.Render();
+                RenderTexture.active = target;
+                pixels = new Texture2D(640, 360, TextureFormat.RGB24, false);
+                pixels.ReadPixels(new Rect(0, 0, 640, 360), 0, 0);
+                pixels.Apply();
+                Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(capturePath)));
+                File.WriteAllBytes(capturePath, pixels.EncodeToPNG());
+                Assert.That(new FileInfo(capturePath).Length, Is.GreaterThan(1024));
+            }
+            finally
+            {
+                RenderTexture.active = null;
+                var camera = cameraObject.GetComponent<Camera>();
+                if (camera != null) camera.targetTexture = null;
+                if (target != null) UnityEngine.Object.DestroyImmediate(target);
+                if (pixels != null) UnityEngine.Object.DestroyImmediate(pixels);
+                runtime?.Dispose();
+                bridge?.Dispose();
+                transport?.Dispose();
+                UnityEngine.Object.DestroyImmediate(lightObject);
+                UnityEngine.Object.DestroyImmediate(cameraObject);
+                UnityEngine.Object.DestroyImmediate(root);
+            }
+        }
+
+        private static EveUnityPlayableWorldEntityMarker FindMarker(GameObject root, string entityId)
+        {
+            foreach (var marker in root.GetComponentsInChildren<EveUnityPlayableWorldEntityMarker>())
+            {
+                if (string.Equals(marker.EntityId, entityId, StringComparison.Ordinal))
+                    return marker;
+            }
+            throw new InvalidOperationException($"Projected world has no entity marker '{entityId}'.");
+        }
+
         private static EveUnitySceneProviderSurfaceDocument WorldDocument()
         {
             var entities = new[]

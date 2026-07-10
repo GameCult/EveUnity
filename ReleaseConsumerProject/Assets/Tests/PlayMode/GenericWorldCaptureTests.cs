@@ -180,8 +180,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             var lightObject = new GameObject("Generic Eve World Light");
             RenderTexture target = null;
             Texture2D pixels = null;
-            EveUnityCultMeshLiveProviderTransport transport = null;
-            EveUnitySceneLiveProviderBridge bridge = null;
+            EveUnityCultMeshPlayableWorldProvider provider = null;
             EveUnityPlayableWorldRuntime runtime = null;
             WitnessReceipt movementReceipt = null;
             WitnessReceipt focusReceipt = null;
@@ -191,27 +190,21 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
 
             try
             {
-                var selection = new EveUnityCultMeshProviderDiscovery().Discover(
+                provider = root.AddComponent<EveUnityCultMeshPlayableWorldProvider>();
+                provider.Configure(
                     rendezvousEndpoint,
+                    replicaPath,
                     providerId,
                     surfaceId,
-                    "interactive-world");
-                Assert.That(selection.VerseId, Is.Not.Empty);
-                Assert.That(selection.ProviderId, Is.Not.Empty);
-                Assert.That(selection.SurfaceId, Is.Not.Empty);
-                transport = new EveUnityCultMeshLiveProviderTransport(
-                    replicaPath,
-                    selection.Endpoint,
-                    selection.ProviderId,
-                    selection.SurfaceId,
-                    $"eve-unity-test-{Guid.NewGuid():N}");
+                    requiredSurfaceKind: "interactive-world",
+                    clientRuntimeId: $"eve-unity-test-{Guid.NewGuid():N}");
                 var publicationDeadline = Time.realtimeSinceStartup + 10f;
                 while (true)
                 {
                     var published = false;
                     try
                     {
-                        transport.Refresh();
+                        provider.Refresh();
                         published = true;
                     }
                     catch (InvalidOperationException) when (Time.realtimeSinceStartup < publicationDeadline)
@@ -220,15 +213,17 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     if (published) break;
                     yield return new WaitForSecondsRealtime(0.1f);
                 }
-                bridge = new EveUnitySceneLiveProviderBridge(transport);
-                bridge.Connect();
+                Assert.That(provider.Selection, Is.Not.Null);
+                Assert.That(provider.Selection.VerseId, Is.Not.Empty);
+                Assert.That(provider.Selection.ProviderId, Is.Not.Empty);
+                Assert.That(provider.Selection.SurfaceId, Is.Not.Empty);
                 runtime = EveUnityPlayableWorldRuntime.CreateForGameObjectScene(
                     root.transform,
-                    bridge,
-                    bridge,
-                    assetManifestDocuments: null,
-                    receiptSource: bridge,
-                    fallbackAssetProvider: transport);
+                    provider,
+                    provider,
+                    null,
+                    provider,
+                    provider);
                 var initial = runtime.Connect();
                 Assert.That(initial.ActiveEntities, Is.GreaterThan(0));
                 Assert.That(runtime.ActiveWorld.PlayerEntityId, Is.Not.Empty);
@@ -357,8 +352,6 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 if (target != null) UnityEngine.Object.DestroyImmediate(target);
                 if (pixels != null) UnityEngine.Object.DestroyImmediate(pixels);
                 runtime?.Dispose();
-                bridge?.Dispose();
-                transport?.Dispose();
                 UnityEngine.Object.DestroyImmediate(lightObject);
                 UnityEngine.Object.DestroyImmediate(cameraObject);
                 UnityEngine.Object.DestroyImmediate(root);

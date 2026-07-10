@@ -120,8 +120,8 @@
                                                               "tagPattern":  "eveunity-scene-v{version}",
                                                               "artifactKind":  "upm-package",
                                                               "requestSchema":  "gamecult.eve.runtime_release_request.v1",
-                                                              "requestBuilder":  "tools/eveunity/eveunity-release-contract.mjs",
-                                                              "artifactBuilder":  "tools/eveunity/eveunity-release-artifact.mjs",
+                                                              "requestBuilder":  "scripts/build-release-request.ps1",
+                                                              "artifactBuilder":  "scripts/pack.ps1",
                                                               "artifactPattern":  "artifacts/eveunity-scene-release/{version}/org.gamecult.eve.unity-scene-{version}.tgz",
                                                               "publishProof":  "Tagged Unity scene package release is created from the EveUnity repository.",
                                                               "requiredPackageDependencies":  [
@@ -137,7 +137,8 @@
                                       "evidencePaths":  [
                                                             "packages/org.gamecult.eve.unity-scene/package.json",
                                                             "packages/org.gamecult.eve.unity-scene/Runtime/GameCult.Eve.UnityScene.asmdef",
-                                                            "scripts/pack.ps1"
+                                                            "scripts/pack.ps1",
+                                                            "scripts/build-release-request.ps1"
                                                         ],
                                       "pendingProofs":  [
                                                             "Cut and publish the first tagged EveUnity package release."
@@ -175,7 +176,7 @@
                                                               "runtimeId":  "unity-scene",
                                                               "targetId":  "unity-scene",
                                                               "requestSchema":  "gamecult.eve.runtime_capture_request.v1",
-                                                              "requestBuilder":  "tools/eveunity/eveunity-capture-contract.mjs",
+                                                              "requestBuilder":  "scripts/build-capture-request.ps1",
                                                               "advertisementPath":  "GameCult/Aetheria:web/fixtures/aetheria.provider-advertisement.json",
                                                               "captureKind":  "unity-scene-frame-png",
                                                               "artifactKind":  "png",
@@ -194,7 +195,7 @@
                                                               "publishProof":  "Unity scene screenshot or frame-capture PNG artifact is attached to the runtime conformance report from EveUnity."
                                                           },
                                       "evidencePaths":  [
-
+                                                            "scripts/build-capture-request.ps1"
                                                         ],
                                       "pendingProofs":  [
                                                             "Unity scene screenshot or frame-capture PNG artifact is attached to the runtime conformance report."

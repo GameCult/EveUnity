@@ -40,8 +40,8 @@ evidence:
 
 - release: typed UPM release request contract, UPM `.tgz` artifact smoke, and
   incubating package identity;
-- test: package-owned EditMode tests run through Aetheria in Unity batchmode,
-  plus Aetheria consumer-build smoke through Unity's generated project;
+- test: package-owned EditMode tests run through EveUnity's clean `TestProject`
+  consumer in Unity batchmode;
 - capture: typed capture request contract and pending Unity editor or
   batchmode PNG artifact.
 
@@ -60,12 +60,11 @@ release.
 `org.gamecult.eve.unity-uitoolkit-{version}.tgz` artifact as local smoke
 evidence. The tagged release still belongs in the EveUnity repo.
 
-The test stage declares the Unity EditMode runner contract: the current runner
-is `scripts/run-aetheria-unity-editmode-tests.ps1`, runs
-`GameCult.Eve.UnityUIToolkit.Tests` on `EditMode`, writes XML and log artifacts
-under `artifacts/aetheria-unity-editmode/{stamp}`, and temporarily adds
-`org.gamecult.eve.unity-uitoolkit` to Aetheria's Unity `testables`. This is a
-Unity package consumption proof. The test contract names the CultLib-owned
+The test stage declares the Unity EditMode runner contract:
+`scripts/run-uitoolkit-tests.ps1` runs `GameCult.Eve.UnityUIToolkit.Tests` on
+`EditMode` from EveUnity's package-only `TestProject` and writes XML and log
+artifacts under `artifacts/uitoolkit-tests/{stamp}`. This is a generic Unity
+package consumption proof. The test contract names the CultLib-owned
 NuGet/precompiled assembly inputs Unity needs during incubation; CultLib still
 owns the .NET/NuGet dependency story for its assemblies.
 Each managed dependency record carries a nested `dependencyContract` naming

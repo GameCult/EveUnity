@@ -39,9 +39,23 @@
         "org.gamecult.eve.surface": "0.1.0"
       }
     },
+    "org.gamecult.eve.unity-uitoolkit": {
+      "version": "file:../../packages/org.gamecult.eve.unity-uitoolkit",
+      "depth": 0,
+      "source": "local",
+      "dependencies": {
+        "org.gamecult.eve.surface": "0.1.0"
+      }
+    },
     "com.unity.modules.assetbundle": {
       "version": "1.0.0",
       "depth": 0,
+      "source": "builtin",
+      "dependencies": {}
+    },
+    "com.unity.modules.hierarchycore": {
+      "version": "1.0.0",
+      "depth": 1,
       "source": "builtin",
       "dependencies": {}
     },
@@ -68,6 +82,24 @@
       "depth": 0,
       "source": "builtin",
       "dependencies": {}
+    },
+    "com.unity.modules.ui": {
+      "version": "1.0.0",
+      "depth": 1,
+      "source": "builtin",
+      "dependencies": {}
+    },
+    "com.unity.modules.uielements": {
+      "version": "1.0.0",
+      "depth": 0,
+      "source": "builtin",
+      "dependencies": {
+        "com.unity.modules.ui": "1.0.0",
+        "com.unity.modules.imgui": "1.0.0",
+        "com.unity.modules.jsonserialize": "1.0.0",
+        "com.unity.modules.hierarchycore": "1.0.0",
+        "com.unity.modules.physics": "1.0.0"
+      }
     }
   }
 }

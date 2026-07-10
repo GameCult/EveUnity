@@ -107,14 +107,14 @@
         "ownerRepo": "EveUnity",
         "runnerKind": "unity-editmode-batchmode",
         "runnerScript": "scripts/run-uitoolkit-tests.ps1",
-        "consumerProject": "E:\\Projects\\Aetheria",
+        "consumerProject": "TestProject",
         "unityExeDefault": "C:\\Program Files\\Unity\\Hub\\Editor\\6000.4.2f1\\Editor\\Unity.exe",
         "packageName": "org.gamecult.eve.unity-uitoolkit",
         "testAssembly": "GameCult.Eve.UnityUIToolkit.Tests",
         "testPlatform": "EditMode",
-        "resultsArtifact": "artifacts/aetheria-unity-editmode/{stamp}/unity-editmode-results.xml",
-        "logArtifact": "artifacts/aetheria-unity-editmode/{stamp}/unity-editmode.log",
-        "manifestMutation": "Temporarily adds org.gamecult.eve.unity-uitoolkit to Aetheria Packages/manifest.json testables and restores the manifest after the run.",
+        "resultsArtifact": "artifacts/uitoolkit-tests/{stamp}/unity-editmode-results.xml",
+        "logArtifact": "artifacts/uitoolkit-tests/{stamp}/unity-editmode.log",
+        "manifestMutation": "none",
         "managedAssemblyDependencies": [
           {
             "assemblyName": "GameCult.Caching.dll",

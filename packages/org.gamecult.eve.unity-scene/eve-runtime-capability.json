@@ -170,7 +170,7 @@
                                },
                       "capture":  {
                                       "ownerRepo":  "EveUnity",
-                                      "status":  "partial-world-smoke-playmode-capture",
+                                      "status":  "released-aetheria-playmode-capture",
                                       "captureContract":  {
                                                               "ownerRepo":  "EveUnity",
                                                               "runtimeId":  "unity-scene",
@@ -197,17 +197,18 @@
                                       "evidencePaths":  [
                                                             "scripts/build-capture-request.ps1",
                                                             "scripts/run-playmode-capture.ps1",
-                                                            "TestProject/Assets/Tests/PlayMode/GenericWorldCaptureTests.cs",
-                                                            "artifacts/playmode/world-smoke.png"
+                                                            "ReleaseConsumerProject/Assets/Tests/PlayMode/GenericWorldCaptureTests.cs",
+                                                            "scripts/run-aetheria-daemon-world-witness.ps1",
+                                                            "artifacts/aetheria-daemon/aetheria-daemon-world.png"
                                                         ],
                                       "pendingProofs":  [
-                                                            "Attach the Aetheria daemon PlayMode PNG; the generic world-smoke control is captured by EveUnity."
+
                                                         ]
                                   }
                   },
     "capture":  {
-                    "status":  "partial-world-smoke-playmode-capture",
-                    "note":  "The generic world-smoke PlayMode PNG passes; the separately running Aetheria daemon capture remains active lifecycle work.",
+                    "status":  "released-aetheria-playmode-capture",
+                    "note":  "The released generic EveUnity client discovers and captures the separately running Aetheria daemon world.",
                     "artifacts":  [
                                       {
                                           "kind":  "png",
@@ -215,6 +216,13 @@
                                           "path":  "artifacts/playmode/world-smoke.png",
                                           "providerId":  "eve.world-smoke",
                                           "surfaceId":  "eve.world-smoke.surface"
+                                      },
+                                      {
+                                          "kind":  "png",
+                                          "schema":  "gamecult.eve.runtime_frame_capture.v1",
+                                          "path":  "artifacts/aetheria-daemon/aetheria-daemon-world.png",
+                                          "providerId":  "aetheria.daemon",
+                                          "surfaceId":  "aetheria.game"
                                       }
                                   ]
                 }

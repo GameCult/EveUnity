@@ -1,7 +1,6 @@
 param(
   [string] $UnityExe = "C:\Program Files\Unity\Hub\Editor\6000.4.2f1\Editor\Unity.exe",
   [string] $AetheriaRoot = "E:\Projects\Aetheria",
-  [string] $CultLibRoot = "E:\Projects\CultLib",
   [int] $Port = 3076,
   [string] $OutputDirectory = "artifacts\aetheria-daemon",
   [ValidateSet("auto", "cold", "warm")]
@@ -11,7 +10,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$projectRoot = Join-Path $repoRoot "TestProject"
+$projectRoot = "ReleaseConsumerProject"
 $outputRoot = if ([IO.Path]::IsPathRooted($OutputDirectory)) { $OutputDirectory } else { Join-Path $repoRoot $OutputDirectory }
 $resultsPath = Join-Path $outputRoot "results.xml"
 $unityLogPath = Join-Path $outputRoot "unity.log"
@@ -25,7 +24,7 @@ $assetCachePath = Join-Path $outputRoot "asset-cache"
 $statePath = Join-Path $outputRoot "aetheria-witness-state.cc"
 $daemonProject = Join-Path $AetheriaRoot "Aetheria.State.Daemon\Aetheria.State.Daemon.csproj"
 
-foreach ($required in @($UnityExe, $projectRoot, $daemonProject, (Join-Path $CultLibRoot "scripts\build-unity-package.ps1"))) {
+foreach ($required in @($UnityExe, (Join-Path $repoRoot $projectRoot), $daemonProject)) {
   if (-not (Test-Path -LiteralPath $required)) { throw "Required world witness path not found: $required" }
 }
 
@@ -53,15 +52,12 @@ foreach ($ephemeralPath in @(
   }
   if (Test-Path -LiteralPath $resolved) { Remove-Item -LiteralPath $resolved -Recurse -Force }
 }
-powershell -ExecutionPolicy Bypass -File (Join-Path $CultLibRoot "scripts\build-unity-package.ps1")
-if ($LASTEXITCODE -ne 0) { throw "CultLib Unity package build failed with exit code $LASTEXITCODE" }
-
 if (-not $SkipAssetBundleBuild) {
   $bundleBuilder = Start-Process -FilePath $UnityExe -ArgumentList @(
-    "-batchmode", "-quit", "-projectPath", $AetheriaRoot,
+    "-batchmode", "-quit", "-projectPath", ".",
     "-executeMethod", "Aetheria.Editor.EveAssetBundleBuilder.BuildWindows",
     "-logFile", $bundleBuildLogPath
-  ) -PassThru -WindowStyle Hidden
+  ) -WorkingDirectory $AetheriaRoot -PassThru -WindowStyle Hidden
   Write-Host "AssetBundle builder PID: $($bundleBuilder.Id)"
   Write-Host "AssetBundle build log: $bundleBuildLogPath"
   Write-Host "Poll: Get-Content '$bundleBuildLogPath' -Tail 20"
@@ -117,7 +113,7 @@ try {
     "-testFilter", "GenericCultMeshClientLowersAndMovesAdvertisedWorld",
     "-testResults", $resultsPath, "-logFile", $unityLogPath
   )
-  $unity = Start-Process -FilePath $UnityExe -ArgumentList $arguments -PassThru -WindowStyle Hidden
+  $unity = Start-Process -FilePath $UnityExe -ArgumentList $arguments -WorkingDirectory $repoRoot -PassThru -WindowStyle Hidden
   if (-not $unity.WaitForExit(300000)) {
     Stop-Process -Id $unity.Id -Force -ErrorAction SilentlyContinue
     throw "Unity witness exceeded 300 seconds. See $unityLogPath"
@@ -129,6 +125,11 @@ try {
   if (-not (Test-Path $capturePath) -or (Get-Item $capturePath).Length -lt 1024) { throw "Live world capture is missing: $capturePath" }
   if (-not (Test-Path $factsPath)) { throw "Live world witness facts are missing: $factsPath" }
   $facts = Get-Content -LiteralPath $factsPath -Raw | ConvertFrom-Json
+  $releaseLock = Get-Content -LiteralPath (Join-Path $repoRoot "ReleaseConsumerProject\Packages\packages-lock.json") -Raw | ConvertFrom-Json
+  $facts | Add-Member -NotePropertyName releasedPackageClient -NotePropertyValue $true
+  $facts | Add-Member -NotePropertyName clientProject -NotePropertyValue "ReleaseConsumerProject"
+  $facts | Add-Member -NotePropertyName eveUnityPackageCommit -NotePropertyValue $releaseLock.dependencies.'org.gamecult.eve.unity-scene'.hash
+  $facts | Add-Member -NotePropertyName cultLibPackageCommit -NotePropertyValue $releaseLock.dependencies.'org.gamecult.cultlib'.hash
   $capture = Get-Item -LiteralPath $capturePath
   $resultsArtifact = Get-Item -LiteralPath $resultsPath
   $durationMs = [Math]::Round(([DateTimeOffset]::UtcNow - $witnessStartedAt).TotalMilliseconds, 3)
@@ -172,15 +173,18 @@ try {
         sizeBytes = $resultsArtifact.Length
       }
     )
-    authority = "runtime-observes-provider-advertisement-assets-command-receipts-and-republished-surface-versions"
+    authority = "released-generic-runtime-observes-provider-advertisement-assets-command-receipts-and-republished-surface-versions"
   }
   $witness | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $witnessPath -Encoding UTF8
+  $stateWitnessPath = Join-Path $outputRoot "runtime-witness.$observedCacheState.json"
+  $witness | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $stateWitnessPath -Encoding UTF8
   Write-Host "Aetheria daemon world witness: passed"
   Write-Host "Capture: $capturePath"
   Write-Host "Runtime witness: $witnessPath"
+  Write-Host "Cache-state witness: $stateWitnessPath"
 }
 finally {
   if ($null -ne $daemon -and -not $daemon.HasExited) { Stop-Process -Id $daemon.Id -Force }
-  Remove-Item Env:EVEUNITY_PROVIDER_ENDPOINT, Env:EVEUNITY_PROVIDER_ID, Env:EVEUNITY_SURFACE_ID, Env:EVEUNITY_REPLICA_PATH, Env:EVEUNITY_AETHERIA_CAPTURE_PATH, Env:EVEUNITY_ASSET_CACHE_PATH, Env:EVEUNITY_WITNESS_FACTS_PATH -ErrorAction SilentlyContinue
+  Remove-Item Env:EVEUNITY_RENDEZVOUS_ENDPOINT, Env:EVEUNITY_PROVIDER_ENDPOINT, Env:EVEUNITY_PROVIDER_ID, Env:EVEUNITY_SURFACE_ID, Env:EVEUNITY_REPLICA_PATH, Env:EVEUNITY_AETHERIA_CAPTURE_PATH, Env:EVEUNITY_ASSET_CACHE_PATH, Env:EVEUNITY_WITNESS_FACTS_PATH -ErrorAction SilentlyContinue
   Remove-Item Env:AETHERIA_TRACE_EVE_SNAPSHOTS -ErrorAction SilentlyContinue
 }

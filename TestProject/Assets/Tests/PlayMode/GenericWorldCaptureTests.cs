@@ -205,7 +205,11 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 bridge = new EveUnitySceneLiveProviderBridge(transport);
                 bridge.Connect();
                 runtime = EveUnityPlayableWorldRuntime.CreateForGameObjectScene(
-                    root.transform, bridge, bridge, bridge, bridge);
+                    root.transform,
+                    bridge,
+                    bridge,
+                    assetManifestDocuments: null,
+                    receiptSource: bridge);
                 var initial = runtime.Connect();
                 Assert.That(initial.ActiveEntities, Is.GreaterThan(0));
                 Assert.That(runtime.ActiveWorld.PlayerEntityId, Is.Not.Empty);
@@ -227,6 +231,10 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
 
                 Assert.That(runtime.LastReceipt, Is.Not.Null);
                 Assert.That(runtime.LastReceipt.CommandId, Is.EqualTo(request.CommandId));
+                Assert.That(
+                    runtime.LastReceipt.State,
+                    Is.EqualTo("accepted").Or.EqualTo("reconciled"),
+                    runtime.LastReceipt.Message);
                 Assert.That(runtime.LastReceipt.SourceVersion, Is.GreaterThan(initialVersion));
                 Assert.That(runtime.ActiveVersion, Is.GreaterThan(initialVersion));
                 Assert.That(Vector3.Distance(FindMarker(root, playerId).transform.position, initialPosition), Is.GreaterThan(0.01f));
@@ -238,8 +246,20 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 var camera = cameraObject.AddComponent<Camera>();
                 camera.clearFlags = CameraClearFlags.SolidColor;
                 camera.backgroundColor = new Color(0.035f, 0.055f, 0.08f, 1f);
-                camera.transform.position = new Vector3(14f, 12f, -16f);
-                camera.transform.LookAt(FindMarker(root, playerId).transform.position);
+                foreach (var entityMarker in root.GetComponentsInChildren<EveUnityPlayableWorldEntityMarker>())
+                {
+                    var renderer = entityMarker.GetComponent<Renderer>();
+                    renderer.material.color = entityMarker.Controllable
+                        ? new Color(0.18f, 0.75f, 1f)
+                        : entityMarker.EntityKind == "enemy"
+                            ? new Color(1f, 0.25f, 0.2f)
+                            : new Color(1f, 0.78f, 0.15f);
+                }
+                var playerMarker = FindMarker(root, playerId);
+                var playerBounds = playerMarker.GetComponent<Renderer>().bounds;
+                var cameraDistance = Mathf.Max(8f, playerBounds.extents.magnitude * 4f);
+                camera.transform.position = playerBounds.center + new Vector3(1f, 0.8f, -1.2f).normalized * cameraDistance;
+                camera.transform.LookAt(playerBounds.center);
                 target = new RenderTexture(640, 360, 24, RenderTextureFormat.ARGB32);
                 camera.targetTexture = target;
                 yield return null;

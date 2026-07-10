@@ -23,7 +23,14 @@ foreach ($required in @($UnityExe, $projectRoot, $daemonProject, (Join-Path $Cul
 }
 
 New-Item -ItemType Directory -Force -Path $outputRoot | Out-Null
-foreach ($ephemeralPath in @($replicaPath, $statePath)) {
+foreach ($ephemeralPath in @(
+  $replicaPath,
+  "$replicaPath.records",
+  "$replicaPath.cultmesh",
+  $statePath,
+  "$statePath.records",
+  "$statePath.cultmesh"
+)) {
   $resolved = [IO.Path]::GetFullPath($ephemeralPath)
   if (-not $resolved.StartsWith([IO.Path]::GetFullPath($outputRoot), [StringComparison]::OrdinalIgnoreCase)) {
     throw "Witness cleanup escaped its artifact directory: $resolved"
@@ -42,6 +49,7 @@ $daemonArguments = @(
   "--client-cultmesh-port", $Port,
   "--no-odin-announcements"
 )
+$env:AETHERIA_TRACE_EVE_SNAPSHOTS = "1"
 $daemon = Start-Process -FilePath "dotnet" -ArgumentList $daemonArguments -PassThru -WindowStyle Hidden `
   -RedirectStandardOutput $daemonLogPath -RedirectStandardError (Join-Path $outputRoot "aetheria-daemon.error.log")
 Write-Host "Aetheria daemon PID: $($daemon.Id)"
@@ -86,4 +94,5 @@ try {
 finally {
   if ($null -ne $daemon -and -not $daemon.HasExited) { Stop-Process -Id $daemon.Id -Force }
   Remove-Item Env:EVEUNITY_PROVIDER_ENDPOINT, Env:EVEUNITY_PROVIDER_ID, Env:EVEUNITY_SURFACE_ID, Env:EVEUNITY_REPLICA_PATH, Env:EVEUNITY_AETHERIA_CAPTURE_PATH -ErrorAction SilentlyContinue
+  Remove-Item Env:AETHERIA_TRACE_EVE_SNAPSHOTS -ErrorAction SilentlyContinue
 }

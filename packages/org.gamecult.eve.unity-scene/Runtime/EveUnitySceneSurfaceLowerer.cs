@@ -51,7 +51,7 @@ namespace GameCult.Eve.UnityScene
             return new EveSurfaceCommandRequest(
                 projection.ProviderId,
                 projection.SurfaceId,
-                ResolveOperation(document, command),
+                ResolveOperation(document, command, $"unity-scene-{Guid.NewGuid():N}"),
                 CultMesh.OperationPayload(payload ?? new Dictionary<string, string>(StringComparer.Ordinal)),
                 issuedAt ?? DateTimeOffset.UtcNow,
                 "unity-scene",
@@ -61,15 +61,16 @@ namespace GameCult.Eve.UnityScene
 
         private static CultMeshOperationInvocationDescriptor ResolveOperation(
             EveSurfaceDocument document,
-            string command)
+            string command,
+            string idempotencyKey)
         {
             foreach (var template in document.Commands)
             {
                 if (string.Equals(template.Command, command, StringComparison.Ordinal))
-                    return CultMesh.OperationInvocation(template.Operation);
+                    return CultMesh.OperationInvocation(template.Operation, idempotencyKey);
             }
 
-            return CultMesh.OperationInvocation(command);
+            return CultMesh.OperationInvocation(command, idempotencyKey: idempotencyKey);
         }
 
         private static EveUnitySceneNode BuildSceneGraph(EveSurfaceComponent component)

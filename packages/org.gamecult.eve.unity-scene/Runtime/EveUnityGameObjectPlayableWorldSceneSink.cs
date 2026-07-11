@@ -108,7 +108,8 @@ namespace GameCult.Eve.UnityScene
                 : $"{entity.EntityId} ({entity.Label})";
             instance.transform.localPosition = new Vector3(entity.PositionX, entity.PositionY, entity.PositionZ);
             instance.transform.localRotation = Quaternion.Euler(0f, entity.RotationY, 0f);
-            if (entity.Radius > 0f)
+            if (entity.Radius > 0f &&
+                string.Equals(asset.PresentationKind, "unity-generated-placeholder", StringComparison.Ordinal))
                 instance.transform.localScale = Vector3.one * entity.Radius;
 
             var marker = instance.GetComponent<EveUnityPlayableWorldEntityMarker>();

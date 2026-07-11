@@ -673,6 +673,40 @@ namespace GameCult.Eve.UnityScene.Tests
         }
 
         [Test]
+        public void ProviderPrefabKeepsAuthoredScaleWhileFallbackUsesSemanticRadius()
+        {
+            var root = new GameObject("world");
+            var prefab = new GameObject("provider-prefab");
+            prefab.transform.localScale = new Vector3(2f, 3f, 4f);
+            try
+            {
+                var providerSink = new EveUnityGameObjectPlayableWorldSceneSink(
+                    root.transform,
+                    new FixedGameObjectAssetProvider(prefab));
+                var entity = PlayableEntityModel("provider", "prefab.ship", 12f);
+                providerSink.UpsertEntity(entity, new EveUnityPlayableWorldAssetBinding(
+                    "prefab.ship", "ship", "provider-asset-ref"));
+
+                var instance = root.transform.GetChild(0);
+                Assert.That(instance.localScale, Is.EqualTo(Vector3.one));
+                Assert.That(instance.GetChild(0).localScale, Is.EqualTo(new Vector3(2f, 3f, 4f)));
+
+                var fallbackSink = new EveUnityGameObjectPlayableWorldSceneSink(
+                    root.transform,
+                    new FixedGameObjectAssetProvider(null));
+                fallbackSink.UpsertEntity(
+                    PlayableEntityModel("fallback", "", 7f),
+                    new EveUnityPlayableWorldAssetBinding("", "ship", "unity-generated-placeholder"));
+                Assert.That(root.transform.GetChild(1).localScale, Is.EqualTo(Vector3.one * 7f));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(prefab);
+                UnityEngine.Object.DestroyImmediate(root);
+            }
+        }
+
+        [Test]
         public void PlayableWorldPresenterInstantiatesUpdatesAndDespawnsProviderEntities()
         {
             var lowerer = new EveUnitySceneSurfaceLowerer();
@@ -1617,6 +1651,38 @@ namespace GameCult.Eve.UnityScene.Tests
             {
                 CommandReceiptAvailable?.Invoke(receipt);
             }
+        }
+
+        private static EveUnityPlayableWorldEntity PlayableEntityModel(
+            string entityId,
+            string assetRef,
+            float radius)
+        {
+            return new EveUnityPlayableWorldEntity(
+                entityId,
+                entityId,
+                "ship",
+                entityId,
+                "player",
+                assetRef,
+                0f, 0f, 0f,
+                0f,
+                radius,
+                true,
+                true,
+                "", "", "", "");
+        }
+
+        private sealed class FixedGameObjectAssetProvider : IEveUnityGameObjectAssetProvider
+        {
+            private readonly GameObject? _prefab;
+
+            public FixedGameObjectAssetProvider(GameObject? prefab)
+            {
+                _prefab = prefab;
+            }
+
+            public GameObject? ResolvePrefab(EveUnityPlayableWorldAssetBinding asset) => _prefab;
         }
 
         private sealed class FakePlayableWorldProviderComponent :

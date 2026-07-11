@@ -45,9 +45,18 @@ namespace GameCult.Eve.UnityScene
             if (player == null)
                 return false;
 
-            var target = player.transform.position;
-            var orbit = Quaternion.Euler(0f, yawDegrees, 0f) * (Vector3.back * Mathf.Max(0.1f, distance));
-            var desiredPosition = target + orbit + (Vector3.up * Mathf.Max(0f, height));
+            var cameraComponent = camera.GetComponent<Camera>();
+            var bounds = CalculateVisualBounds(player);
+            var target = bounds?.center ?? player.transform.position;
+            var radius = bounds?.extents.magnitude ?? 0f;
+            var verticalFov = cameraComponent != null ? cameraComponent.fieldOfView : 60f;
+            var framingDistance = radius > 0f
+                ? radius / Mathf.Sin(Mathf.Max(1f, verticalFov) * 0.5f * Mathf.Deg2Rad) * 1.15f
+                : 0f;
+            var resolvedDistance = Mathf.Max(0.1f, distance, framingDistance);
+            var resolvedHeight = Mathf.Max(0f, height, radius * 0.45f);
+            var orbit = Quaternion.Euler(0f, yawDegrees, 0f) * (Vector3.back * resolvedDistance);
+            var desiredPosition = target + orbit + (Vector3.up * resolvedHeight);
             var t = deltaTime <= 0f
                 ? 1f
                 : 1f - Mathf.Exp(-Mathf.Max(0.01f, followDamping) * deltaTime);
@@ -55,6 +64,28 @@ namespace GameCult.Eve.UnityScene
             camera.position = Vector3.Lerp(camera.position, desiredPosition, t);
             camera.LookAt(target);
             return true;
+        }
+
+        private static Bounds? CalculateVisualBounds(EveUnityPlayableWorldEntityMarker player)
+        {
+            var renderers = player.GetComponentsInChildren<Renderer>(includeInactive: false);
+            Bounds? bounds = null;
+            foreach (var visual in renderers)
+            {
+                if (visual == null || !visual.enabled)
+                    continue;
+                if (bounds.HasValue)
+                {
+                    var combined = bounds.Value;
+                    combined.Encapsulate(visual.bounds);
+                    bounds = combined;
+                }
+                else
+                {
+                    bounds = visual.bounds;
+                }
+            }
+            return bounds;
         }
 
         private void LateUpdate()

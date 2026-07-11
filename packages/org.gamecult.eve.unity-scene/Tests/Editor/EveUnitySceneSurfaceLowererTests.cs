@@ -654,9 +654,15 @@ namespace GameCult.Eve.UnityScene.Tests
                 rig.Host = host;
                 rig.CameraTransform = cameraObject.transform;
 
+                var player = rootObject.GetComponentInChildren<EveUnityPlayableWorldEntityMarker>();
+                Assert.That(player, Is.Not.Null);
+                var largeVisual = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                largeVisual.transform.SetParent(player.transform, false);
+                largeVisual.transform.localScale = Vector3.one * 100f;
+
                 Assert.That(rig.ApplyRig(0f), Is.True);
                 Assert.That(cameraObject.transform.position.y, Is.GreaterThan(0f));
-                Assert.That(Vector3.Distance(cameraObject.transform.position, Vector3.zero), Is.GreaterThan(1f));
+                Assert.That(Vector3.Distance(cameraObject.transform.position, largeVisual.transform.position), Is.GreaterThan(100f));
             }
             finally
             {

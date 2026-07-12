@@ -24,6 +24,20 @@ namespace GameCult.Eve.Surface
         [Key(9)] public EveEntitySoaColumn[] Columns { get; set; } = Array.Empty<EveEntitySoaColumn>();
         [Key(10)] public EveEntitySoaDirtyRange[] DirtyRanges { get; set; } = Array.Empty<EveEntitySoaDirtyRange>();
         [Key(11)] public EveEntityRenderGroup[] RenderGroups { get; set; } = Array.Empty<EveEntityRenderGroup>();
+        [Key(12)] public EveEntitySoaIdentity[] Identities { get; set; } = Array.Empty<EveEntitySoaIdentity>();
+    }
+
+    [MessagePackObject]
+    public sealed class EveEntitySoaIdentity
+    {
+        [Key(0)] public int EntityIndex { get; set; } = -1;
+        [Key(1)] public string EntityId { get; set; } = "";
+        [Key(2)] public string Kind { get; set; } = "";
+        [Key(3)] public string Label { get; set; } = "";
+        [Key(4)] public string Faction { get; set; } = "";
+        [Key(5)] public bool Selectable { get; set; } = true;
+        [Key(6)] public bool Controllable { get; set; }
+        [Key(7)] public string AssetRef { get; set; } = "";
     }
 
     [MessagePackObject]

@@ -4,11 +4,13 @@
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Description>Portable Eve surface and provider contracts.</Description>
+    <AssemblyName>GameCult.Eve.Surface</AssemblyName>
+    <Description>Portable Eve surface, provider, input, plugin, and entity-view contracts.</Description>
     <CultLibRoot Condition="'$(CultLibRoot)' == ''">$(MSBuildThisFileDirectory)..\..\..\CultLib</CultLibRoot>
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove="Runtime\EveCultMeshSurfaceSelection.cs" />
     <ProjectReference Include="$(CultLibRoot)\src\GameCult.Caching\GameCult.Caching.csproj" />
     <ProjectReference Include="$(CultLibRoot)\src\GameCult.Mesh\GameCult.Mesh.csproj" />
   </ItemGroup>

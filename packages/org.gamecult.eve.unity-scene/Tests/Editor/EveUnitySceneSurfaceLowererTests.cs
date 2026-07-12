@@ -491,7 +491,7 @@ namespace GameCult.Eve.UnityScene.Tests
 
             Assert.That(runtime.LastReceipt, Is.Not.Null);
             Assert.That(runtime.LastReceipt!.IsProviderOwned, Is.True);
-            Assert.That(transport.RefreshCount, Is.EqualTo(1));
+            Assert.That(transport.RefreshCount, Is.EqualTo(0));
         }
 
         [Test]
@@ -886,7 +886,7 @@ namespace GameCult.Eve.UnityScene.Tests
         }
 
         [Test]
-        public void LivePlayableWorldClientRefreshesFromProviderSnapshotAfterReceiptWithoutOwningMovement()
+        public void LivePlayableWorldClientWaitsForProviderSurfaceUpdateAfterReceipt()
         {
             var source = new FakeProviderSurfaceSource(
                 "aetheria",
@@ -943,13 +943,11 @@ namespace GameCult.Eve.UnityScene.Tests
             Assert.That(client.LastReceipt.State, Is.EqualTo("pending"));
             Assert.That(client.ActiveVersion, Is.EqualTo(1));
 
-            source.Stage(new EveUnitySceneProviderSurfaceSnapshot(
+            source.Publish(new EveUnitySceneProviderSurfaceSnapshot(
                 PlayableArpgDocument(includeRaider: false, playerPosition: "30,0,30"),
                 Advertisement("aetheria.daemon.game"),
                 "cultmesh://aetheria/eve/surfaces/aetheria.daemon.game",
                 2));
-            client.Refresh();
-
             Assert.That(client.LastReceipt.State, Is.EqualTo("reconciled"));
             Assert.That(client.ActiveVersion, Is.EqualTo(2));
             Assert.That(client.LastPresentation, Is.Not.Null);

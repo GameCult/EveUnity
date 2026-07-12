@@ -11,7 +11,6 @@ namespace GameCult.Eve.UnityScene
         private readonly EveUnitySceneProviderConnection _connection;
         private readonly EveUnityPlayableWorldPresenter _presenter;
         private readonly IEveUnitySceneCommandReceiptSource? _receiptSource;
-        private readonly bool _refreshOnTerminalReceipt;
         private readonly EveUnityFeedbackPresenter _feedback = new EveUnityFeedbackPresenter();
         private readonly EveUnityShotReceiptPresenter _shots = new EveUnityShotReceiptPresenter();
         private readonly List<EveUnitySceneCommandReceipt> _pendingReceipts =
@@ -22,13 +21,11 @@ namespace GameCult.Eve.UnityScene
         public EveUnityPlayableWorldLiveClient(
             EveUnitySceneProviderConnection connection,
             EveUnityPlayableWorldPresenter presenter,
-            IEveUnitySceneCommandReceiptSource? receiptSource = null,
-            bool refreshOnTerminalReceipt = true)
+            IEveUnitySceneCommandReceiptSource? receiptSource = null)
         {
             _connection = connection ?? throw new ArgumentNullException(nameof(connection));
             _presenter = presenter ?? throw new ArgumentNullException(nameof(presenter));
             _receiptSource = receiptSource;
-            _refreshOnTerminalReceipt = refreshOnTerminalReceipt;
         }
 
         public EveUnitySceneProjection? ActiveProjection => _connection.ActiveProjection;
@@ -173,16 +170,8 @@ namespace GameCult.Eve.UnityScene
             if (receipt.SourceVersion > ActiveVersion)
             {
                 _pendingReceipts.Add(receipt);
-                if (_refreshOnTerminalReceipt && receipt.ShouldRefreshProviderSurface)
-                {
-                    Refresh();
-                    PublishReceiptsWhoseStateIsVisible();
-                }
                 return;
             }
-
-            if (_refreshOnTerminalReceipt && receipt.ShouldRefreshProviderSurface)
-                Refresh();
 
             PublishReceipt(receipt);
         }

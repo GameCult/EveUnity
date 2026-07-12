@@ -31,9 +31,21 @@ namespace GameCult.Eve.UnityScene.Tests
             Assert.That(emitted[0].Endpoint.Z, Is.EqualTo(30));
             Assert.That(emitted[0].DurationSeconds, Is.EqualTo(0.25));
             Assert.That(emitted[0].PresentationKind, Is.EqualTo("test-laser"));
+            Assert.That(emitted[0].ItemKey, Is.EqualTo("test-cannon"));
             Assert.That(emitted[0].ImpactKind, Is.EqualTo("shield"));
             Assert.That(emitted[0].PresentationIntensity, Is.EqualTo(9));
             Assert.That(presenter.Apply(next), Is.Zero);
+        }
+
+        [Test]
+        public void ManifestResolvesSemanticEffectPresentationRoles()
+        {
+            var bolt = new EveUnityPlayableWorldAssetManifestEntry(
+                "prefab.effect.shot.bolt", "effect.shot.bolt", "Prefabs/Lightning", "bolt");
+            var manifest = new EveUnityPlayableWorldAssetManifest("manifest", new[] { bolt });
+
+            Assert.That(manifest.FindByPresentationRole("effect.shot.bolt"), Is.SameAs(bolt));
+            Assert.That(manifest.FindByPresentationRole("effect.impact.shield"), Is.Null);
         }
 
         private static EveUnitySceneProjection Projection(params EveUnitySceneNode[] shots) =>
@@ -55,6 +67,7 @@ namespace GameCult.Eve.UnityScene.Tests
                     ["endpoint"] = endpoint,
                     ["presentationDuration"] = "0.25",
                     ["presentationKind"] = "test-laser",
+                    ["itemKey"] = "test-cannon",
                     ["impactKind"] = "shield",
                     ["presentationIntensity"] = "9"
                 }, Empty(), Empty(), 0, 0, Array.Empty<EveUnitySceneEmbeddedDocumentSlot>(), null,

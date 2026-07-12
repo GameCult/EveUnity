@@ -83,7 +83,7 @@ namespace GameCult.Eve.UnityScene
             {
                 var trajectories = GetComponent<EveUnityShotTrajectoryRenderer>();
                 if (trajectories == null) trajectories = gameObject.AddComponent<EveUnityShotTrajectoryRenderer>();
-                trajectories.Bind(this);
+                trajectories.Bind(this, Runtime.GameObjectAssetProvider);
             }
 
             return Runtime.Connect();

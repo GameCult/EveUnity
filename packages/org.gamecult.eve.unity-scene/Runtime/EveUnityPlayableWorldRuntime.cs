@@ -41,6 +41,8 @@ namespace GameCult.Eve.UnityScene
 
         public EveUnityPlayableWorldAssetManifestCache AssetManifests { get; }
 
+        public IEveUnityGameObjectAssetProvider? GameObjectAssetProvider { get; private set; }
+
         public EveUnityPlayableWorldProjection? ActiveWorld => _client.ActiveWorld;
 
         public EveUnitySceneProjection? ActiveProjection => _client.ActiveProjection;
@@ -95,6 +97,7 @@ namespace GameCult.Eve.UnityScene
                 receiptSource,
                 new EveUnityAssetRefResolver(),
                 assetManifests);
+            runtime.GameObjectAssetProvider = liveAssetProvider;
             return runtime;
         }
 

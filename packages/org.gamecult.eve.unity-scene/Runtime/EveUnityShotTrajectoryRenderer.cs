@@ -16,16 +16,18 @@ namespace GameCult.Eve.UnityScene
 
         private readonly List<ActiveTrajectory> _active = new List<ActiveTrajectory>();
         private EveUnityPlayableWorldClientHost? _host;
+        private IEveUnityGameObjectAssetProvider? _assetProvider;
         private Material? _material;
 
         public int ActiveTrajectoryCount => _active.Count;
 
-        public void Bind(EveUnityPlayableWorldClientHost host)
+        public void Bind(EveUnityPlayableWorldClientHost host, IEveUnityGameObjectAssetProvider? assetProvider = null)
         {
             if (host == null) throw new ArgumentNullException(nameof(host));
-            if (ReferenceEquals(_host, host)) return;
+            if (ReferenceEquals(_host, host) && ReferenceEquals(_assetProvider, assetProvider)) return;
             Unbind();
             _host = host;
+            _assetProvider = assetProvider;
             _host.ShotAvailable += Present;
         }
 
@@ -33,6 +35,7 @@ namespace GameCult.Eve.UnityScene
         {
             if (_host != null) _host.ShotAvailable -= Present;
             _host = null;
+            _assetProvider = null;
         }
 
         public void Present(EveUnityShotReceipt receipt)
@@ -52,6 +55,15 @@ namespace GameCult.Eve.UnityScene
             var origin = Vector(receipt.Origin);
             line.SetPosition(0, origin);
             var endpoint = Vector(receipt.Endpoint);
+            var effectPrefab = ResolveEffectPrefab(receipt);
+            if (effectPrefab != null)
+            {
+                var effect = Instantiate(effectPrefab, shot.transform);
+                effect.transform.position = origin;
+                var direction = endpoint - origin;
+                if (direction.sqrMagnitude > 0.0001f) effect.transform.rotation = Quaternion.LookRotation(direction.normalized);
+            }
+            var impactPrefab = ResolveRolePrefab("effect.impact." + receipt.ImpactKind);
             var travels = string.Equals(receipt.PresentationKind, "bolt", StringComparison.Ordinal) ||
                 string.Equals(receipt.PresentationKind, "guided", StringComparison.Ordinal);
             line.SetPosition(1, travels ? origin : endpoint);
@@ -62,7 +74,8 @@ namespace GameCult.Eve.UnityScene
                 endpoint,
                 Time.unscaledTime,
                 Math.Max(minimumDurationSeconds, (float)receipt.DurationSeconds),
-                travels));
+                travels,
+                impactPrefab));
         }
 
         private void Update()
@@ -74,6 +87,15 @@ namespace GameCult.Eve.UnityScene
                 var progress = Mathf.Clamp01((now - trajectory.StartedAt) / trajectory.Duration);
                 if (trajectory.Travels)
                     trajectory.Line.SetPosition(1, Vector3.Lerp(trajectory.Origin, trajectory.Endpoint, progress));
+                if (progress >= 1 && !trajectory.ImpactPresented)
+                {
+                    trajectory.ImpactPresented = true;
+                    if (trajectory.ImpactPrefab != null)
+                    {
+                        var impact = Instantiate(trajectory.ImpactPrefab, transform);
+                        impact.transform.position = trajectory.Endpoint;
+                    }
+                }
                 if (progress < 1 || now < trajectory.StartedAt + trajectory.Duration + lingerSeconds) continue;
                 Destroy(trajectory.Root);
                 _active.RemoveAt(index);
@@ -89,6 +111,19 @@ namespace GameCult.Eve.UnityScene
             return _material;
         }
 
+        private GameObject? ResolveEffectPrefab(EveUnityShotReceipt receipt)
+        {
+            if (!string.IsNullOrWhiteSpace(receipt.ItemKey))
+            {
+                var itemPrefab = ResolveRolePrefab("effect.shot.item." + receipt.ItemKey);
+                if (itemPrefab != null) return itemPrefab;
+            }
+            return ResolveRolePrefab("effect.shot." + receipt.PresentationKind);
+        }
+
+        private GameObject? ResolveRolePrefab(string role) => _assetProvider?.ResolvePrefab(
+            new EveUnityPlayableWorldAssetBinding("", role, "provider-asset-ref"));
+
         private void OnDestroy()
         {
             Unbind();
@@ -103,7 +138,7 @@ namespace GameCult.Eve.UnityScene
 
         private sealed class ActiveTrajectory
         {
-            public ActiveTrajectory(GameObject root, LineRenderer line, Vector3 origin, Vector3 endpoint, float startedAt, float duration, bool travels)
+            public ActiveTrajectory(GameObject root, LineRenderer line, Vector3 origin, Vector3 endpoint, float startedAt, float duration, bool travels, GameObject? impactPrefab)
             {
                 Root = root;
                 Line = line;
@@ -112,6 +147,7 @@ namespace GameCult.Eve.UnityScene
                 StartedAt = startedAt;
                 Duration = duration;
                 Travels = travels;
+                ImpactPrefab = impactPrefab;
             }
 
             public GameObject Root { get; }
@@ -121,6 +157,8 @@ namespace GameCult.Eve.UnityScene
             public float StartedAt { get; }
             public float Duration { get; }
             public bool Travels { get; }
+            public GameObject? ImpactPrefab { get; }
+            public bool ImpactPresented { get; set; }
         }
     }
 }

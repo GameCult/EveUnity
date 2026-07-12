@@ -67,6 +67,12 @@ namespace GameCult.Eve.UnityScene
                 return entry;
             return null;
         }
+
+        public EveUnityPlayableWorldAssetManifestEntry? FindByPresentationRole(string presentationRole)
+        {
+            if (string.IsNullOrWhiteSpace(presentationRole)) return null;
+            return _byEntityKind.TryGetValue(presentationRole, out var entry) ? entry : null;
+        }
     }
 
     public interface IEveUnityPlayableWorldAssetManifestSource

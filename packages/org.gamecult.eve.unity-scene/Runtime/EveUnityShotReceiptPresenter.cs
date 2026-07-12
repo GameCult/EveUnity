@@ -35,6 +35,7 @@ namespace GameCult.Eve.UnityScene
             Endpoint = Vector(node, "endpoint");
             DurationSeconds = Math.Max(0, Double(node, "presentationDuration", 0));
             PresentationKind = Get(node, "presentationKind");
+            ItemKey = Get(node, "itemKey");
             ImpactKind = Get(node, "impactKind");
             PresentationIntensity = Math.Max(0, Double(node, "presentationIntensity", 1));
         }
@@ -50,6 +51,7 @@ namespace GameCult.Eve.UnityScene
         public EveUnityShotVector3 Endpoint { get; }
         public double DurationSeconds { get; }
         public string PresentationKind { get; }
+        public string ItemKey { get; }
         public string ImpactKind { get; }
         public double PresentationIntensity { get; }
 

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using GameCult.Eve.Surface;
 using GameCult.Mesh;
@@ -17,13 +18,15 @@ namespace GameCult.Eve.UnityScene
             string verseId,
             string providerId,
             string surfaceId,
-            string surfaceKind)
+            string surfaceKind,
+            EveUnityCultMeshConnectionContext connection)
         {
             Endpoint = endpoint ?? "";
             VerseId = verseId ?? "";
             ProviderId = providerId ?? "";
             SurfaceId = surfaceId ?? "";
             SurfaceKind = surfaceKind ?? "";
+            Connection = connection ?? throw new ArgumentNullException(nameof(connection));
         }
 
         public string Endpoint { get; }
@@ -31,6 +34,7 @@ namespace GameCult.Eve.UnityScene
         public string ProviderId { get; }
         public string SurfaceId { get; }
         public string SurfaceKind { get; }
+        public EveUnityCultMeshConnectionContext Connection { get; }
     }
 
     public sealed class EveUnityCultMeshProviderDiscovery
@@ -46,17 +50,28 @@ namespace GameCult.Eve.UnityScene
             string surfaceId = "",
             string surfaceKind = "interactive-world",
             string verseId = "")
+            => DiscoverAsync(rendezvousEndpoint, providerId, surfaceId, surfaceKind, verseId)
+                .GetAwaiter().GetResult();
+
+        public async Task<EveUnityCultMeshProviderSelection> DiscoverAsync(
+            string rendezvousEndpoint,
+            string providerId = "",
+            string surfaceId = "",
+            string surfaceKind = "interactive-world",
+            string verseId = "",
+            CancellationToken cancellationToken = default)
         {
             if (string.IsNullOrWhiteSpace(rendezvousEndpoint))
                 throw new ArgumentException("Rendezvous endpoint must be non-empty.", nameof(rendezvousEndpoint));
 
-            var response = RunNetwork(() => CultMesh.CreateVerseDiscoveryClient().FetchAsync(
+            var response = await CultMesh.CreateVerseDiscoveryClient().FetchAsync(
                     rendezvousEndpoint,
                     new CultMeshVerseCatalogRequestMessage
                     {
                         VerseIds = string.IsNullOrWhiteSpace(verseId) ? null : new[] { verseId },
                         TransportVersion = "cultmesh.v0"
-                    }));
+                    }).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
 
             var candidates = response.Verses
                 .Where(verse => string.IsNullOrWhiteSpace(verseId) ||
@@ -71,9 +86,13 @@ namespace GameCult.Eve.UnityScene
             var failures = new List<string>();
             foreach (var candidate in candidates)
             {
+                EveUnityCultMeshConnectionContext? connection = null;
                 try
                 {
-                    var advertisement = FetchAdvertisements(candidate.Endpoint)
+                    connection = EveUnityCultMeshConnectionContext.Create(
+                        candidate.Verse.VerseId,
+                        new[] { candidate.Verse.ToVerseDescriptor() });
+                    var advertisement = (await FetchAdvertisementsAsync(connection, cancellationToken).ConfigureAwait(false))
                         .Where(document => string.IsNullOrWhiteSpace(providerId) ||
                                            string.Equals(document.ProviderId, providerId, StringComparison.Ordinal))
                         .Select(document => new
@@ -94,10 +113,12 @@ namespace GameCult.Eve.UnityScene
                         candidate.Verse.VerseId,
                         advertisement.Document.ProviderId,
                         advertisement.Surface.SurfaceId,
-                        advertisement.Surface.SurfaceKind);
+                        advertisement.Surface.SurfaceKind,
+                        connection);
                 }
                 catch (Exception error)
                 {
+                    connection?.Dispose();
                     failures.Add($"{candidate.Endpoint}: {error.Message}");
                 }
             }
@@ -107,12 +128,15 @@ namespace GameCult.Eve.UnityScene
             throw new InvalidOperationException($"No advertised Eve surface matched {filter}.{detail}");
         }
 
-        private static EveProviderAdvertisementDocument[] FetchAdvertisements(string endpoint)
+        private static async Task<EveProviderAdvertisementDocument[]> FetchAdvertisementsAsync(
+            EveUnityCultMeshConnectionContext connection,
+            CancellationToken cancellationToken)
         {
             var cacheRegistry = CultMesh.CreateCultCacheDocumentRegistry(AdvertisementDocumentTypes);
             var networkRegistry = CultMesh.CreateCultNetDocumentRegistry(AdvertisementDocumentTypes, cacheRegistry);
-            var snapshot = CultMesh.SnapshotEndpoint(
-                endpoint,
+            using var snapshot = await CultMeshSnapshotSession.ConnectAsync(
+                connection.Sessions,
+                connection.EndpointId,
                 new CultMeshSnapshotEndpointOptions
                 {
                     Context = CultMesh.Verse("eve.discovery", "eve-unity").Context,
@@ -127,12 +151,12 @@ namespace GameCult.Eve.UnityScene
                         RudpRuntimeId = "eve-unity.discovery",
                         RudpMaxFragmentBytes = 1024
                     }
-                });
-            return RunNetwork(() => snapshot.FetchDocumentsAsync<EveProviderAdvertisementDocument>())
-                .ToArray();
+                }.Request,
+                networkRegistry,
+                cancellationToken).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+            return (await snapshot.FetchDocumentsAsync<EveProviderAdvertisementDocument>()
+                .ConfigureAwait(false)).ToArray();
         }
-
-        private static T RunNetwork<T>(Func<Task<T>> operation) =>
-            Task.Run(operation).GetAwaiter().GetResult();
     }
 }

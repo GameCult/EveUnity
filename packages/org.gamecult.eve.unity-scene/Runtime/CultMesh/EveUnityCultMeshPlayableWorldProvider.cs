@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Collections.Concurrent;
+using System.Threading.Tasks;
 using GameCult.Eve.Surface;
 using UnityEngine;
 
@@ -29,6 +30,7 @@ namespace GameCult.Eve.UnityScene
 
         private EveUnityCultMeshLiveProviderTransport? _transport;
         private EveUnitySceneLiveProviderBridge? _bridge;
+        private Task<EveUnityCultMeshProviderSelection>? _discovery;
         private readonly ConcurrentQueue<EveEntitySoaViewDocument> _pendingEntityViews = new ConcurrentQueue<EveEntitySoaViewDocument>();
 
         public EveEntitySoaViewDocument? CurrentEntityView { get; private set; }
@@ -117,15 +119,20 @@ namespace GameCult.Eve.UnityScene
 
         private void OnDestroy()
         {
+            var transportOwnedConnection = _transport != null;
             _bridge?.Dispose();
             _transport?.Dispose();
             _bridge = null;
             _transport = null;
             Selection = null;
+            if (!transportOwnedConnection && _discovery?.Status == TaskStatus.RanToCompletion)
+                _discovery.Result.Connection.Dispose();
+            _discovery = null;
         }
 
         private void Update()
         {
+            CompleteDiscoveryOnMainThread();
             _transport?.PumpLiveEvents();
             EveEntitySoaViewDocument? latest = null;
             while (_pendingEntityViews.TryDequeue(out var next)) latest = next;
@@ -150,12 +157,29 @@ namespace GameCult.Eve.UnityScene
             if (string.IsNullOrWhiteSpace(rendezvousEndpoint))
                 throw new InvalidOperationException("EveUnity requires a CultMesh rendezvous endpoint.");
 
-            Selection = new EveUnityCultMeshProviderDiscovery().Discover(
-                rendezvousEndpoint,
-                providerFilter,
-                surfaceFilter,
-                surfaceKind,
-                verseFilter);
+            if (_discovery == null)
+                _discovery = new EveUnityCultMeshProviderDiscovery().DiscoverAsync(
+                    rendezvousEndpoint,
+                    providerFilter,
+                    surfaceFilter,
+                    surfaceKind,
+                    verseFilter);
+            CompleteDiscoveryOnMainThread();
+            if (_transport == null)
+                throw new InvalidOperationException("EveUnity CultMesh provider discovery is still in progress.");
+        }
+
+        private void CompleteDiscoveryOnMainThread()
+        {
+            if (_transport != null || _discovery == null || !_discovery.IsCompleted)
+                return;
+            if (_discovery.IsFaulted)
+                throw _discovery.Exception?.GetBaseException()
+                    ?? new InvalidOperationException("EveUnity CultMesh provider discovery failed.");
+            if (_discovery.IsCanceled)
+                throw new InvalidOperationException("EveUnity CultMesh provider discovery was cancelled.");
+
+            Selection = _discovery.Result;
             var resolvedReplicaPath = string.IsNullOrWhiteSpace(replicaPath)
                 ? Path.Combine(Application.temporaryCachePath, $"eve-unity-{GetInstanceID()}.cc")
                 : replicaPath;
@@ -164,7 +188,8 @@ namespace GameCult.Eve.UnityScene
                 Selection.Endpoint,
                 Selection.ProviderId,
                 Selection.SurfaceId,
-                runtimeId);
+                runtimeId,
+                Selection.Connection);
             _transport.EntityViewAvailable += view => _pendingEntityViews.Enqueue(view);
             _bridge = new EveUnitySceneLiveProviderBridge(_transport);
         }

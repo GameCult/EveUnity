@@ -39,6 +39,8 @@ namespace GameCult.Eve.UnityScene
         private readonly string _providerId;
         private readonly string _surfaceId;
         private readonly string _runtimeId;
+        private readonly EveUnityCultMeshConnectionContext? _connection;
+        private CultMeshSession? _documentSession;
         private readonly HashSet<string> _pendingCommandIds = new HashSet<string>(StringComparer.Ordinal);
         private readonly HashSet<string> _publishedReceiptIds = new HashSet<string>(StringComparer.Ordinal);
         private readonly Dictionary<string, GameObject> _prefabs = new Dictionary<string, GameObject>(StringComparer.Ordinal);
@@ -59,7 +61,8 @@ namespace GameCult.Eve.UnityScene
             string endpoint,
             string providerId,
             string surfaceId,
-            string runtimeId = "eve-unity")
+            string runtimeId = "eve-unity",
+            EveUnityCultMeshConnectionContext? connection = null)
         {
             _replicaPath = string.IsNullOrWhiteSpace(replicaPath)
                 ? throw new ArgumentException("Replica path must be non-empty.", nameof(replicaPath))
@@ -74,6 +77,7 @@ namespace GameCult.Eve.UnityScene
                 ? throw new ArgumentException("Surface id must be non-empty.", nameof(surfaceId))
                 : surfaceId.Trim();
             _runtimeId = string.IsNullOrWhiteSpace(runtimeId) ? "eve-unity" : runtimeId.Trim();
+            _connection = connection;
             CurrentSurfaceDocument = EmptySurfaceDocument();
             CurrentAssetManifestDocument = EmptyAssetManifest();
         }
@@ -171,6 +175,7 @@ namespace GameCult.Eve.UnityScene
             _node?.Dispose();
             _snapshot?.Dispose();
             _subscriptions?.Dispose();
+            _connection?.Dispose();
             _node = null;
             _snapshot = null;
             _subscriptions = null;
@@ -235,6 +240,26 @@ namespace GameCult.Eve.UnityScene
                     })
                 .GetAwaiter()
                 .GetResult();
+            if (_connection != null)
+            {
+                _documentSession = _connection.OpenDocumentsAsync().GetAwaiter().GetResult();
+                _snapshot = CultMeshSnapshotSession.ConnectAsync(
+                        _connection.Sessions,
+                        _connection.EndpointId,
+                        new CultMeshSnapshotRequestOptions
+                        {
+                            ShardId = RemoteShardId,
+                            ShardEpoch = 1,
+                            ConnectTimeout = TimeSpan.FromSeconds(5),
+                            ResponseTimeout = TimeSpan.FromSeconds(10),
+                            MessageIdPrefix = "eve-unity",
+                            RudpRuntimeId = _runtimeId,
+                            RudpMaxFragmentBytes = 1024
+                        },
+                        _networkRegistry)
+                    .GetAwaiter().GetResult();
+                return;
+            }
             _snapshot = CultMesh.SnapshotSession(
                 _endpoint,
                 new CultMeshSnapshotRequestOptions
@@ -303,16 +328,20 @@ namespace GameCult.Eve.UnityScene
         private void EnsureLiveSubscriptions()
         {
             if (_subscriptions != null) return;
-            var endpoint = new Uri(_endpoint);
-            var client = CultNetSchemaClients.CreateForEndpoint(_endpoint);
-            client.Connect(endpoint.Host, endpoint.Port);
-            var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
-            while (!client.Connected && DateTime.UtcNow < deadline)
-                System.Threading.Thread.Sleep(1);
-            if (!client.Connected)
+            var client = _documentSession?.OpenSchemaClient()
+                ?? CultNetSchemaClients.CreateForEndpoint(_endpoint);
+            if (_documentSession == null)
             {
-                client.Dispose();
-                throw new TimeoutException($"Timed out connecting live Eve state subscription to '{_endpoint}'.");
+                var endpoint = new Uri(_endpoint);
+                client.Connect(endpoint.Host, endpoint.Port);
+                var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+                while (!client.Connected && DateTime.UtcNow < deadline)
+                    System.Threading.Thread.Sleep(1);
+                if (!client.Connected)
+                {
+                    client.Dispose();
+                    throw new TimeoutException($"Timed out connecting live Eve state subscription to '{_endpoint}'.");
+                }
             }
 
             _subscriptions = new CultNetDatabaseSubscriptionClient(client, _node!.Database.Cache, _networkRegistry!);

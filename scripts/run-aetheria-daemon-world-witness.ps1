@@ -24,8 +24,9 @@ $replicaPath = Join-Path $outputRoot "eve-unity-replica.cc"
 $assetCachePath = Join-Path $outputRoot "asset-cache"
 $statePath = Join-Path $outputRoot "aetheria-witness-state.cc"
 $daemonProject = Join-Path $AetheriaRoot "Aetheria.State.Daemon\Aetheria.State.Daemon.csproj"
+$importProject = Join-Path $AetheriaRoot "Aetheria.State.Import\Aetheria.State.Import.csproj"
 
-foreach ($required in @($UnityExe, (Join-Path $repoRoot $projectRoot), $daemonProject)) {
+foreach ($required in @($UnityExe, (Join-Path $repoRoot $projectRoot), $daemonProject, $importProject)) {
   if (-not (Test-Path -LiteralPath $required)) { throw "Required world witness path not found: $required" }
 }
 
@@ -52,6 +53,15 @@ foreach ($ephemeralPath in @(
     throw "Witness cleanup escaped its artifact directory: $resolved"
   }
   if (Test-Path -LiteralPath $resolved) { Remove-Item -LiteralPath $resolved -Recurse -Force }
+}
+
+$import = Start-Process -FilePath "dotnet" -ArgumentList @(
+  "run", "--project", $importProject, "--", $AetheriaRoot, $statePath
+) -PassThru -WindowStyle Hidden -Wait `
+  -RedirectStandardOutput (Join-Path $outputRoot "aetheria-import.log") `
+  -RedirectStandardError (Join-Path $outputRoot "aetheria-import.error.log")
+if ($import.ExitCode -ne 0) {
+  throw "Aetheria state import failed with exit code $($import.ExitCode). See $outputRoot\aetheria-import.error.log"
 }
 if (-not $SkipAssetBundleBuild) {
   $bundleBuilder = Start-Process -FilePath $UnityExe -ArgumentList @(

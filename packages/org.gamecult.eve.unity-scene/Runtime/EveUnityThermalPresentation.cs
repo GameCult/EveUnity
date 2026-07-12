@@ -13,6 +13,27 @@ namespace GameCult.Eve.UnityScene
         void ApplyThermalPresentation(EveUnityThermalPresentationFrame frame);
     }
 
+    public interface IEveUnityThermalPresentationAssetSink
+    {
+        void ConfigureThermalPresentationAssets(EveUnityThermalPresentationAssets assets);
+    }
+
+    public sealed class EveUnityThermalPresentationAssets
+    {
+        public EveUnityThermalPresentationAssets(UnityEngine.Object? heatstroke,
+            UnityEngine.Object? severeHeatstroke, UnityEngine.Object? hypothermia,
+            UnityEngine.Object? severeHypothermia, UnityEngine.Object? death)
+        {
+            Heatstroke = heatstroke; SevereHeatstroke = severeHeatstroke;
+            Hypothermia = hypothermia; SevereHypothermia = severeHypothermia; Death = death;
+        }
+        public UnityEngine.Object? Heatstroke { get; }
+        public UnityEngine.Object? SevereHeatstroke { get; }
+        public UnityEngine.Object? Hypothermia { get; }
+        public UnityEngine.Object? SevereHypothermia { get; }
+        public UnityEngine.Object? Death { get; }
+    }
+
     public readonly struct EveUnityThermalPresentationFrame
     {
         public EveUnityThermalPresentationFrame(string entityId, float cockpitTemperature,
@@ -174,10 +195,18 @@ namespace GameCult.Eve.UnityScene
 
         public EveUnityThermalPresentationFrame LastFrame { get; private set; }
 
-        public void Bind(EveUnityPlayableWorldClientHost host)
+        public void Bind(EveUnityPlayableWorldClientHost host, IEveUnityNativeAssetProvider? assets = null)
         {
             _host = host != null ? host : throw new ArgumentNullException(nameof(host));
             _sinks = GetComponents<MonoBehaviour>().OfType<IEveUnityThermalPresentationSink>().ToArray();
+            var resolved = new EveUnityThermalPresentationAssets(
+                Resolve(assets, "post.thermal.heatstroke"),
+                Resolve(assets, "post.thermal.severe-heatstroke"),
+                Resolve(assets, "post.thermal.hypothermia"),
+                Resolve(assets, "post.thermal.severe-hypothermia"),
+                Resolve(assets, "post.death"));
+            foreach (var sink in GetComponents<MonoBehaviour>().OfType<IEveUnityThermalPresentationAssetSink>())
+                sink.ConfigureThermalPresentationAssets(resolved);
             ApplyAt(Time.unscaledTime);
         }
 
@@ -188,5 +217,9 @@ namespace GameCult.Eve.UnityScene
         }
 
         private void Update() => ApplyAt(Time.unscaledTime);
+
+        private static UnityEngine.Object? Resolve(IEveUnityNativeAssetProvider? assets, string role) =>
+            assets?.ResolveAsset(new EveUnityPlayableWorldAssetBinding("", role, "provider-asset-ref"),
+                typeof(UnityEngine.Object));
     }
 }

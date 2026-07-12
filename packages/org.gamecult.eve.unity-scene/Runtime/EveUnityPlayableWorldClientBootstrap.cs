@@ -155,6 +155,7 @@ namespace GameCult.Eve.UnityScene
 
             rig.Host = resolvedHost;
             rig.CameraTransform = ResolveCameraTransform();
+            rig.RenderPolicySource = provider as IEveUnityCameraRenderPolicySource;
         }
 
         private MonoBehaviour ResolveBehaviour<T>(

@@ -14,7 +14,8 @@ namespace GameCult.Eve.UnityScene
         IEveUnitySceneCommandSink,
         IEveUnitySceneCommandReceiptSource,
         IEveUnityProviderRefreshSource,
-        IEveUnityGameObjectAssetProvider
+        IEveUnityCameraRenderPolicySource,
+        IEveUnityNativeAssetProvider
     {
         [SerializeField] private string rendezvousEndpoint = "";
         [SerializeField] private string providerFilter = "";
@@ -91,6 +92,18 @@ namespace GameCult.Eve.UnityScene
         {
             EnsureTransport();
             return _transport!.ResolvePrefab(asset);
+        }
+
+        public UnityEngine.Object? ResolveAsset(EveUnityPlayableWorldAssetBinding asset, Type assetType)
+        {
+            EnsureTransport();
+            return _transport!.ResolveAsset(asset, assetType);
+        }
+
+        public bool TryGetCameraCullingMask(string viewId, out int cullingMask)
+        {
+            EnsureTransport();
+            return _transport!.TryGetCameraCullingMask(viewId, out cullingMask);
         }
 
         private void OnDestroy()

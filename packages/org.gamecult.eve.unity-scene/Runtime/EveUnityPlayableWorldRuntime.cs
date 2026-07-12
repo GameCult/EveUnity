@@ -186,7 +186,7 @@ namespace GameCult.Eve.UnityScene
         }
     }
 
-    public sealed class EveUnityLivePlayableWorldAssetProvider : IEveUnityGameObjectAssetProvider
+    public sealed class EveUnityLivePlayableWorldAssetProvider : IEveUnityNativeAssetProvider
     {
         private readonly EveUnityPlayableWorldAssetManifestCache _assetManifests;
         private readonly Func<EveUnityPlayableWorldProjection?> _activeWorld;
@@ -217,6 +217,21 @@ namespace GameCult.Eve.UnityScene
             }
 
             return _fallback.ResolvePrefab(asset);
+        }
+
+        public UnityEngine.Object? ResolveAsset(EveUnityPlayableWorldAssetBinding asset, Type assetType)
+        {
+            if (asset == null) throw new ArgumentNullException(nameof(asset));
+            if (assetType == null) throw new ArgumentNullException(nameof(assetType));
+            var world = _activeWorld();
+            var manifest = world == null ? null : _assetManifests.GetForWorld(world);
+            if (manifest != null)
+            {
+                var provider = new EveUnityManifestGameObjectAssetProvider(manifest, _fallback);
+                var value = provider.ResolveAsset(asset, assetType);
+                if (value != null) return value;
+            }
+            return (_fallback as IEveUnityNativeAssetProvider)?.ResolveAsset(asset, assetType);
         }
     }
 }

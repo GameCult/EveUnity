@@ -4,6 +4,11 @@ using UnityEngine;
 
 namespace GameCult.Eve.UnityScene
 {
+    public interface IEveUnityCameraRenderPolicySource
+    {
+        bool TryGetCameraCullingMask(string viewId, out int cullingMask);
+    }
+
     public sealed class EveUnityPlayableWorldCameraRig : MonoBehaviour
     {
         [SerializeField] private EveUnityPlayableWorldClientHost? host;
@@ -13,6 +18,7 @@ namespace GameCult.Eve.UnityScene
         [SerializeField] private float height = 6f;
         [SerializeField] private float yawDegrees = 35f;
         [SerializeField] private float followDamping = 12f;
+        private IEveUnityCameraRenderPolicySource? _renderPolicySource;
 
         public EveUnityPlayableWorldClientHost? Host
         {
@@ -24,6 +30,12 @@ namespace GameCult.Eve.UnityScene
         {
             get => cameraTransform;
             set => cameraTransform = value;
+        }
+
+        public IEveUnityCameraRenderPolicySource? RenderPolicySource
+        {
+            get => _renderPolicySource;
+            set => _renderPolicySource = value;
         }
 
         public bool ApplyRig(float deltaTime)
@@ -46,6 +58,12 @@ namespace GameCult.Eve.UnityScene
                 return false;
 
             var cameraComponent = camera.GetComponent<Camera>();
+            if (cameraComponent != null &&
+                _renderPolicySource != null &&
+                _renderPolicySource.TryGetCameraCullingMask(activeWorld.ViewId, out var cullingMask))
+            {
+                cameraComponent.cullingMask = cullingMask;
+            }
             var bounds = CalculateVisualBounds(player);
             var target = bounds?.center ?? player.transform.position;
             var radius = bounds?.extents.magnitude ?? 0f;

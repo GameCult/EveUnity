@@ -40,7 +40,9 @@ namespace GameCult.Eve.UnityScene
         private readonly HashSet<string> _pendingCommandIds = new HashSet<string>(StringComparer.Ordinal);
         private readonly HashSet<string> _publishedReceiptIds = new HashSet<string>(StringComparer.Ordinal);
         private readonly Dictionary<string, GameObject> _prefabs = new Dictionary<string, GameObject>(StringComparer.Ordinal);
+        private readonly Dictionary<string, UnityEngine.Object> _nativeAssets = new Dictionary<string, UnityEngine.Object>(StringComparer.Ordinal);
         private readonly List<AssetBundle> _assetBundles = new List<AssetBundle>();
+        private readonly Dictionary<string, int> _cameraCullingMasks = new Dictionary<string, int>(StringComparer.Ordinal);
         private CultMeshNode? _node;
         private CultMeshSnapshotEndpoint? _snapshot;
         private CultMeshSnapshotSession? _assetSession;
@@ -148,6 +150,7 @@ namespace GameCult.Eve.UnityScene
             foreach (var bundle in _assetBundles) bundle.Unload(unloadAllLoadedObjects: false);
             _assetBundles.Clear();
             _prefabs.Clear();
+            _nativeAssets.Clear();
             _node?.Dispose();
             _assetSession?.Dispose();
             _node = null;
@@ -163,6 +166,19 @@ namespace GameCult.Eve.UnityScene
         {
             if (asset == null) throw new ArgumentNullException(nameof(asset));
             return _prefabs.TryGetValue(asset.AssetRef, out var prefab) ? prefab : null;
+        }
+
+        public UnityEngine.Object? ResolveAsset(EveUnityPlayableWorldAssetBinding asset, Type assetType)
+        {
+            if (asset == null) throw new ArgumentNullException(nameof(asset));
+            if (assetType == null) throw new ArgumentNullException(nameof(assetType));
+            return _nativeAssets.TryGetValue(asset.AssetRef, out var value) && assetType.IsInstanceOfType(value)
+                ? value : null;
+        }
+
+        public bool TryGetCameraCullingMask(string viewId, out int cullingMask)
+        {
+            return _cameraCullingMasks.TryGetValue(viewId ?? "", out cullingMask);
         }
 
         private void EnsureOpen()
@@ -297,6 +313,8 @@ namespace GameCult.Eve.UnityScene
             foreach (var bundle in _assetBundles) bundle.Unload(unloadAllLoadedObjects: false);
             _assetBundles.Clear();
             _prefabs.Clear();
+            _nativeAssets.Clear();
+            _cameraCullingMasks.Clear();
             var selected = catalog.Assets
                 .Select(asset => new
                 {
@@ -307,6 +325,7 @@ namespace GameCult.Eve.UnityScene
                 })
                 .Where(selection => selection.Variant != null)
                 .ToArray();
+            ReadCameraPolicies(selected.Select(selection => selection.Variant!));
             foreach (var group in selected.GroupBy(selection => selection.Variant!.Uri, StringComparer.Ordinal))
             {
                 var variant = group.First().Variant!;
@@ -326,13 +345,45 @@ namespace GameCult.Eve.UnityScene
                 _assetBundles.Add(bundle);
                 foreach (var selection in group)
                 {
-                    var prefab = bundle.LoadAsset<GameObject>(selection.Variant!.AssetKey);
-                    if (prefab != null)
+                    var value = bundle.LoadAsset(selection.Variant!.AssetKey);
+                    if (value == null) continue;
+                    _nativeAssets[selection.Asset.AssetRef] = value;
+                    if (selection.Asset.Metadata.TryGetValue("presentationRole", out var role) &&
+                        !string.IsNullOrWhiteSpace(role))
+                        _nativeAssets[role] = value;
+                    if (value is GameObject prefab)
+                    {
                         _prefabs[selection.Asset.AssetRef] = prefab;
+                        if (!string.IsNullOrWhiteSpace(role)) _prefabs[role] = prefab;
+                    }
                 }
             }
 
             CurrentAssetCatalogVersion = catalog.Version;
+        }
+
+        private void ReadCameraPolicies(IEnumerable<EveAssetVariant> variants)
+        {
+            _cameraCullingMasks.Clear();
+            foreach (var variant in variants)
+            {
+                foreach (var pair in variant.Metadata)
+                {
+                    const string prefix = "view.";
+                    const string suffix = ".excludeUnityLayers";
+                    if (!pair.Key.StartsWith(prefix, StringComparison.Ordinal) ||
+                        !pair.Key.EndsWith(suffix, StringComparison.Ordinal))
+                        continue;
+                    var viewId = pair.Key.Substring(prefix.Length, pair.Key.Length - prefix.Length - suffix.Length);
+                    var mask = -1;
+                    foreach (var token in (pair.Value ?? "").Split(','))
+                    {
+                        if (int.TryParse(token.Trim(), out var layer) && layer >= 0 && layer < 32)
+                            mask &= ~(1 << layer);
+                    }
+                    _cameraCullingMasks[viewId] = mask;
+                }
+            }
         }
 
         private long CurrentAssetCatalogVersion { get; set; } = -1;

@@ -11,6 +11,11 @@ namespace GameCult.Eve.UnityScene
         GameObject? ResolvePrefab(EveUnityPlayableWorldAssetBinding asset);
     }
 
+    public interface IEveUnityNativeAssetProvider : IEveUnityGameObjectAssetProvider
+    {
+        UnityEngine.Object? ResolveAsset(EveUnityPlayableWorldAssetBinding asset, Type assetType);
+    }
+
     public sealed class EveUnityGameObjectPlayableWorldSceneSink : IEveUnityPlayableWorldSceneSink
     {
         private readonly Transform _root;
@@ -200,7 +205,7 @@ namespace GameCult.Eve.UnityScene
         private static float Positive(float value, float fallback) => value > 0f ? value : fallback;
     }
 
-    public sealed class EveUnityResourcesAssetProvider : IEveUnityGameObjectAssetProvider
+    public sealed class EveUnityResourcesAssetProvider : IEveUnityNativeAssetProvider
     {
         public GameObject? ResolvePrefab(EveUnityPlayableWorldAssetBinding asset)
         {
@@ -209,6 +214,14 @@ namespace GameCult.Eve.UnityScene
             return string.IsNullOrWhiteSpace(resourcesPath)
                 ? null
                 : Resources.Load<GameObject>(resourcesPath);
+        }
+
+        public UnityEngine.Object? ResolveAsset(EveUnityPlayableWorldAssetBinding asset, Type assetType)
+        {
+            if (asset == null) throw new ArgumentNullException(nameof(asset));
+            if (assetType == null) throw new ArgumentNullException(nameof(assetType));
+            var resourcesPath = EveUnityPlayableWorldAssetManifestEntry.NormalizeResourcesPath(asset.AssetRef);
+            return string.IsNullOrWhiteSpace(resourcesPath) ? null : Resources.Load(resourcesPath, assetType);
         }
     }
 

@@ -43,21 +43,26 @@ namespace GameCult.Eve.UnityScene
             var line = shot.AddComponent<LineRenderer>();
             line.useWorldSpace = true;
             line.positionCount = 2;
-            line.startWidth = Math.Max(0.01f, width);
-            line.endWidth = Math.Max(0.01f, width * 0.5f);
+            var intensityScale = Mathf.Clamp(Mathf.Sqrt((float)receipt.PresentationIntensity), 0.5f, 4f);
+            line.startWidth = Math.Max(0.01f, width * intensityScale);
+            line.endWidth = Math.Max(0.01f, width * 0.5f * intensityScale);
             line.material = SharedMaterial();
             line.startColor = line.endColor = receipt.Hit ? hitColor : missColor;
 
             var origin = Vector(receipt.Origin);
             line.SetPosition(0, origin);
-            line.SetPosition(1, origin);
+            var endpoint = Vector(receipt.Endpoint);
+            var travels = string.Equals(receipt.PresentationKind, "bolt", StringComparison.Ordinal) ||
+                string.Equals(receipt.PresentationKind, "guided", StringComparison.Ordinal);
+            line.SetPosition(1, travels ? origin : endpoint);
             _active.Add(new ActiveTrajectory(
                 shot,
                 line,
                 origin,
-                Vector(receipt.Endpoint),
+                endpoint,
                 Time.unscaledTime,
-                Math.Max(minimumDurationSeconds, (float)receipt.DurationSeconds)));
+                Math.Max(minimumDurationSeconds, (float)receipt.DurationSeconds),
+                travels));
         }
 
         private void Update()
@@ -67,7 +72,8 @@ namespace GameCult.Eve.UnityScene
             {
                 var trajectory = _active[index];
                 var progress = Mathf.Clamp01((now - trajectory.StartedAt) / trajectory.Duration);
-                trajectory.Line.SetPosition(1, Vector3.Lerp(trajectory.Origin, trajectory.Endpoint, progress));
+                if (trajectory.Travels)
+                    trajectory.Line.SetPosition(1, Vector3.Lerp(trajectory.Origin, trajectory.Endpoint, progress));
                 if (progress < 1 || now < trajectory.StartedAt + trajectory.Duration + lingerSeconds) continue;
                 Destroy(trajectory.Root);
                 _active.RemoveAt(index);
@@ -97,7 +103,7 @@ namespace GameCult.Eve.UnityScene
 
         private sealed class ActiveTrajectory
         {
-            public ActiveTrajectory(GameObject root, LineRenderer line, Vector3 origin, Vector3 endpoint, float startedAt, float duration)
+            public ActiveTrajectory(GameObject root, LineRenderer line, Vector3 origin, Vector3 endpoint, float startedAt, float duration, bool travels)
             {
                 Root = root;
                 Line = line;
@@ -105,6 +111,7 @@ namespace GameCult.Eve.UnityScene
                 Endpoint = endpoint;
                 StartedAt = startedAt;
                 Duration = duration;
+                Travels = travels;
             }
 
             public GameObject Root { get; }
@@ -113,6 +120,7 @@ namespace GameCult.Eve.UnityScene
             public Vector3 Endpoint { get; }
             public float StartedAt { get; }
             public float Duration { get; }
+            public bool Travels { get; }
         }
     }
 }

@@ -31,6 +31,8 @@ namespace GameCult.Eve.UnityScene.Tests
             Assert.That(emitted[0].Endpoint.Z, Is.EqualTo(30));
             Assert.That(emitted[0].DurationSeconds, Is.EqualTo(0.25));
             Assert.That(emitted[0].PresentationKind, Is.EqualTo("test-laser"));
+            Assert.That(emitted[0].ImpactKind, Is.EqualTo("shield"));
+            Assert.That(emitted[0].PresentationIntensity, Is.EqualTo(9));
             Assert.That(presenter.Apply(next), Is.Zero);
         }
 
@@ -52,7 +54,9 @@ namespace GameCult.Eve.UnityScene.Tests
                     ["origin"] = origin,
                     ["endpoint"] = endpoint,
                     ["presentationDuration"] = "0.25",
-                    ["presentationKind"] = "test-laser"
+                    ["presentationKind"] = "test-laser",
+                    ["impactKind"] = "shield",
+                    ["presentationIntensity"] = "9"
                 }, Empty(), Empty(), 0, 0, Array.Empty<EveUnitySceneEmbeddedDocumentSlot>(), null,
                 Array.Empty<EveUnitySceneNode>());
 

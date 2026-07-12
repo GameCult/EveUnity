@@ -44,8 +44,7 @@ namespace GameCult.Eve.UnityScene
         private readonly List<AssetBundle> _assetBundles = new List<AssetBundle>();
         private readonly Dictionary<string, int> _cameraCullingMasks = new Dictionary<string, int>(StringComparer.Ordinal);
         private CultMeshNode? _node;
-        private CultMeshSnapshotEndpoint? _snapshot;
-        private CultMeshSnapshotSession? _assetSession;
+        private CultMeshSnapshotSession? _snapshot;
         private CultNetDocumentRegistry? _networkRegistry;
         private CultNetShardDescriptor? _replicaShard;
         private EveProviderAdvertisementDocument? _advertisement;
@@ -152,10 +151,9 @@ namespace GameCult.Eve.UnityScene
             _prefabs.Clear();
             _nativeAssets.Clear();
             _node?.Dispose();
-            _assetSession?.Dispose();
+            _snapshot?.Dispose();
             _node = null;
             _snapshot = null;
-            _assetSession = null;
             _networkRegistry = null;
             _replicaShard = null;
             _pendingCommandIds.Clear();
@@ -217,24 +215,7 @@ namespace GameCult.Eve.UnityScene
                     })
                 .GetAwaiter()
                 .GetResult();
-            _snapshot = CultMesh.SnapshotEndpoint(
-                _endpoint,
-                new CultMeshSnapshotEndpointOptions
-                {
-                    Context = CultMesh.Verse("eve.remote", _runtimeId).Context,
-                    DocumentRegistry = _networkRegistry,
-                    Request = new CultMeshSnapshotRequestOptions
-                    {
-                        ShardId = RemoteShardId,
-                        ShardEpoch = 1,
-                        ConnectTimeout = TimeSpan.FromSeconds(5),
-                        ResponseTimeout = TimeSpan.FromSeconds(10),
-                        MessageIdPrefix = "eve-unity",
-                        RudpRuntimeId = _runtimeId,
-                        RudpMaxFragmentBytes = 1024
-                    }
-                });
-            _assetSession = CultMesh.SnapshotSession(
+            _snapshot = CultMesh.SnapshotSession(
                 _endpoint,
                 new CultMeshSnapshotRequestOptions
                 {
@@ -242,8 +223,8 @@ namespace GameCult.Eve.UnityScene
                     ShardEpoch = 1,
                     ConnectTimeout = TimeSpan.FromSeconds(5),
                     ResponseTimeout = TimeSpan.FromSeconds(10),
-                    MessageIdPrefix = "eve-unity-assets",
-                    RudpRuntimeId = $"{_runtimeId}.assets",
+                    MessageIdPrefix = "eve-unity",
+                    RudpRuntimeId = _runtimeId,
                     RudpMaxFragmentBytes = 1024
                 },
                 _networkRegistry);
@@ -329,7 +310,7 @@ namespace GameCult.Eve.UnityScene
             foreach (var group in selected.GroupBy(selection => selection.Variant!.Uri, StringComparer.Ordinal))
             {
                 var variant = group.First().Variant!;
-                var manifest = _assetSession!.FetchDocumentsAsync<CultMeshCdnArtifactManifest>(
+                var manifest = _snapshot!.FetchDocumentsAsync<CultMeshCdnArtifactManifest>(
                         recordKeys: new[] { variant.Uri },
                         schemaIds: new[] { CultMeshCdnSchemaVersions.ArtifactManifest })
                     .GetAwaiter()
@@ -403,7 +384,7 @@ namespace GameCult.Eve.UnityScene
             for (var index = 0; index < references.Length; index += 2)
             {
                 var batch = references.Skip(index).Take(2).ToArray();
-                var chunks = _assetSession!
+                var chunks = _snapshot!
                     .FetchDocumentsAsync<CultMeshCdnArtifactChunk>(
                         recordKeys: batch.Select(reference => reference.RecordKey).ToArray(),
                         schemaIds: new[] { CultMeshCdnSchemaVersions.ArtifactChunk })

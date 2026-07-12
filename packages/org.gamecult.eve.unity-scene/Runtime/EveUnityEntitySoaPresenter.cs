@@ -24,6 +24,8 @@ namespace GameCult.Eve.UnityScene
             _sink = sink ?? throw new ArgumentNullException(nameof(sink));
         }
 
+        public int ActiveEntities => _known.Count;
+
         public void Apply(EveEntitySoaViewDocument document)
         {
             using var view = EveUnityEntitySoaView.Open(document);

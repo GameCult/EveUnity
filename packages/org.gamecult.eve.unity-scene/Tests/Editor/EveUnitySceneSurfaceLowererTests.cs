@@ -420,6 +420,52 @@ namespace GameCult.Eve.UnityScene.Tests
         }
 
         [Test]
+        public void PlayableWorldRuntimeReportsAuthoritativeSoaEntityCountOnConnect()
+        {
+            var location = $"eve-unity-runtime-soa-{Guid.NewGuid():N}";
+            using var mapped = MemoryMappedFile.CreateNew(location, 16);
+            using (var writer = mapped.CreateViewAccessor())
+            {
+                writer.Write(0, 4f);
+                writer.Write(4, 5f);
+                writer.Write(8, 6f);
+                writer.Write(12, 41);
+            }
+            var entityView = new EveEntitySoaViewDocument
+            {
+                ProviderId = "aetheria",
+                ViewId = "pilot",
+                Generation = 1,
+                Backend = "memory_mapped_file",
+                Buffers = new[] { new EveEntitySoaBuffer { BufferId = "hot", Backend = "memory_mapped_file", Location = location, ByteLength = 16, Generation = 1 } },
+                Columns = new[]
+                {
+                    new EveEntitySoaColumn { ColumnId = "position", Semantic = "transform.position", BufferId = "hot", ScalarType = "float3", ElementStride = 12, ElementCount = 1 },
+                    new EveEntitySoaColumn { ColumnId = "entity-index", Semantic = "entity.index", BufferId = "hot", ScalarType = "int32", ByteOffset = 12, ElementStride = 4, ElementCount = 1 }
+                }
+            };
+            var surfaceDocuments = new FakeProviderSurfaceDocumentSource(
+                new EveUnitySceneProviderSurfaceDocument(
+                    PlayableArpgDocument(),
+                    Advertisement("aetheria.daemon.game"),
+                    "cultmesh://aetheria/eve/surfaces/aetheria.daemon.game",
+                    1),
+                entityView);
+            var sceneSink = new FakePlayableWorldSceneSink();
+
+            using var runtime = new EveUnityPlayableWorldRuntime(
+                surfaceDocuments,
+                new FakeCommandSink("cultmesh-command-sink"),
+                sceneSink);
+
+            var presentation = runtime.Connect();
+
+            Assert.That(presentation.ActiveEntities, Is.EqualTo(1));
+            Assert.That(runtime.LastPresentation!.ActiveEntities, Is.EqualTo(1));
+            Assert.That(sceneSink.Upserts.Exists(entry => entry.entity.EntityId == "entity:41"), Is.True);
+        }
+
+        [Test]
         public void LiveProviderBridgeFeedsPlayableWorldRuntimeThroughTransportPorts()
         {
             var transport = new FakeLiveProviderTransport(
@@ -1544,21 +1590,36 @@ namespace GameCult.Eve.UnityScene.Tests
             }
         }
 
-        private sealed class FakeProviderSurfaceDocumentSource : IEveUnitySceneProviderSurfaceDocumentSource
+        private sealed class FakeProviderSurfaceDocumentSource :
+            IEveUnitySceneProviderSurfaceDocumentSource,
+            IEveUnityEntitySoaViewDocumentSource
         {
-            public FakeProviderSurfaceDocumentSource(EveUnitySceneProviderSurfaceDocument currentDocument)
+            public FakeProviderSurfaceDocumentSource(
+                EveUnitySceneProviderSurfaceDocument currentDocument,
+                EveEntitySoaViewDocument? currentEntityView = null)
             {
                 CurrentDocument = currentDocument;
+                CurrentEntityView = currentEntityView;
             }
 
             public EveUnitySceneProviderSurfaceDocument CurrentDocument { get; private set; }
 
             public event Action<EveUnitySceneProviderSurfaceDocument>? DocumentAvailable;
 
+            public EveEntitySoaViewDocument? CurrentEntityView { get; private set; }
+
+            public event Action<EveEntitySoaViewDocument>? EntityViewAvailable;
+
             public void Publish(EveUnitySceneProviderSurfaceDocument document)
             {
                 CurrentDocument = document;
                 DocumentAvailable?.Invoke(document);
+            }
+
+            public void PublishEntityView(EveEntitySoaViewDocument document)
+            {
+                CurrentEntityView = document;
+                EntityViewAvailable?.Invoke(document);
             }
         }
 

@@ -52,7 +52,7 @@ namespace GameCult.Eve.UnityScene
 
         public EveUnitySceneProjection? ActiveProjection => _client.ActiveProjection;
 
-        public EveUnityPlayableWorldPresentation? LastPresentation => _client.LastPresentation;
+        public EveUnityPlayableWorldPresentation? LastPresentation => ComposePresentation(_client.LastPresentation);
 
         public EveUnitySceneCommandReceipt? LastReceipt => _client.LastReceipt;
 
@@ -109,15 +109,17 @@ namespace GameCult.Eve.UnityScene
         public EveUnityPlayableWorldPresentation Connect()
         {
             EnsureAssetManifestConnected();
-            var presentation = _client.Connect();
+            _client.Connect();
             EnsureEntityViewsConnected();
-            return presentation;
+            return ComposePresentation(_client.LastPresentation)!;
         }
 
         public EveUnityPlayableWorldPresentation Refresh()
         {
             EnsureAssetManifestConnected();
-            return _client.Refresh();
+            EnsureEntityViewsConnected();
+            _client.Refresh();
+            return ComposePresentation(_client.LastPresentation)!;
         }
 
         public EveSurfaceCommandRequest SubmitMoveIntent(
@@ -207,6 +209,22 @@ namespace GameCult.Eve.UnityScene
         }
 
         private void OnEntityViewAvailable(EveEntitySoaViewDocument document) => _entityPresenter.Apply(document);
+
+        private EveUnityPlayableWorldPresentation? ComposePresentation(
+            EveUnityPlayableWorldPresentation? surfacePresentation)
+        {
+            if (surfacePresentation == null || _entityViews?.CurrentEntityView == null)
+                return surfacePresentation;
+
+            return new EveUnityPlayableWorldPresentation(
+                surfacePresentation.WorldRootId,
+                surfacePresentation.PlayerEntityId,
+                surfacePresentation.InputProfile,
+                surfacePresentation.CameraRig,
+                surfacePresentation.UpsertedEntities,
+                surfacePresentation.RemovedEntities,
+                _entityPresenter.ActiveEntities);
+        }
     }
 
     public sealed class EveUnityLivePlayableWorldAssetProvider : IEveUnityNativeAssetProvider

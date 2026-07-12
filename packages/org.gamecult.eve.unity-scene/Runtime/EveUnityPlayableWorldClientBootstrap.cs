@@ -19,7 +19,7 @@ namespace GameCult.Eve.UnityScene
         [SerializeField] private bool createSceneRootIfMissing = true;
         [SerializeField] private bool attachInputDriver = true;
         [SerializeField] private bool attachCameraRig = true;
-        [SerializeField] private bool connectOnEnable = true;
+        [SerializeField] private bool connectOnEnable;
 
         public EveUnityPlayableWorldClientHost? Host => host;
 

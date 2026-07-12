@@ -28,6 +28,7 @@ namespace GameCult.Eve.UnityScene
             typeof(EveSurfaceCommandRequest),
             typeof(EveCommandReceiptDocument),
             typeof(EveAssetCatalogDocument),
+            typeof(EveEntitySoaViewDocument),
             typeof(CultMeshCdnArtifactManifest),
             typeof(CultMeshCdnArtifactChunk)
         };
@@ -47,6 +48,7 @@ namespace GameCult.Eve.UnityScene
         private CultMeshSnapshotSession? _snapshot;
         private CultNetDocumentRegistry? _networkRegistry;
         private CultNetShardDescriptor? _replicaShard;
+        private CultNetDatabaseSubscriptionClient? _subscriptions;
         private EveProviderAdvertisementDocument? _advertisement;
         private EveAdvertisedSurface? _advertisedSurface;
 
@@ -89,6 +91,8 @@ namespace GameCult.Eve.UnityScene
         public event Action<EveUnityPlayableWorldAssetManifestDocument>? AssetManifestDocumentAvailable;
 
         public event Action<EveUnitySceneCommandReceipt>? CommandReceiptAvailable;
+
+        public event Action<EveEntitySoaViewDocument>? EntityViewAvailable;
 
         public void Connect()
         {
@@ -152,8 +156,10 @@ namespace GameCult.Eve.UnityScene
             _nativeAssets.Clear();
             _node?.Dispose();
             _snapshot?.Dispose();
+            _subscriptions?.Dispose();
             _node = null;
             _snapshot = null;
+            _subscriptions = null;
             _networkRegistry = null;
             _replicaShard = null;
             _pendingCommandIds.Clear();
@@ -273,6 +279,47 @@ namespace GameCult.Eve.UnityScene
                 surface.Version);
             SurfaceDocumentAvailable?.Invoke(CurrentSurfaceDocument);
             AssetManifestDocumentAvailable?.Invoke(CurrentAssetManifestDocument);
+            EnsureLiveSubscriptions();
+        }
+
+        private void EnsureLiveSubscriptions()
+        {
+            if (_subscriptions != null) return;
+            var endpoint = new Uri(_endpoint);
+            var client = CultNetSchemaClients.CreateForEndpoint(_endpoint);
+            client.Connect(endpoint.Host, endpoint.Port);
+            var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+            while (!client.Connected && DateTime.UtcNow < deadline)
+                System.Threading.Thread.Sleep(1);
+            if (!client.Connected)
+            {
+                client.Dispose();
+                throw new TimeoutException($"Timed out connecting live Eve state subscription to '{_endpoint}'.");
+            }
+
+            _subscriptions = new CultNetDatabaseSubscriptionClient(client, _node!.Database.Cache, _networkRegistry!);
+            _subscriptions.Changed += OnReplicatedDocumentChanged;
+            var lowered = new EveUnitySceneSurfaceLowerer()
+                .Lower(CurrentSurfaceDocument.SurfaceDocument, CurrentSurfaceDocument.AdvertisedSurface);
+            string entityViewPointer = lowered.PlayableWorld == null
+                ? ""
+                : lowered.PlayableWorld.EntityViewPointerId;
+            if (!string.IsNullOrWhiteSpace(entityViewPointer))
+            {
+                _subscriptions.SubscribeAsync(
+                        "eve-unity-entity-view",
+                        recordKeys: new[] { entityViewPointer },
+                        schemaIds: new[] { EveEntitySoaViewDocument.SchemaId })
+                    .GetAwaiter().GetResult();
+                if (_node.Database.Cache.Get(new CultRecordKey(entityViewPointer)) is EveEntitySoaViewDocument current)
+                    EntityViewAvailable?.Invoke(current);
+            }
+        }
+
+        private void OnReplicatedDocumentChanged(CultNetReplicatedDocumentChange change)
+        {
+            if (change.Document is EveEntitySoaViewDocument entityView)
+                EntityViewAvailable?.Invoke(entityView);
         }
 
         private void RefreshAssetCatalog()

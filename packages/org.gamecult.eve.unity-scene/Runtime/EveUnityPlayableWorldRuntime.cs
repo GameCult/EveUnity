@@ -12,6 +12,9 @@ namespace GameCult.Eve.UnityScene
         private readonly EveUnitySceneProviderConnection _connection;
         private readonly EveUnityPlayableWorldLiveClient _client;
         private readonly EveUnityPlayableWorldAssetManifestDocumentSource? _assetManifestSource;
+        private readonly IEveUnityEntitySoaViewDocumentSource? _entityViews;
+        private readonly EveUnityEntitySoaPresenter _entityPresenter;
+        private bool _entityViewsConnected;
         private bool _assetManifestConnected;
 
         public EveUnityPlayableWorldRuntime(
@@ -29,6 +32,8 @@ namespace GameCult.Eve.UnityScene
 
             AssetManifests = assetManifests ?? new EveUnityPlayableWorldAssetManifestCache();
             _surfaceSource = new EveUnitySceneProviderSurfaceDocumentSource(surfaceDocuments);
+            _entityViews = surfaceDocuments as IEveUnityEntitySoaViewDocumentSource;
+            _entityPresenter = new EveUnityEntitySoaPresenter(sceneSink);
             _connection = new EveUnitySceneProviderConnection(_surfaceSource, commandSink);
             _client = new EveUnityPlayableWorldLiveClient(
                 _connection,
@@ -104,7 +109,9 @@ namespace GameCult.Eve.UnityScene
         public EveUnityPlayableWorldPresentation Connect()
         {
             EnsureAssetManifestConnected();
-            return _client.Connect();
+            var presentation = _client.Connect();
+            EnsureEntityViewsConnected();
+            return presentation;
         }
 
         public EveUnityPlayableWorldPresentation Refresh()
@@ -158,6 +165,11 @@ namespace GameCult.Eve.UnityScene
 
         public void Disconnect()
         {
+            if (_entityViewsConnected && _entityViews != null)
+            {
+                _entityViews.EntityViewAvailable -= OnEntityViewAvailable;
+                _entityViewsConnected = false;
+            }
             _client.Disconnect();
 
             if (_assetManifestConnected && _assetManifestSource != null)
@@ -184,6 +196,17 @@ namespace GameCult.Eve.UnityScene
             AssetManifests.Connect(_assetManifestSource);
             _assetManifestConnected = true;
         }
+
+        private void EnsureEntityViewsConnected()
+        {
+            if (_entityViewsConnected || _entityViews == null) return;
+            _entityViews.EntityViewAvailable += OnEntityViewAvailable;
+            _entityViewsConnected = true;
+            if (_entityViews.CurrentEntityView != null)
+                _entityPresenter.Apply(_entityViews.CurrentEntityView);
+        }
+
+        private void OnEntityViewAvailable(EveEntitySoaViewDocument document) => _entityPresenter.Apply(document);
     }
 
     public sealed class EveUnityLivePlayableWorldAssetProvider : IEveUnityNativeAssetProvider

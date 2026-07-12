@@ -47,7 +47,7 @@ namespace GameCult.Eve.UnityScene
         public bool TryReadVector3(string semantic, int index, out Vector3 value)
         {
             value = default;
-            if (!TryColumn(semantic, index, "float32", 12, out var column, out var accessor)) return false;
+            if (!TryColumn(semantic, index, "float3", 12, out var column, out var accessor)) return false;
             var offset = column.ByteOffset + (long)index * column.ElementStride;
             value = new Vector3(accessor.ReadSingle(offset), accessor.ReadSingle(offset + 4), accessor.ReadSingle(offset + 8));
             return true;
@@ -68,6 +68,18 @@ namespace GameCult.Eve.UnityScene
             value = accessor.ReadInt32(column.ByteOffset + (long)index * column.ElementStride);
             return true;
         }
+
+        public bool TryReadUInt32(string semantic, int index, out uint value)
+        {
+            value = default;
+            if (!TryColumn(semantic, index, "uint32", 4, out var column, out var accessor)) return false;
+            value = accessor.ReadUInt32(column.ByteOffset + (long)index * column.ElementStride);
+            return true;
+        }
+
+        public int EntityCount => Document.Columns.Length == 0
+            ? 0
+            : Document.Columns.Min(column => column.ElementCount);
 
         public bool TryReadByte(string semantic, int index, out byte value)
         {

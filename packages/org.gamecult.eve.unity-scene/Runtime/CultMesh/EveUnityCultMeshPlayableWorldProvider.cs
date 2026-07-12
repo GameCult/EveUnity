@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Collections.Concurrent;
 using GameCult.Eve.Surface;
 using UnityEngine;
 
@@ -14,6 +15,7 @@ namespace GameCult.Eve.UnityScene
         IEveUnitySceneCommandSink,
         IEveUnitySceneCommandReceiptSource,
         IEveUnityProviderRefreshSource,
+        IEveUnityEntitySoaViewDocumentSource,
         IEveUnityCameraRenderPolicySource,
         IEveUnityNativeAssetProvider
     {
@@ -27,6 +29,11 @@ namespace GameCult.Eve.UnityScene
 
         private EveUnityCultMeshLiveProviderTransport? _transport;
         private EveUnitySceneLiveProviderBridge? _bridge;
+        private readonly ConcurrentQueue<EveEntitySoaViewDocument> _pendingEntityViews = new ConcurrentQueue<EveEntitySoaViewDocument>();
+
+        public EveEntitySoaViewDocument? CurrentEntityView { get; private set; }
+
+        public event Action<EveEntitySoaViewDocument>? EntityViewAvailable;
 
         public EveUnityCultMeshProviderSelection? Selection { get; private set; }
 
@@ -117,6 +124,15 @@ namespace GameCult.Eve.UnityScene
             Selection = null;
         }
 
+        private void Update()
+        {
+            EveEntitySoaViewDocument? latest = null;
+            while (_pendingEntityViews.TryDequeue(out var next)) latest = next;
+            if (latest == null) return;
+            CurrentEntityView = latest;
+            EntityViewAvailable?.Invoke(latest);
+        }
+
         private EveUnitySceneLiveProviderBridge Bridge
         {
             get
@@ -148,6 +164,7 @@ namespace GameCult.Eve.UnityScene
                 Selection.ProviderId,
                 Selection.SurfaceId,
                 runtimeId);
+            _transport.EntityViewAvailable += view => _pendingEntityViews.Enqueue(view);
             _bridge = new EveUnitySceneLiveProviderBridge(_transport);
         }
     }

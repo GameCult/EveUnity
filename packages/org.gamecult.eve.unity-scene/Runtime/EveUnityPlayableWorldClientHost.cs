@@ -16,7 +16,7 @@ namespace GameCult.Eve.UnityScene
         [SerializeField] private MonoBehaviour? receiptSource;
         [SerializeField] private MonoBehaviour? fallbackAssetProvider;
         [SerializeField] private bool connectOnEnable;
-        [SerializeField] private bool refreshInUpdate = true;
+        [SerializeField] private bool refreshInUpdate;
         [SerializeField] private float refreshIntervalSeconds = 1f;
         [SerializeField] private bool renderShotTrajectories = true;
 

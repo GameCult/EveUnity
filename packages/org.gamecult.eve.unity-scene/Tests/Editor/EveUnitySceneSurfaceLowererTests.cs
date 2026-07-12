@@ -37,7 +37,7 @@ namespace GameCult.Eve.UnityScene.Tests
                 Buffers = new[] { new EveEntitySoaBuffer { BufferId = "hot", Backend = "memory_mapped_file", Location = location, ByteLength = 32, Generation = 7 } },
                 Columns = new[]
                 {
-                    new EveEntitySoaColumn { ColumnId = "position", Semantic = "transform.position", BufferId = "hot", ScalarType = "float32", ElementStride = 12, ElementCount = 2 },
+                    new EveEntitySoaColumn { ColumnId = "position", Semantic = "transform.position", BufferId = "hot", ScalarType = "float3", ElementStride = 12, ElementCount = 2 },
                     new EveEntitySoaColumn { ColumnId = "entity-index", Semantic = "entity.index", BufferId = "hot", ScalarType = "int32", ByteOffset = 24, ElementStride = 4, ElementCount = 2 }
                 }
             };

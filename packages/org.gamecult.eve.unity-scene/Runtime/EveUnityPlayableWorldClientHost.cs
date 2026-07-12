@@ -85,6 +85,9 @@ namespace GameCult.Eve.UnityScene
                 if (trajectories == null) trajectories = gameObject.AddComponent<EveUnityShotTrajectoryRenderer>();
                 trajectories.Bind(this, Runtime.GameObjectAssetProvider);
             }
+            var feedbackEffects = GetComponent<EveUnityFeedbackEffectRenderer>();
+            if (feedbackEffects == null) feedbackEffects = gameObject.AddComponent<EveUnityFeedbackEffectRenderer>();
+            feedbackEffects.Bind(this, Runtime.GameObjectAssetProvider);
 
             return Runtime.Connect();
         }

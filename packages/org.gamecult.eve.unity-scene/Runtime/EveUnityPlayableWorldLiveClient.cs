@@ -12,6 +12,8 @@ namespace GameCult.Eve.UnityScene
         private readonly EveUnityPlayableWorldPresenter _presenter;
         private readonly IEveUnitySceneCommandReceiptSource? _receiptSource;
         private readonly bool _refreshOnTerminalReceipt;
+        private readonly EveUnityFeedbackPresenter _feedback = new EveUnityFeedbackPresenter();
+        private readonly EveUnityShotReceiptPresenter _shots = new EveUnityShotReceiptPresenter();
         private readonly List<EveUnitySceneCommandReceipt> _pendingReceipts =
             new List<EveUnitySceneCommandReceipt>();
         private bool _connected;
@@ -42,6 +44,17 @@ namespace GameCult.Eve.UnityScene
         public string SourcePointer => _connection.SourcePointer;
 
         public event Action<EveUnitySceneCommandReceipt>? ReceiptAvailable;
+        public event Action<EveUnityFeedbackEvent>? FeedbackAvailable
+        {
+            add { _feedback.FeedbackAvailable += value; }
+            remove { _feedback.FeedbackAvailable -= value; }
+        }
+
+        public event Action<EveUnityShotReceipt>? ShotAvailable
+        {
+            add { _shots.ShotAvailable += value; }
+            remove { _shots.ShotAvailable -= value; }
+        }
 
         public EveUnityPlayableWorldPresentation Connect()
         {
@@ -116,6 +129,8 @@ namespace GameCult.Eve.UnityScene
             }
 
             _connection.Disconnect();
+            _feedback.Reset();
+            _shots.Reset();
             _pendingReceipts.Clear();
         }
 
@@ -146,6 +161,8 @@ namespace GameCult.Eve.UnityScene
         private void OnProjectionUpdated(EveUnitySceneProjection projection)
         {
             LastPresentation = _presenter.Apply(projection);
+            _feedback.Apply(projection);
+            _shots.Apply(projection);
             PublishReceiptsWhoseStateIsVisible();
         }
 

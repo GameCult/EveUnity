@@ -15,6 +15,13 @@ selection filters; they are not product knowledge required by the client.
 
 The package never imports provider product assemblies.
 
+Retained provider feedback is lowered without becoming Unity authority.
+`EveUnityFeedbackPresenter` emits each new `feedback.event` identity once, and
+`EveUnityShotReceiptPresenter` does the same for `shot.receipt` trajectories.
+The generic `EveUnityShotTrajectoryRenderer` renders provider-authored origin,
+endpoint, duration, and hit outcome, then expires the visual locally. It never
+uses Unity collision to infer damage or report a hit back to the provider.
+
 `fields.surface` projection consumes the plugin-owned
 `org.gamecult.eve.plugin-fields` contracts. `EveFieldsSplatRasterizer` owns the
 Unity structured-buffer and RenderTexture lowering without importing provider

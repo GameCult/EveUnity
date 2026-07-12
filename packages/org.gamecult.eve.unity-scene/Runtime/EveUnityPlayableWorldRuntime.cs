@@ -59,6 +59,18 @@ namespace GameCult.Eve.UnityScene
             remove { _client.ReceiptAvailable -= value; }
         }
 
+        public event Action<EveUnityFeedbackEvent>? FeedbackAvailable
+        {
+            add { _client.FeedbackAvailable += value; }
+            remove { _client.FeedbackAvailable -= value; }
+        }
+
+        public event Action<EveUnityShotReceipt>? ShotAvailable
+        {
+            add { _client.ShotAvailable += value; }
+            remove { _client.ShotAvailable -= value; }
+        }
+
         public static EveUnityPlayableWorldRuntime CreateForGameObjectScene(
             Transform root,
             IEveUnitySceneProviderSurfaceDocumentSource surfaceDocuments,

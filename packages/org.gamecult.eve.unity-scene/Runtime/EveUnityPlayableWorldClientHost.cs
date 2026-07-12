@@ -18,6 +18,7 @@ namespace GameCult.Eve.UnityScene
         [SerializeField] private bool connectOnEnable;
         [SerializeField] private bool refreshInUpdate = true;
         [SerializeField] private float refreshIntervalSeconds = 0.1f;
+        [SerializeField] private bool renderShotTrajectories = true;
 
         private float _nextRefreshAt;
 
@@ -32,6 +33,9 @@ namespace GameCult.Eve.UnityScene
         public EveUnitySceneCommandReceipt? LastReceipt => Runtime?.LastReceipt;
 
         public long ActiveVersion => Runtime?.ActiveVersion ?? 0;
+
+        public event Action<EveUnityFeedbackEvent>? FeedbackAvailable;
+        public event Action<EveUnityShotReceipt>? ShotAvailable;
 
         public Transform SceneRoot => sceneRoot == null ? transform : sceneRoot;
 
@@ -73,6 +77,14 @@ namespace GameCult.Eve.UnityScene
                 Optional<IEveUnityPlayableWorldAssetManifestDocumentSource>(assetManifestDocuments),
                 Optional<IEveUnitySceneCommandReceiptSource>(receiptSource),
                 Optional<IEveUnityGameObjectAssetProvider>(fallbackAssetProvider));
+            Runtime.FeedbackAvailable += OnFeedbackAvailable;
+            Runtime.ShotAvailable += OnShotAvailable;
+            if (renderShotTrajectories)
+            {
+                var trajectories = GetComponent<EveUnityShotTrajectoryRenderer>();
+                if (trajectories == null) trajectories = gameObject.AddComponent<EveUnityShotTrajectoryRenderer>();
+                trajectories.Bind(this);
+            }
 
             return Runtime.Connect();
         }
@@ -131,9 +143,17 @@ namespace GameCult.Eve.UnityScene
 
         public void Disconnect()
         {
+            if (Runtime != null)
+            {
+                Runtime.FeedbackAvailable -= OnFeedbackAvailable;
+                Runtime.ShotAvailable -= OnShotAvailable;
+            }
             Runtime?.Dispose();
             Runtime = null;
         }
+
+        private void OnFeedbackAvailable(EveUnityFeedbackEvent value) => FeedbackAvailable?.Invoke(value);
+        private void OnShotAvailable(EveUnityShotReceipt value) => ShotAvailable?.Invoke(value);
 
         private void OnEnable()
         {

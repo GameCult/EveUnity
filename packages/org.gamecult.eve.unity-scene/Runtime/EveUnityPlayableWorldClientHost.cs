@@ -17,7 +17,7 @@ namespace GameCult.Eve.UnityScene
         [SerializeField] private MonoBehaviour? fallbackAssetProvider;
         [SerializeField] private bool connectOnEnable;
         [SerializeField] private bool refreshInUpdate = true;
-        [SerializeField] private float refreshIntervalSeconds = 0.1f;
+        [SerializeField] private float refreshIntervalSeconds = 1f;
         [SerializeField] private bool renderShotTrajectories = true;
 
         private float _nextRefreshAt;
@@ -94,7 +94,9 @@ namespace GameCult.Eve.UnityScene
             if (thermal == null) thermal = gameObject.AddComponent<EveUnityThermalPresenter>();
             thermal.Bind(this, Runtime.GameObjectAssetProvider as IEveUnityNativeAssetProvider);
 
-            return Runtime.Connect();
+            var presentation = Runtime.Connect();
+            _nextRefreshAt = Time.unscaledTime + Math.Max(0.01f, refreshIntervalSeconds);
+            return presentation;
         }
 
         public EveUnityPlayableWorldPresentation Refresh()

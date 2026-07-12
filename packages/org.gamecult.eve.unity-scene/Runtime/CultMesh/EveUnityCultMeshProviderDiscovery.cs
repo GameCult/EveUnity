@@ -125,7 +125,7 @@ namespace GameCult.Eve.UnityScene
                         ResponseTimeout = TimeSpan.FromSeconds(10),
                         MessageIdPrefix = "eve-unity-discovery",
                         RudpRuntimeId = "eve-unity.discovery",
-                        RudpMaxFragmentBytes = 2048
+                        RudpMaxFragmentBytes = 1024
                     }
                 });
             return RunNetwork(() => snapshot.FetchDocumentsAsync<EveProviderAdvertisementDocument>())

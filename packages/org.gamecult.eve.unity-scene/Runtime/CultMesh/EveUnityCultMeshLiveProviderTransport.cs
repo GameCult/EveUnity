@@ -231,7 +231,7 @@ namespace GameCult.Eve.UnityScene
                         ResponseTimeout = TimeSpan.FromSeconds(10),
                         MessageIdPrefix = "eve-unity",
                         RudpRuntimeId = _runtimeId,
-                        RudpMaxFragmentBytes = 2048
+                        RudpMaxFragmentBytes = 1024
                     }
                 });
             _assetSession = CultMesh.SnapshotSession(
@@ -244,7 +244,7 @@ namespace GameCult.Eve.UnityScene
                     ResponseTimeout = TimeSpan.FromSeconds(10),
                     MessageIdPrefix = "eve-unity-assets",
                     RudpRuntimeId = $"{_runtimeId}.assets",
-                    RudpMaxFragmentBytes = 2048
+                    RudpMaxFragmentBytes = 1024
                 },
                 _networkRegistry);
         }

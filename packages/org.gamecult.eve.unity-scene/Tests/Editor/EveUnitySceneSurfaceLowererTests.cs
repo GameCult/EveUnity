@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO.MemoryMappedFiles;
 using GameCult.Eve.Surface;
 using GameCult.Mesh;
 using NUnit.Framework;
@@ -11,6 +12,45 @@ namespace GameCult.Eve.UnityScene.Tests
 {
     public sealed class EveUnitySceneSurfaceLowererTests
     {
+        [Test]
+        public void EntitySoaViewReadsGenericSemanticColumnsFromAdvertisedBackend()
+        {
+            var location = $"eve-unity-soa-{Guid.NewGuid():N}";
+            using var mapped = MemoryMappedFile.CreateNew(location, 32);
+            using (var writer = mapped.CreateViewAccessor())
+            {
+                writer.Write(0, 4f);
+                writer.Write(4, 5f);
+                writer.Write(8, 6f);
+                writer.Write(12, 7f);
+                writer.Write(16, 8f);
+                writer.Write(20, 9f);
+                writer.Write(24, 41);
+                writer.Write(28, 42);
+            }
+            var document = new EveEntitySoaViewDocument
+            {
+                ProviderId = "provider",
+                ViewId = "pilot",
+                Generation = 7,
+                Backend = "memory_mapped_file",
+                Buffers = new[] { new EveEntitySoaBuffer { BufferId = "hot", Backend = "memory_mapped_file", Location = location, ByteLength = 32, Generation = 7 } },
+                Columns = new[]
+                {
+                    new EveEntitySoaColumn { ColumnId = "position", Semantic = "transform.position", BufferId = "hot", ScalarType = "float32", ElementStride = 12, ElementCount = 2 },
+                    new EveEntitySoaColumn { ColumnId = "entity-index", Semantic = "entity.index", BufferId = "hot", ScalarType = "int32", ByteOffset = 24, ElementStride = 4, ElementCount = 2 }
+                }
+            };
+
+            using var view = EveUnityEntitySoaView.Open(document);
+
+            Assert.That(view.TryReadVector3("transform.position", 1, out var position), Is.True);
+            Assert.That(position, Is.EqualTo(new Vector3(7f, 8f, 9f)));
+            Assert.That(view.TryReadInt32("entity.index", 0, out var entityIndex), Is.True);
+            Assert.That(entityIndex, Is.EqualTo(41));
+            Assert.That(view.Generation, Is.EqualTo(7));
+        }
+
         [Test]
         public void LowerCarriesProviderAdvertisedWorldBoundary()
         {

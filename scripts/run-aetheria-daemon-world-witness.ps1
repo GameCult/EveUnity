@@ -17,6 +17,7 @@ $resultsPath = Join-Path $outputRoot "results.xml"
 $unityLogPath = Join-Path $outputRoot "unity.log"
 $bundleBuildLogPath = Join-Path $outputRoot "asset-bundle-build.log"
 $daemonLogPath = Join-Path $outputRoot "aetheria-daemon.log"
+$daemonBuildLogPath = Join-Path $outputRoot "aetheria-daemon-build.log"
 $capturePath = Join-Path $outputRoot "aetheria-daemon-world.png"
 $factsPath = Join-Path $outputRoot "witness-facts.json"
 $witnessPath = Join-Path $outputRoot "runtime-witness.json"
@@ -63,6 +64,14 @@ $import = Start-Process -FilePath "dotnet" -ArgumentList @(
 if ($import.ExitCode -ne 0) {
   throw "Aetheria state import failed with exit code $($import.ExitCode). See $outputRoot\aetheria-import.error.log"
 }
+$daemonBuild = Start-Process -FilePath "dotnet" -ArgumentList @(
+  "build", $daemonProject
+) -PassThru -WindowStyle Hidden -Wait `
+  -RedirectStandardOutput $daemonBuildLogPath `
+  -RedirectStandardError (Join-Path $outputRoot "aetheria-daemon-build.error.log")
+if ($daemonBuild.ExitCode -ne 0) {
+  throw "Aetheria daemon build failed with exit code $($daemonBuild.ExitCode). See $daemonBuildLogPath"
+}
 if (-not $SkipAssetBundleBuild) {
   $bundleBuilder = Start-Process -FilePath $UnityExe -ArgumentList @(
     "-batchmode", "-quit", "-projectPath", ".",
@@ -83,7 +92,7 @@ if (-not $SkipAssetBundleBuild) {
 }
 
 $daemonArguments = @(
-  "run", "--project", $daemonProject, "--",
+  "run", "--no-build", "--project", $daemonProject, "--",
   "--root", $AetheriaRoot,
   "--state", $statePath,
   "--client-cultmesh-host", "127.0.0.1",

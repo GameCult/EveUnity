@@ -34,12 +34,12 @@ namespace GameCult.Eve.UnityScene
             typeof(CultMeshCdnArtifactChunk)
         };
 
-        private readonly string _replicaPath;
-        private readonly string _endpoint;
+        private readonly EveUnityCultMeshProviderSelection _selection;
+        private readonly CultMeshClient _mesh;
+        private readonly string _endpointId;
         private readonly string _providerId;
         private readonly string _surfaceId;
         private readonly string _runtimeId;
-        private readonly EveUnityCultMeshConnectionContext? _connection;
         private CultMeshSession? _documentSession;
         private readonly HashSet<string> _pendingCommandIds = new HashSet<string>(StringComparer.Ordinal);
         private readonly HashSet<string> _publishedReceiptIds = new HashSet<string>(StringComparer.Ordinal);
@@ -48,36 +48,24 @@ namespace GameCult.Eve.UnityScene
         private readonly List<AssetBundle> _assetBundles = new List<AssetBundle>();
         private readonly Dictionary<string, int> _cameraCullingMasks = new Dictionary<string, int>(StringComparer.Ordinal);
         private readonly ConcurrentQueue<object> _liveDocuments = new ConcurrentQueue<object>();
-        private CultMeshNode? _node;
-        private CultMeshSnapshotSession? _snapshot;
         private CultNetDocumentRegistry? _networkRegistry;
-        private CultNetShardDescriptor? _replicaShard;
-        private CultNetDatabaseSubscriptionClient? _subscriptions;
+        private readonly List<IDisposable> _liveWatches = new List<IDisposable>();
+        private bool _liveSubscriptionsOpen;
         private EveProviderAdvertisementDocument? _advertisement;
         private EveAdvertisedSurface? _advertisedSurface;
 
         public EveUnityCultMeshLiveProviderTransport(
             string replicaPath,
-            string endpoint,
-            string providerId,
-            string surfaceId,
-            string runtimeId = "eve-unity",
-            EveUnityCultMeshConnectionContext? connection = null)
+            EveUnityCultMeshProviderSelection selection,
+            string runtimeId = "eve-unity")
         {
-            _replicaPath = string.IsNullOrWhiteSpace(replicaPath)
-                ? throw new ArgumentException("Replica path must be non-empty.", nameof(replicaPath))
-                : Path.GetFullPath(replicaPath);
-            _endpoint = string.IsNullOrWhiteSpace(endpoint)
-                ? throw new ArgumentException("CultMesh endpoint must be non-empty.", nameof(endpoint))
-                : endpoint.Trim();
-            _providerId = string.IsNullOrWhiteSpace(providerId)
-                ? throw new ArgumentException("Provider id must be non-empty.", nameof(providerId))
-                : providerId.Trim();
-            _surfaceId = string.IsNullOrWhiteSpace(surfaceId)
-                ? throw new ArgumentException("Surface id must be non-empty.", nameof(surfaceId))
-                : surfaceId.Trim();
+            _ = replicaPath;
+            _selection = selection ?? throw new ArgumentNullException(nameof(selection));
+            _mesh = selection.Mesh;
+            _endpointId = selection.EndpointId;
+            _providerId = selection.ProviderId;
+            _surfaceId = selection.SurfaceId;
             _runtimeId = string.IsNullOrWhiteSpace(runtimeId) ? "eve-unity" : runtimeId.Trim();
-            _connection = connection;
             CurrentSurfaceDocument = EmptySurfaceDocument();
             CurrentAssetManifestDocument = EmptyAssetManifest();
         }
@@ -159,10 +147,9 @@ namespace GameCult.Eve.UnityScene
                     SourceRuntimeId = _runtimeId,
                     SourceRole = "eve-unity"
                 });
-            new CultNetSchemaWriteForwarder(new CultNetSchemaWriteForwarderOptions())
-                .ForwardPutAsync(_replicaShard!, message)
-                .GetAwaiter()
-                .GetResult();
+            message.ShardId = RemoteShardId;
+            message.ShardEpoch = 1;
+            _documentSession!.SendCultNet(message);
             _pendingCommandIds.Add(commandId);
         }
 
@@ -172,15 +159,11 @@ namespace GameCult.Eve.UnityScene
             _assetBundles.Clear();
             _prefabs.Clear();
             _nativeAssets.Clear();
-            _node?.Dispose();
-            _snapshot?.Dispose();
-            _subscriptions?.Dispose();
-            _connection?.Dispose();
-            _node = null;
-            _snapshot = null;
-            _subscriptions = null;
+            foreach (var watch in _liveWatches) watch.Dispose();
+            _liveWatches.Clear();
+            _mesh.Dispose();
+            _documentSession = null;
             _networkRegistry = null;
-            _replicaShard = null;
             _pendingCommandIds.Clear();
             _publishedReceiptIds.Clear();
         }
@@ -206,103 +189,24 @@ namespace GameCult.Eve.UnityScene
 
         private void EnsureOpen()
         {
-            if (_node != null)
+            if (_documentSession != null)
                 return;
 
             var cacheRegistry = CultMesh.CreateCultCacheDocumentRegistry(WireDocumentTypes);
             _networkRegistry = CultMesh.CreateCultNetDocumentRegistry(WireDocumentTypes, cacheRegistry);
-            _replicaShard = new CultNetShardDescriptor(
-                RemoteShardId,
-                _providerId,
-                epoch: 1,
-                isPrimary: false,
-                schemaIds: WireDocumentTypes.Select(type => cacheRegistry.GetRequired(type).SchemaId),
-                primaryEndpoints: new[] { _endpoint });
-            _node = CultMesh.CreateNodeAsync(
-                    _replicaPath,
-                    new CultMeshNodeOptions
-                    {
-                        StartServer = false,
-                        EnableDurableShardLogs = true,
-                        CacheOptions = new CultCacheOpenOptions
-                        {
-                            Registry = cacheRegistry,
-                            PullOnOpen = false,
-                            StoreFlushOnDispose = true,
-                            UseDirectoryStore = true
-                        },
-                        DatabaseOptions = new CultNetDatabaseOptions
-                        {
-                            RuntimeId = _runtimeId,
-                            Shards = new[] { _replicaShard },
-                            DocumentRegistry = _networkRegistry
-                        }
-                    })
-                .GetAwaiter()
-                .GetResult();
-            if (_connection != null)
-            {
-                _documentSession = _connection.OpenDocumentsAsync().GetAwaiter().GetResult();
-                _snapshot = CultMeshSnapshotSession.ConnectAsync(
-                        _connection.Sessions,
-                        _connection.EndpointId,
-                        new CultMeshSnapshotRequestOptions
-                        {
-                            ShardId = RemoteShardId,
-                            ShardEpoch = 1,
-                            ConnectTimeout = TimeSpan.FromSeconds(5),
-                            ResponseTimeout = TimeSpan.FromSeconds(10),
-                            MessageIdPrefix = "eve-unity",
-                            RudpRuntimeId = _runtimeId,
-                            RudpMaxFragmentBytes = 1024
-                        },
-                        _networkRegistry)
-                    .GetAwaiter().GetResult();
-                return;
-            }
-            _snapshot = CultMesh.SnapshotSession(
-                _endpoint,
-                new CultMeshSnapshotRequestOptions
-                {
-                    ShardId = RemoteShardId,
-                    ShardEpoch = 1,
-                    ConnectTimeout = TimeSpan.FromSeconds(5),
-                    ResponseTimeout = TimeSpan.FromSeconds(10),
-                    MessageIdPrefix = "eve-unity",
-                    RudpRuntimeId = _runtimeId,
-                    RudpMaxFragmentBytes = 1024
-                },
-                _networkRegistry);
+            _documentSession = _mesh.ConnectAsync(_endpointId, CultMeshProtocols.Documents)
+                .GetAwaiter().GetResult();
         }
 
         private void ResolveAdvertisement()
         {
-            var documents = _snapshot!
-                .FetchDocumentsAsync<EveProviderAdvertisementDocument>()
-                .GetAwaiter()
-                .GetResult();
-            _advertisement = documents.FirstOrDefault(document =>
-                    string.Equals(document.ProviderId, _providerId, StringComparison.Ordinal))
-                ?? throw new InvalidOperationException($"Provider '{_providerId}' did not publish an Eve advertisement.");
-            _advertisedSurface = _advertisement.Surfaces.FirstOrDefault(surface =>
-                    string.Equals(surface.SurfaceId, _surfaceId, StringComparison.Ordinal))
-                ?? throw new InvalidOperationException($"Provider '{_providerId}' did not advertise surface '{_surfaceId}'.");
-            if (!string.Equals(_advertisedSurface.Transport, "cultmesh-record", StringComparison.Ordinal))
-                throw new InvalidOperationException("EveUnity CultMesh transport requires a cultmesh-record surface advertisement.");
-            if (string.IsNullOrWhiteSpace(_advertisedSurface.RecordRef))
-                throw new InvalidOperationException("The provider surface advertisement does not publish a record reference.");
+            _advertisement = _selection.Surface.Provider;
+            _advertisedSurface = _selection.Surface.Advertisement;
         }
 
         private void RefreshSurface()
         {
-            var surface = _snapshot!
-                .FetchDocumentsAsync<EveSurfaceDocument>(
-                    recordKeys: new[] { _advertisedSurface!.RecordRef },
-                    schemaIds: new[] { EveSurfaceDocument.SchemaId })
-                .GetAwaiter()
-                .GetResult()
-                .FirstOrDefault()
-                ?? throw new InvalidOperationException("The advertised Eve surface record was not available.");
+            var surface = _selection.Surface.Surface.LatestAsync().GetAwaiter().GetResult();
             PublishSurface(surface);
         }
 
@@ -327,25 +231,9 @@ namespace GameCult.Eve.UnityScene
 
         private void EnsureLiveSubscriptions()
         {
-            if (_subscriptions != null) return;
-            var client = _documentSession?.OpenSchemaClient()
-                ?? CultNetSchemaClients.CreateForEndpoint(_endpoint);
-            if (_documentSession == null)
-            {
-                var endpoint = new Uri(_endpoint);
-                client.Connect(endpoint.Host, endpoint.Port);
-                var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
-                while (!client.Connected && DateTime.UtcNow < deadline)
-                    System.Threading.Thread.Sleep(1);
-                if (!client.Connected)
-                {
-                    client.Dispose();
-                    throw new TimeoutException($"Timed out connecting live Eve state subscription to '{_endpoint}'.");
-                }
-            }
-
-            _subscriptions = new CultNetDatabaseSubscriptionClient(client, _node!.Database.Cache, _networkRegistry!);
-            _subscriptions.Changed += OnReplicatedDocumentChanged;
+            if (_liveSubscriptionsOpen) return;
+            _liveSubscriptionsOpen = true;
+            _liveWatches.Add(_selection.Surface.Surface.Watch(surface => _liveDocuments.Enqueue(surface)));
             var lowered = new EveUnitySceneSurfaceLowerer()
                 .Lower(CurrentSurfaceDocument.SurfaceDocument, CurrentSurfaceDocument.AdvertisedSurface);
             string entityViewPointer = lowered.PlayableWorld == null
@@ -353,31 +241,16 @@ namespace GameCult.Eve.UnityScene
                 : lowered.PlayableWorld.EntityViewPointerId;
             if (!string.IsNullOrWhiteSpace(entityViewPointer))
             {
-                _subscriptions.SubscribeAsync(
-                        "eve-unity-entity-view",
-                        recordKeys: new[] { entityViewPointer },
-                        schemaIds: new[] { EveEntitySoaViewDocument.SchemaId })
+                var entities = _mesh.DocumentAsync<EveEntitySoaViewDocument>(_endpointId, entityViewPointer)
                     .GetAwaiter().GetResult();
-                if (_node.Database.Cache.Get(new CultRecordKey(entityViewPointer)) is EveEntitySoaViewDocument current)
-                    _liveDocuments.Enqueue(current);
+                _liveDocuments.Enqueue(entities.LatestAsync().GetAwaiter().GetResult());
+                _liveWatches.Add(entities.Watch(view => _liveDocuments.Enqueue(view)));
             }
-            _subscriptions.SubscribeAsync(
-                    "eve-unity-surface",
-                    recordKeys: new[] { _advertisedSurface!.RecordRef },
-                    schemaIds: new[] { EveSurfaceDocument.SchemaId },
-                    includeSnapshot: false)
-                .GetAwaiter().GetResult();
-            _subscriptions.SubscribeAsync(
-                    "eve-unity-receipts",
-                    schemaIds: new[] { EveCommandReceiptDocument.SchemaId },
-                    includeSnapshot: false)
-                .GetAwaiter().GetResult();
-        }
-
-        private void OnReplicatedDocumentChanged(CultNetReplicatedDocumentChange change)
-        {
-            if (change.Document is EveEntitySoaViewDocument or EveSurfaceDocument or EveCommandReceiptDocument)
-                _liveDocuments.Enqueue(change.Document);
+            var receipts = _mesh.CollectionAsync<EveCommandReceiptDocument>(_endpointId).GetAwaiter().GetResult();
+            _liveWatches.Add(receipts.WatchChanges(change =>
+            {
+                if (change.Document != null) _liveDocuments.Enqueue(change.Document);
+            }));
         }
 
         private void RefreshAssetCatalog()
@@ -386,13 +259,8 @@ namespace GameCult.Eve.UnityScene
             if (string.IsNullOrWhiteSpace(interaction.AssetManifestRecordRef))
                 return;
 
-            var catalog = _snapshot!
-                .FetchDocumentsAsync<EveAssetCatalogDocument>(
-                    recordKeys: new[] { interaction.AssetManifestRecordRef },
-                    schemaIds: new[] { EveAssetCatalogDocument.SchemaId })
-                .GetAwaiter()
-                .GetResult()
-                .FirstOrDefault();
+            var catalog = _mesh.ReadAsync<EveAssetCatalogDocument>(_endpointId, interaction.AssetManifestRecordRef)
+                .GetAwaiter().GetResult();
             if (catalog == null || catalog.Version == CurrentAssetCatalogVersion)
                 return;
 
@@ -415,14 +283,8 @@ namespace GameCult.Eve.UnityScene
             foreach (var group in selected.GroupBy(selection => selection.Variant!.Uri, StringComparer.Ordinal))
             {
                 var variant = group.First().Variant!;
-                var manifest = _snapshot!.FetchDocumentsAsync<CultMeshCdnArtifactManifest>(
-                        recordKeys: new[] { variant.Uri },
-                        schemaIds: new[] { CultMeshCdnSchemaVersions.ArtifactManifest })
-                    .GetAwaiter()
-                    .GetResult();
-                var descriptor = manifest.FirstOrDefault();
-                if (descriptor == null)
-                    throw new InvalidOperationException($"Provider asset bundle manifest '{variant.Uri}' was not available.");
+                var descriptor = _mesh.ReadAsync<CultMeshCdnArtifactManifest>(_endpointId, variant.Uri)
+                    .GetAwaiter().GetResult();
                 var bytes = ReadCachedBundle(descriptor, variant);
                 VerifyBundle(bytes, variant);
                 var bundle = AssetBundle.LoadFromMemory(bytes);
@@ -489,12 +351,10 @@ namespace GameCult.Eve.UnityScene
             for (var index = 0; index < references.Length; index += 2)
             {
                 var batch = references.Skip(index).Take(2).ToArray();
-                var chunks = _snapshot!
-                    .FetchDocumentsAsync<CultMeshCdnArtifactChunk>(
-                        recordKeys: batch.Select(reference => reference.RecordKey).ToArray(),
-                        schemaIds: new[] { CultMeshCdnSchemaVersions.ArtifactChunk })
-                    .GetAwaiter()
-                    .GetResult();
+                var chunks = batch.Select(reference => _mesh
+                        .ReadAsync<CultMeshCdnArtifactChunk>(_endpointId, reference.RecordKey)
+                        .GetAwaiter().GetResult())
+                    .ToArray();
                 foreach (var reference in batch)
                 {
                     var chunk = chunks.FirstOrDefault(candidate =>

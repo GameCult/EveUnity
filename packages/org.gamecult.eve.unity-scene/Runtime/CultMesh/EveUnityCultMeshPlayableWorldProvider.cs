@@ -126,7 +126,7 @@ namespace GameCult.Eve.UnityScene
             _transport = null;
             Selection = null;
             if (!transportOwnedConnection && _discovery?.Status == TaskStatus.RanToCompletion)
-                _discovery.Result.Connection.Dispose();
+                _discovery.Result.Mesh.Dispose();
             _discovery = null;
         }
 
@@ -185,11 +185,8 @@ namespace GameCult.Eve.UnityScene
                 : replicaPath;
             _transport = new EveUnityCultMeshLiveProviderTransport(
                 resolvedReplicaPath,
-                Selection.Endpoint,
-                Selection.ProviderId,
-                Selection.SurfaceId,
-                runtimeId,
-                Selection.Connection);
+                Selection,
+                runtimeId);
             _transport.EntityViewAvailable += view => _pendingEntityViews.Enqueue(view);
             _bridge = new EveUnitySceneLiveProviderBridge(_transport);
         }

@@ -211,6 +211,8 @@ namespace GameCult.Eve.UnityScene
 
         public EveUnityPlayableWorldAssetManifestDocument CurrentAssetManifestDocument { get; private set; }
 
+        public bool IsConnected => _connected;
+
         EveUnitySceneProviderSurfaceDocument IEveUnitySceneProviderSurfaceDocumentSource.CurrentDocument =>
             CurrentSurfaceDocument;
 

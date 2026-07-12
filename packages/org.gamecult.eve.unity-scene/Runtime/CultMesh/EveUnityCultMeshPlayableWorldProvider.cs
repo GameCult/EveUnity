@@ -79,8 +79,10 @@ namespace GameCult.Eve.UnityScene
 
         public void Refresh()
         {
-            Bridge.Connect();
-            Bridge.Refresh();
+            if (Bridge.IsConnected)
+                Bridge.Refresh();
+            else
+                Bridge.Connect();
         }
 
         public void Submit(EveSurfaceCommandRequest request)

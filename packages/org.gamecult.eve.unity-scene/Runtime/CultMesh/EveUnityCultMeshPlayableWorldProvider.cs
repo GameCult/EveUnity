@@ -126,6 +126,7 @@ namespace GameCult.Eve.UnityScene
 
         private void Update()
         {
+            _transport?.PumpLiveEvents();
             EveEntitySoaViewDocument? latest = null;
             while (_pendingEntityViews.TryDequeue(out var next)) latest = next;
             if (latest == null) return;

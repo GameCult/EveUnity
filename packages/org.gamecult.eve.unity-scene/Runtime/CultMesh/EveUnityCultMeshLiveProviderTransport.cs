@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
+using System.Collections.Concurrent;
 using GameCult.Caching;
 using GameCult.Caching.MessagePack;
 using GameCult.Eve.Surface;
@@ -44,6 +45,7 @@ namespace GameCult.Eve.UnityScene
         private readonly Dictionary<string, UnityEngine.Object> _nativeAssets = new Dictionary<string, UnityEngine.Object>(StringComparer.Ordinal);
         private readonly List<AssetBundle> _assetBundles = new List<AssetBundle>();
         private readonly Dictionary<string, int> _cameraCullingMasks = new Dictionary<string, int>(StringComparer.Ordinal);
+        private readonly ConcurrentQueue<object> _liveDocuments = new ConcurrentQueue<object>();
         private CultMeshNode? _node;
         private CultMeshSnapshotSession? _snapshot;
         private CultNetDocumentRegistry? _networkRegistry;
@@ -110,7 +112,19 @@ namespace GameCult.Eve.UnityScene
             ResolveAdvertisement();
             RefreshSurface();
             RefreshAssetCatalog();
-            RefreshReceipts();
+        }
+
+        public void PumpLiveEvents()
+        {
+            while (_liveDocuments.TryDequeue(out var document))
+            {
+                if (document is EveEntitySoaViewDocument entityView)
+                    EntityViewAvailable?.Invoke(entityView);
+                else if (document is EveSurfaceDocument surface)
+                    PublishSurface(surface);
+                else if (document is EveCommandReceiptDocument receipt)
+                    PublishReceipt(receipt);
+            }
         }
 
         public void SubmitCommand(EveSurfaceCommandRequest request)
@@ -264,6 +278,11 @@ namespace GameCult.Eve.UnityScene
                 .GetResult()
                 .FirstOrDefault()
                 ?? throw new InvalidOperationException("The advertised Eve surface record was not available.");
+            PublishSurface(surface);
+        }
+
+        private void PublishSurface(EveSurfaceDocument surface)
+        {
             var interaction = RequireWorldInteraction();
             CurrentSurfaceDocument = new EveUnitySceneProviderSurfaceDocument(
                 surface,
@@ -278,7 +297,6 @@ namespace GameCult.Eve.UnityScene
                 _advertisedSurface.RecordRef,
                 surface.Version);
             SurfaceDocumentAvailable?.Invoke(CurrentSurfaceDocument);
-            AssetManifestDocumentAvailable?.Invoke(CurrentAssetManifestDocument);
             EnsureLiveSubscriptions();
         }
 
@@ -312,14 +330,25 @@ namespace GameCult.Eve.UnityScene
                         schemaIds: new[] { EveEntitySoaViewDocument.SchemaId })
                     .GetAwaiter().GetResult();
                 if (_node.Database.Cache.Get(new CultRecordKey(entityViewPointer)) is EveEntitySoaViewDocument current)
-                    EntityViewAvailable?.Invoke(current);
+                    _liveDocuments.Enqueue(current);
             }
+            _subscriptions.SubscribeAsync(
+                    "eve-unity-surface",
+                    recordKeys: new[] { _advertisedSurface!.RecordRef },
+                    schemaIds: new[] { EveSurfaceDocument.SchemaId },
+                    includeSnapshot: false)
+                .GetAwaiter().GetResult();
+            _subscriptions.SubscribeAsync(
+                    "eve-unity-receipts",
+                    schemaIds: new[] { EveCommandReceiptDocument.SchemaId },
+                    includeSnapshot: false)
+                .GetAwaiter().GetResult();
         }
 
         private void OnReplicatedDocumentChanged(CultNetReplicatedDocumentChange change)
         {
-            if (change.Document is EveEntitySoaViewDocument entityView)
-                EntityViewAvailable?.Invoke(entityView);
+            if (change.Document is EveEntitySoaViewDocument or EveSurfaceDocument or EveCommandReceiptDocument)
+                _liveDocuments.Enqueue(change.Document);
         }
 
         private void RefreshAssetCatalog()
@@ -489,42 +518,27 @@ namespace GameCult.Eve.UnityScene
                 throw new InvalidOperationException($"Provider asset bundle '{variant.Uri}' hash did not match its catalog.");
         }
 
-        private void RefreshReceipts()
+        private void PublishReceipt(EveCommandReceiptDocument receipt)
         {
-            if (_pendingCommandIds.Count == 0)
+            if (!_pendingCommandIds.Contains(receipt.CommandId) || !_publishedReceiptIds.Add(receipt.ReceiptId))
                 return;
-
-            var receipts = _snapshot!
-                .FetchDocumentsAsync<EveCommandReceiptDocument>()
-                .GetAwaiter()
-                .GetResult();
-            foreach (var receipt in receipts
-                         .Where(receipt => _pendingCommandIds.Contains(receipt.CommandId))
-                         .OrderBy(receipt => receipt.SourceVersion))
-            {
-                if (!_publishedReceiptIds.Add(receipt.ReceiptId))
-                    continue;
-
-                CommandReceiptAvailable?.Invoke(new EveUnitySceneCommandReceipt(
-                    receipt.ReceiptId,
-                    receipt.Command,
-                    receipt.CommandId,
-                    receipt.State,
-                    receipt.OwnerRepo,
-                    receipt.Authority,
-                    receipt.Schema,
-                    receipt.ProviderId,
-                    receipt.SurfaceId,
-                    receipt.Message,
-                    DateTimeOffset.TryParse(receipt.IssuedAtUtc, out var issuedAt) ? issuedAt : null,
-                    receipt.SourceVersion));
-                if (string.Equals(receipt.State, "accepted", StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(receipt.State, "denied", StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(receipt.State, "reconciled", StringComparison.OrdinalIgnoreCase))
-                {
-                    _pendingCommandIds.Remove(receipt.CommandId);
-                }
-            }
+            CommandReceiptAvailable?.Invoke(new EveUnitySceneCommandReceipt(
+                receipt.ReceiptId,
+                receipt.Command,
+                receipt.CommandId,
+                receipt.State,
+                receipt.OwnerRepo,
+                receipt.Authority,
+                receipt.Schema,
+                receipt.ProviderId,
+                receipt.SurfaceId,
+                receipt.Message,
+                DateTimeOffset.TryParse(receipt.IssuedAtUtc, out var issuedAt) ? issuedAt : null,
+                receipt.SourceVersion));
+            if (string.Equals(receipt.State, "accepted", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(receipt.State, "denied", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(receipt.State, "reconciled", StringComparison.OrdinalIgnoreCase))
+                _pendingCommandIds.Remove(receipt.CommandId);
         }
 
         private EveWorldInteractionAdvertisement RequireWorldInteraction()

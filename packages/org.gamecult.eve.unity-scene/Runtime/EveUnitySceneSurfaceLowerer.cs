@@ -124,7 +124,8 @@ namespace GameCult.Eve.UnityScene
                 worldRoot.GetProp("entityViewPointerId"),
                 worldRoot.GetProp("entityViewSchema"),
                 worldRoot.GetProp("zoneRenderPointerId"),
-                worldRoot.GetProp("zoneRenderSchema"));
+                worldRoot.GetProp("zoneRenderSchema"),
+                worldRoot.GetProp("inputCapability"));
         }
 
         private static EveUnityPlayableWorldEntity BuildPlayableEntity(EveSurfaceComponent component)
@@ -324,7 +325,8 @@ namespace GameCult.Eve.UnityScene
             string entityViewPointerId = "",
             string entityViewSchema = "",
             string zoneRenderPointerId = "",
-            string zoneRenderSchema = "")
+            string zoneRenderSchema = "",
+            string inputCapabilityPointerId = "")
         {
             WorldRootId = worldRootId ?? "";
             StatePointerId = statePointerId ?? "";
@@ -342,6 +344,7 @@ namespace GameCult.Eve.UnityScene
             EntityViewSchema = entityViewSchema ?? "";
             ZoneRenderPointerId = zoneRenderPointerId ?? "";
             ZoneRenderSchema = zoneRenderSchema ?? "";
+            InputCapabilityPointerId = inputCapabilityPointerId ?? "";
         }
 
         public string WorldRootId { get; }
@@ -355,6 +358,8 @@ namespace GameCult.Eve.UnityScene
         public string ZoneRenderPointerId { get; }
 
         public string ZoneRenderSchema { get; }
+
+        public string InputCapabilityPointerId { get; }
 
         public string AssetManifest { get; }
 

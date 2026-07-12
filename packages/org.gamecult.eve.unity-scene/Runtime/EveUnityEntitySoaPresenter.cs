@@ -13,6 +13,11 @@ namespace GameCult.Eve.UnityScene
         event Action<EveEntitySoaViewDocument> EntityViewAvailable;
     }
 
+    public interface IEveUnityInputCapabilityDocumentSource
+    {
+        EveInputCapabilityDocument? CurrentInputCapability { get; }
+    }
+
     /// <summary>Projects portable entity SoA generations into the ordinary Unity scene sink.</summary>
     public sealed class EveUnityEntitySoaPresenter
     {
@@ -29,6 +34,10 @@ namespace GameCult.Eve.UnityScene
         public void Apply(EveEntitySoaViewDocument document)
         {
             using var view = EveUnityEntitySoaView.Open(document);
+            var identities = (document.Identities ?? Array.Empty<EveEntitySoaIdentity>())
+                .Where(identity => identity != null && identity.EntityIndex >= 0 && !string.IsNullOrWhiteSpace(identity.EntityId))
+                .GroupBy(identity => identity.EntityIndex)
+                .ToDictionary(group => group.Key, group => group.First());
             var next = new HashSet<string>(StringComparer.Ordinal);
             for (var row = 0; row < view.EntityCount; row++)
             {
@@ -39,24 +48,29 @@ namespace GameCult.Eve.UnityScene
                 view.TryReadFloat("render.scale", row, out var scale);
                 view.TryReadUInt32("render.group.id", row, out var groupId);
                 var renderGroup = view.RenderGroups.FirstOrDefault(group => group.GroupId == groupId);
-                var entityId = $"entity:{entityIndex}";
+                if (!identities.TryGetValue(entityIndex, out var identity))
+                    throw new InvalidOperationException(
+                        $"Eve entity SoA view '{document.ViewId}' does not map entity index {entityIndex} to a logical identity.");
+                var entityId = identity.EntityId;
                 next.Add(entityId);
-                var assetRef = renderGroup?.MeshAssetRef ?? "";
+                var assetRef = string.IsNullOrWhiteSpace(identity.AssetRef)
+                    ? renderGroup?.MeshAssetRef ?? ""
+                    : identity.AssetRef;
                 _sink.UpsertEntity(
                     new EveUnityPlayableWorldEntity(
                         entityId,
                         entityId,
-                        "entity",
-                        entityId,
-                        "",
+                        identity.Kind,
+                        string.IsNullOrWhiteSpace(identity.Label) ? entityId : identity.Label,
+                        identity.Faction,
                         assetRef,
                         position.x,
                         position.y,
                         position.z,
                         rotationRadians * 57.2957795f,
                         scale > 0f ? scale : renderGroup?.DefaultScale ?? 1f,
-                        selectable: true,
-                        controllable: false,
+                        selectable: identity.Selectable,
+                        controllable: identity.Controllable,
                         focusCommand: "",
                         moveCommand: "",
                         targetCommand: "",
@@ -64,7 +78,7 @@ namespace GameCult.Eve.UnityScene
                         props: new Dictionary<string, string>()),
                     new EveUnityPlayableWorldAssetBinding(
                         assetRef,
-                        "entity",
+                        identity.Kind,
                         string.IsNullOrWhiteSpace(assetRef) ? "unity-generated-placeholder" : "provider-asset-ref"));
             }
 

@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using GameCult.Caching;
 using GameCult.Caching.MessagePack;
 using GameCult.Eve.Surface;
@@ -276,7 +277,14 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 focusReceipt = WitnessReceipt.From("targeting", runtime.LastReceipt);
 
                 var focusVersion = runtime.ActiveVersion;
-                var action = runtime.SubmitActionIntent(playerId, "0");
+                Assert.That(provider.CurrentInputCapability, Is.Not.Null, "The pilot world did not advertise a typed input capability document.");
+                Assert.That(provider.CurrentInputCapability.Actions, Is.Not.Empty, "The pilot input capability advertised no available actions.");
+                var advertisedAction = provider.CurrentInputCapability.Actions
+                    .FirstOrDefault(candidate => string.Equals(candidate.Category, "weapon-group", StringComparison.Ordinal) &&
+                                                 string.Equals(candidate.Availability, "available", StringComparison.OrdinalIgnoreCase))
+                    ?? provider.CurrentInputCapability.Actions
+                        .First(candidate => string.Equals(candidate.ActionId, "pilot.scoop", StringComparison.Ordinal));
+                var action = runtime.SubmitActionIntent(playerId, advertisedAction.ActionId);
                 var actionDeadline = Time.realtimeSinceStartup + 12f;
                 while (Time.realtimeSinceStartup < actionDeadline &&
                        (runtime.LastReceipt == null || runtime.LastReceipt.CommandId != action.CommandId ||

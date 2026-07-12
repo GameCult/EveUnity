@@ -17,6 +17,7 @@ namespace GameCult.Eve.UnityScene
         IEveUnitySceneCommandReceiptSource,
         IEveUnityProviderRefreshSource,
         IEveUnityEntitySoaViewDocumentSource,
+        IEveUnityInputCapabilityDocumentSource,
         IEveUnityCameraRenderPolicySource,
         IEveUnityNativeAssetProvider
     {
@@ -34,6 +35,8 @@ namespace GameCult.Eve.UnityScene
         private readonly ConcurrentQueue<EveEntitySoaViewDocument> _pendingEntityViews = new ConcurrentQueue<EveEntitySoaViewDocument>();
 
         public EveEntitySoaViewDocument? CurrentEntityView { get; private set; }
+
+        public EveInputCapabilityDocument? CurrentInputCapability => _transport?.CurrentInputCapability;
 
         public event Action<EveEntitySoaViewDocument>? EntityViewAvailable;
 

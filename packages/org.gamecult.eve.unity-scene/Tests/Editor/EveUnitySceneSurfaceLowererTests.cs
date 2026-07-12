@@ -338,11 +338,25 @@ namespace GameCult.Eve.UnityScene.Tests
         [Test]
         public void PlayableWorldRuntimeComposesProviderDocumentsAssetsReceiptsAndSceneSink()
         {
-            var surfaceDocuments = new FakeProviderSurfaceDocumentSource(new EveUnitySceneProviderSurfaceDocument(
-                PlayableArpgDocument(),
-                Advertisement("aetheria.daemon.game"),
-                "cultmesh://aetheria/eve/surfaces/aetheria.daemon.game",
-                1));
+            var surfaceDocuments = new FakeProviderSurfaceDocumentSource(
+                new EveUnitySceneProviderSurfaceDocument(
+                    PlayableArpgDocument(),
+                    Advertisement("aetheria.daemon.game"),
+                    "cultmesh://aetheria/eve/surfaces/aetheria.daemon.game",
+                    1),
+                currentInputCapability: new EveInputCapabilityDocument
+                {
+                    ProviderId = "aetheria",
+                    Actions = new[]
+                    {
+                        new EveInputActionDocument
+                        {
+                            ActionId = "weapon-group.2.fire",
+                            Operation = "aetheria.daemon.commands.FireWeaponGroup",
+                            Payload = new Dictionary<string, string> { ["weaponGroup"] = "2" }
+                        }
+                    }
+                });
             var assetDocuments = new FakeAssetManifestDocumentSource(new EveUnityPlayableWorldAssetManifestDocument(
                 "cultmesh://aetheria/assets/manifest",
                 new[]
@@ -391,6 +405,14 @@ namespace GameCult.Eve.UnityScene.Tests
             Assert.That(moveIntent.Command, Is.EqualTo("aetheria.daemon.commands"));
             Assert.That(moveIntent.CommandBoundary, Is.EqualTo("aetheria.daemon.commands"));
             Assert.That(moveIntent.ReceiptSchema, Is.EqualTo("aetheria.eve_command_acceptance_status.v1"));
+
+            var actionIntent = runtime.SubmitActionIntent("player-vanguard", "weapon-group.2.fire");
+
+            Assert.That(commandSink.Submitted.Count, Is.EqualTo(2));
+            Assert.That(commandSink.Submitted[1], Is.SameAs(actionIntent));
+            Assert.That(actionIntent.Payload.GetString("commandId"), Is.EqualTo("aetheria.daemon.commands.FireWeaponGroup"));
+            Assert.That(actionIntent.Payload.GetString("weaponGroup"), Is.EqualTo("2"));
+            Assert.That(actionIntent.Payload.GetString("actionId"), Is.EqualTo("weapon-group.2.fire"));
 
             surfaceDocuments.Publish(new EveUnitySceneProviderSurfaceDocument(
                 PlayableArpgDocument(includeRaider: false, playerPosition: "14,0,9"),
@@ -442,6 +464,10 @@ namespace GameCult.Eve.UnityScene.Tests
                 {
                     new EveEntitySoaColumn { ColumnId = "position", Semantic = "transform.position", BufferId = "hot", ScalarType = "float3", ElementStride = 12, ElementCount = 1 },
                     new EveEntitySoaColumn { ColumnId = "entity-index", Semantic = "entity.index", BufferId = "hot", ScalarType = "int32", ByteOffset = 12, ElementStride = 4, ElementCount = 1 }
+                },
+                Identities = new[]
+                {
+                    new EveEntitySoaIdentity { EntityIndex = 41, EntityId = "world:entity:41", Kind = "ship", Label = "Test ship", Controllable = true, AssetRef = "prefab.entity.player" }
                 }
             };
             var surfaceDocuments = new FakeProviderSurfaceDocumentSource(
@@ -462,7 +488,7 @@ namespace GameCult.Eve.UnityScene.Tests
 
             Assert.That(presentation.ActiveEntities, Is.EqualTo(1));
             Assert.That(runtime.LastPresentation!.ActiveEntities, Is.EqualTo(1));
-            Assert.That(sceneSink.Upserts.Exists(entry => entry.entity.EntityId == "entity:41"), Is.True);
+            Assert.That(sceneSink.Upserts.Exists(entry => entry.entity.EntityId == "world:entity:41"), Is.True);
         }
 
         [Test]
@@ -1592,14 +1618,17 @@ namespace GameCult.Eve.UnityScene.Tests
 
         private sealed class FakeProviderSurfaceDocumentSource :
             IEveUnitySceneProviderSurfaceDocumentSource,
-            IEveUnityEntitySoaViewDocumentSource
+            IEveUnityEntitySoaViewDocumentSource,
+            IEveUnityInputCapabilityDocumentSource
         {
             public FakeProviderSurfaceDocumentSource(
                 EveUnitySceneProviderSurfaceDocument currentDocument,
-                EveEntitySoaViewDocument? currentEntityView = null)
+                EveEntitySoaViewDocument? currentEntityView = null,
+                EveInputCapabilityDocument? currentInputCapability = null)
             {
                 CurrentDocument = currentDocument;
                 CurrentEntityView = currentEntityView;
+                CurrentInputCapability = currentInputCapability;
             }
 
             public EveUnitySceneProviderSurfaceDocument CurrentDocument { get; private set; }
@@ -1609,6 +1638,8 @@ namespace GameCult.Eve.UnityScene.Tests
             public EveEntitySoaViewDocument? CurrentEntityView { get; private set; }
 
             public event Action<EveEntitySoaViewDocument>? EntityViewAvailable;
+
+            public EveInputCapabilityDocument? CurrentInputCapability { get; }
 
             public void Publish(EveUnitySceneProviderSurfaceDocument document)
             {

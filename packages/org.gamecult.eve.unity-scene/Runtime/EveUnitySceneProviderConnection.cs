@@ -238,10 +238,10 @@ namespace GameCult.Eve.UnityScene
 
         public EveSurfaceCommandRequest SubmitActionIntent(
             string entityId,
-            string actionId,
+            EveInputActionDocument action,
             DateTimeOffset? issuedAt = null)
         {
-            return Submit(_session.CreateActionIntent(entityId, actionId, issuedAt));
+            return Submit(_session.CreateActionIntent(entityId, action, issuedAt));
         }
 
         public void Disconnect()

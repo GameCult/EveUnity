@@ -115,17 +115,18 @@ namespace GameCult.Eve.UnityScene
 
         public EveSurfaceCommandRequest CreateActionIntent(
             string entityId,
-            string actionId,
+            EveInputActionDocument action,
             DateTimeOffset? issuedAt = null)
         {
-            var playableWorld = RequirePlayableWorld();
+            if (action == null) throw new ArgumentNullException(nameof(action));
+            var payload = new Dictionary<string, string>(action.Payload ?? new Dictionary<string, string>(), StringComparer.Ordinal)
+            {
+                ["entityId"] = entityId ?? "",
+                ["actionId"] = action.ActionId ?? ""
+            };
             return CreatePlayableWorldIntent(
-                playableWorld.ActionCommand,
-                new Dictionary<string, string>(StringComparer.Ordinal)
-                {
-                    ["entityId"] = entityId ?? "",
-                    ["actionId"] = actionId ?? ""
-                },
+                action.Operation,
+                payload,
                 issuedAt);
         }
 

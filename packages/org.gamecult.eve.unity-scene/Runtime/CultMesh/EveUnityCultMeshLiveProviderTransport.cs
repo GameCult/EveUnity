@@ -32,6 +32,7 @@ namespace GameCult.Eve.UnityScene
             typeof(EveCommandReceiptDocument),
             typeof(EveAssetCatalogDocument),
             typeof(EveEntitySoaViewDocument),
+            typeof(EveInputCapabilityDocument),
             typeof(CultMeshCdnArtifactManifest),
             typeof(CultMeshCdnArtifactChunk)
         };
@@ -82,6 +83,8 @@ namespace GameCult.Eve.UnityScene
 
         public EveUnityPlayableWorldAssetManifestDocument CurrentAssetManifestDocument { get; private set; }
 
+        public EveInputCapabilityDocument? CurrentInputCapability { get; private set; }
+
         public event Action<EveUnitySceneProviderSurfaceDocument>? SurfaceDocumentAvailable;
 
         public event Action<EveUnityPlayableWorldAssetManifestDocument>? AssetManifestDocumentAvailable;
@@ -118,6 +121,8 @@ namespace GameCult.Eve.UnityScene
                     PublishSurface(surface);
                 else if (document is EveCommandReceiptDocument receipt)
                     PublishReceipt(receipt);
+                else if (document is EveInputCapabilityDocument inputCapability)
+                    CurrentInputCapability = inputCapability;
             }
         }
 
@@ -247,6 +252,14 @@ namespace GameCult.Eve.UnityScene
                     .GetAwaiter().GetResult();
                 _liveDocuments.Enqueue(entities.LatestAsync().GetAwaiter().GetResult());
                 _liveWatches.Add(entities.Watch(view => _liveDocuments.Enqueue(view)));
+            }
+            var inputCapabilityPointer = lowered.PlayableWorld?.InputCapabilityPointerId ?? "";
+            if (!string.IsNullOrWhiteSpace(inputCapabilityPointer))
+            {
+                var inputs = _mesh.DocumentAsync<EveInputCapabilityDocument>(_endpointId, inputCapabilityPointer)
+                    .GetAwaiter().GetResult();
+                CurrentInputCapability = inputs.LatestAsync().GetAwaiter().GetResult();
+                _liveWatches.Add(inputs.Watch(document => _liveDocuments.Enqueue(document)));
             }
             var receipts = _mesh.CollectionAsync<EveCommandReceiptDocument>(_endpointId).GetAwaiter().GetResult();
             _liveWatches.Add(receipts.WatchChanges(change =>

@@ -1,6 +1,8 @@
 param(
   [string] $UnityExe = "C:\Program Files\Unity\Hub\Editor\6000.4.2f1\Editor\Unity.exe",
   [string] $AetheriaRoot = "E:\Projects\Aetheria",
+  [string] $EveUnityRoot = "",
+  [string] $CultLibRoot = "E:\Projects\CultLib",
   [string] $ClientProject = "ReleaseConsumerProject",
   [int] $Port = 3076,
   [string] $OutputDirectory = "artifacts\aetheria-daemon",
@@ -11,6 +13,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
+$resolvedEveUnityRoot = if ([string]::IsNullOrWhiteSpace($EveUnityRoot)) { $repoRoot } else { $EveUnityRoot }
 $projectRoot = $ClientProject
 $outputRoot = if ([IO.Path]::IsPathRooted($OutputDirectory)) { $OutputDirectory } else { Join-Path $repoRoot $OutputDirectory }
 $resultsPath = Join-Path $outputRoot "results.xml"
@@ -57,7 +60,7 @@ foreach ($ephemeralPath in @(
 }
 
 $import = Start-Process -FilePath "dotnet" -ArgumentList @(
-  "run", "--project", $importProject, "--", $AetheriaRoot, $statePath
+  "run", "--project", $importProject, "-p:EveUnityRoot=$resolvedEveUnityRoot", "-p:CultLibRoot=$CultLibRoot", "--", $AetheriaRoot, $statePath
 ) -PassThru -WindowStyle Hidden -Wait `
   -RedirectStandardOutput (Join-Path $outputRoot "aetheria-import.log") `
   -RedirectStandardError (Join-Path $outputRoot "aetheria-import.error.log")
@@ -65,7 +68,7 @@ if ($import.ExitCode -ne 0) {
   throw "Aetheria state import failed with exit code $($import.ExitCode). See $outputRoot\aetheria-import.error.log"
 }
 $daemonBuild = Start-Process -FilePath "dotnet" -ArgumentList @(
-  "build", $daemonProject
+  "build", $daemonProject, "-p:EveUnityRoot=$resolvedEveUnityRoot", "-p:CultLibRoot=$CultLibRoot"
 ) -PassThru -WindowStyle Hidden -Wait `
   -RedirectStandardOutput $daemonBuildLogPath `
   -RedirectStandardError (Join-Path $outputRoot "aetheria-daemon-build.error.log")

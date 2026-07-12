@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using GameCult.Eve.Surface;
 using UnityEngine;
 
@@ -13,6 +14,7 @@ namespace GameCult.Eve.UnityScene
         private readonly EveUnityPlayableWorldLiveClient _client;
         private readonly EveUnityPlayableWorldAssetManifestDocumentSource? _assetManifestSource;
         private readonly IEveUnityEntitySoaViewDocumentSource? _entityViews;
+        private readonly IEveUnityInputCapabilityDocumentSource? _inputCapabilities;
         private readonly EveUnityEntitySoaPresenter _entityPresenter;
         private bool _entityViewsConnected;
         private bool _assetManifestConnected;
@@ -33,6 +35,7 @@ namespace GameCult.Eve.UnityScene
             AssetManifests = assetManifests ?? new EveUnityPlayableWorldAssetManifestCache();
             _surfaceSource = new EveUnitySceneProviderSurfaceDocumentSource(surfaceDocuments);
             _entityViews = surfaceDocuments as IEveUnityEntitySoaViewDocumentSource;
+            _inputCapabilities = surfaceDocuments as IEveUnityInputCapabilityDocumentSource;
             _entityPresenter = new EveUnityEntitySoaPresenter(sceneSink);
             _connection = new EveUnitySceneProviderConnection(_surfaceSource, commandSink);
             _client = new EveUnityPlayableWorldLiveClient(
@@ -162,7 +165,14 @@ namespace GameCult.Eve.UnityScene
             string actionId,
             DateTimeOffset? issuedAt = null)
         {
-            return _client.SubmitActionIntent(entityId, actionId, issuedAt);
+            var capability = _inputCapabilities?.CurrentInputCapability
+                ?? throw new InvalidOperationException("The active Eve surface does not publish an input capability document.");
+            var action = (capability.Actions ?? Array.Empty<EveInputActionDocument>())
+                .FirstOrDefault(candidate => string.Equals(candidate.ActionId, actionId, StringComparison.Ordinal))
+                ?? throw new InvalidOperationException($"The active Eve input capability does not advertise action '{actionId}'.");
+            if (!string.Equals(action.Availability, "available", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException($"Eve action '{actionId}' is not currently available.");
+            return _client.SubmitActionIntent(entityId, action, issuedAt);
         }
 
         public void Disconnect()

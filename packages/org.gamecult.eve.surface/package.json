@@ -5,7 +5,7 @@
     "unity": "2021.3",
     "description": "Unity-compatible DTOs for gamecult.eve.surface.v1 documents.",
     "dependencies": {
-        "org.gamecult.cultlib": "1.0.4"
+        "org.gamecult.cultlib": "1.0.5"
     },
     "keywords": [
         "Eve",

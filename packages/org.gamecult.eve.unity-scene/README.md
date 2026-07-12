@@ -21,6 +21,9 @@ Retained provider feedback is lowered without becoming Unity authority.
 The generic `EveUnityShotTrajectoryRenderer` renders provider-authored origin,
 endpoint, duration, and hit outcome, then expires the visual locally. It never
 uses Unity collision to infer damage or report a hit back to the provider.
+The reusable `LightningCompute` renderer and its shader/material bundle live in
+this runtime package with their original Unity GUIDs. Provider asset bundles may
+therefore reference the effect without importing Aetheria gameplay code.
 
 `fields.surface` projection consumes the plugin-owned
 `org.gamecult.eve.plugin-fields` contracts. `EveFieldsSplatRasterizer` owns the

@@ -62,6 +62,14 @@ namespace GameCult.Eve.UnityScene
                 effect.transform.position = origin;
                 var direction = endpoint - origin;
                 if (direction.sqrMagnitude > 0.0001f) effect.transform.rotation = Quaternion.LookRotation(direction.normalized);
+                var lightning = effect.GetComponentInChildren<LightningCompute>();
+                if (lightning != null)
+                {
+                    lightning.StartPosition = origin;
+                    lightning.EndPosition = endpoint;
+                    lightning.Animate = true;
+                    lightning.StartAnimation();
+                }
             }
             var impactPrefab = ResolveRolePrefab("effect.impact." + receipt.ImpactKind);
             var travels = string.Equals(receipt.PresentationKind, "bolt", StringComparison.Ordinal) ||

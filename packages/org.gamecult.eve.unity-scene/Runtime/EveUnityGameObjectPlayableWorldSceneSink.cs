@@ -117,6 +117,15 @@ namespace GameCult.Eve.UnityScene
                 marker = instance.AddComponent<EveUnityPlayableWorldEntityMarker>();
 
             marker.Apply(entity, asset);
+
+            if (entity.Props.TryGetValue("presentationState", out var presentationState) &&
+                !string.IsNullOrWhiteSpace(presentationState))
+            {
+                var semanticPresentation = instance.GetComponent<EveUnitySemanticEntityPresentation>();
+                if (semanticPresentation == null)
+                    semanticPresentation = instance.AddComponent<EveUnitySemanticEntityPresentation>();
+                semanticPresentation.Apply(entity.Props);
+            }
         }
 
         private static void DestroyInstance(GameObject instance)
@@ -126,6 +135,69 @@ namespace GameCult.Eve.UnityScene
             else
                 UnityEngine.Object.DestroyImmediate(instance);
         }
+    }
+
+    public sealed class EveUnitySemanticEntityPresentation : MonoBehaviour
+    {
+        private static readonly int Emission = Shader.PropertyToID("_Emission");
+        private static readonly int EmissionColor = Shader.PropertyToID("_EmissionColor");
+        private MaterialPropertyBlock? _properties;
+        private Renderer[] _renderers = Array.Empty<Renderer>();
+        private string _state = "";
+        private float _activePulseSeconds = 1f;
+        private float _triggeredPulseSeconds = 0.25f;
+        private float _activeEmission = 1f;
+        private float _triggeredEmission = 4f;
+
+        public string PresentationState => _state;
+
+        public void Apply(IReadOnlyDictionary<string, string> props)
+        {
+            props ??= new Dictionary<string, string>(StringComparer.Ordinal);
+            _state = Read(props, "presentationState");
+            _activePulseSeconds = Positive(ReadFloat(props, "activePulseSeconds", _activePulseSeconds), 1f);
+            _triggeredPulseSeconds = Positive(ReadFloat(props, "triggeredPulseSeconds", _triggeredPulseSeconds), 0.25f);
+            _activeEmission = Math.Max(0f, ReadFloat(props, "activeEmission", _activeEmission));
+            _triggeredEmission = Math.Max(0f, ReadFloat(props, "triggeredEmission", _triggeredEmission));
+            _renderers = GetComponentsInChildren<Renderer>(true);
+            ApplyAt(Time.time);
+        }
+
+        public void ApplyAt(float timeSeconds)
+        {
+            var triggered = string.Equals(_state, "triggered", StringComparison.Ordinal);
+            var active = triggered || string.Equals(_state, "active", StringComparison.Ordinal);
+            var period = triggered ? _triggeredPulseSeconds : _activePulseSeconds;
+            var peak = triggered ? _triggeredEmission : _activeEmission;
+            var envelope = active
+                ? Mathf.Lerp(0.1f, 1f, Mathf.Abs(Mathf.Cos(Mathf.PI * timeSeconds / period)))
+                : 0f;
+            var value = peak * envelope;
+            _properties ??= new MaterialPropertyBlock();
+            foreach (var renderer in _renderers)
+            {
+                if (renderer == null) continue;
+                renderer.GetPropertyBlock(_properties);
+                _properties.SetFloat(Emission, value);
+                _properties.SetColor(EmissionColor, Color.white * value);
+                renderer.SetPropertyBlock(_properties);
+            }
+        }
+
+        private void Update() => ApplyAt(Time.time);
+
+        private static string Read(IReadOnlyDictionary<string, string> props, string key) =>
+            props.TryGetValue(key, out var value) ? value ?? "" : "";
+
+        private static float ReadFloat(IReadOnlyDictionary<string, string> props, string key, float fallback) =>
+            props.TryGetValue(key, out var value) && float.TryParse(value,
+                System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out var parsed)
+                ? parsed
+                : fallback;
+
+        private static float Positive(float value, float fallback) => value > 0f ? value : fallback;
     }
 
     public sealed class EveUnityResourcesAssetProvider : IEveUnityGameObjectAssetProvider

@@ -87,12 +87,39 @@ namespace GameCult.Eve.UnityScene.Tests
             Assert.That(player.PositionZ, Is.EqualTo(0f));
             Assert.That(player.Controllable, Is.True);
             Assert.That(player.MoveCommand, Is.EqualTo("aetheria.daemon.move_intent"));
+            Assert.That(player.Props["presentationState"], Is.EqualTo("active"));
 
             var raider = FindEntity(projection.PlayableWorld, "raider-scout");
             Assert.That(raider.EntityKind, Is.EqualTo("enemy"));
             Assert.That(raider.PositionX, Is.EqualTo(9f));
             Assert.That(raider.PositionZ, Is.EqualTo(14f));
             Assert.That(raider.TargetCommand, Is.EqualTo("aetheria.daemon.target"));
+        }
+
+        [Test]
+        public void SemanticEntityPresentationConsumesProviderPulseState()
+        {
+            var instance = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            try
+            {
+                var presentation = instance.AddComponent<EveUnitySemanticEntityPresentation>();
+                presentation.Apply(new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["presentationState"] = "triggered",
+                    ["activePulseSeconds"] = "1",
+                    ["triggeredPulseSeconds"] = "0.25",
+                    ["activeEmission"] = "100",
+                    ["triggeredEmission"] = "1000"
+                });
+                presentation.ApplyAt(0.125f);
+
+                Assert.That(presentation.PresentationState, Is.EqualTo("triggered"));
+                Assert.That(instance.GetComponent<Renderer>().HasPropertyBlock(), Is.True);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(instance);
+            }
         }
 
         [Test]
@@ -1324,6 +1351,7 @@ namespace GameCult.Eve.UnityScene.Tests
                     ["position"] = position,
                     ["rotationY"] = rotationY,
                     ["radius"] = radius,
+                    ["presentationState"] = "active",
                     ["selectable"] = selectable ? "true" : "false",
                     ["controllable"] = controllable ? "true" : "false",
                     ["focusCommand"] = focusCommand,

@@ -114,6 +114,7 @@ namespace GameCult.Eve.UnityScene
                 worldRoot.GetProp("assetManifest", worldRoot.GetProp("assetManifestUri")),
                 worldRoot.GetProp("inputProfile"),
                 worldRoot.GetProp("cameraRig"),
+                worldRoot.GetProp("viewId"),
                 worldRoot.GetProp("playerEntityId"),
                 worldRoot.GetProp("movementCommand"),
                 worldRoot.GetProp("focusCommand"),
@@ -142,7 +143,8 @@ namespace GameCult.Eve.UnityScene
                 component.GetProp("focusCommand"),
                 component.GetProp("moveCommand"),
                 component.GetProp("targetCommand"),
-                component.GetProp("actionCommand"));
+                component.GetProp("actionCommand"),
+                component.Props);
         }
 
         private static EveSurfaceComponent? FindFirst(
@@ -308,6 +310,7 @@ namespace GameCult.Eve.UnityScene
             string assetManifest,
             string inputProfile,
             string cameraRig,
+            string viewId,
             string playerEntityId,
             string movementCommand,
             string focusCommand,
@@ -320,6 +323,7 @@ namespace GameCult.Eve.UnityScene
             AssetManifest = assetManifest ?? "";
             InputProfile = inputProfile ?? "";
             CameraRig = cameraRig ?? "";
+            ViewId = viewId ?? "";
             PlayerEntityId = playerEntityId ?? "";
             MovementCommand = movementCommand ?? "";
             FocusCommand = focusCommand ?? "";
@@ -337,6 +341,8 @@ namespace GameCult.Eve.UnityScene
         public string InputProfile { get; }
 
         public string CameraRig { get; }
+
+        public string ViewId { get; }
 
         public string PlayerEntityId { get; }
 
@@ -372,7 +378,8 @@ namespace GameCult.Eve.UnityScene
             string focusCommand,
             string moveCommand,
             string targetCommand,
-            string actionCommand)
+            string actionCommand,
+            IReadOnlyDictionary<string, string>? props = null)
         {
             NodeId = nodeId ?? "";
             EntityId = entityId ?? "";
@@ -391,6 +398,7 @@ namespace GameCult.Eve.UnityScene
             MoveCommand = moveCommand ?? "";
             TargetCommand = targetCommand ?? "";
             ActionCommand = actionCommand ?? "";
+            Props = props ?? new Dictionary<string, string>(StringComparer.Ordinal);
         }
 
         public string NodeId { get; }
@@ -426,6 +434,8 @@ namespace GameCult.Eve.UnityScene
         public string TargetCommand { get; }
 
         public string ActionCommand { get; }
+
+        public IReadOnlyDictionary<string, string> Props { get; }
     }
 
     public sealed class EveUnitySceneNode

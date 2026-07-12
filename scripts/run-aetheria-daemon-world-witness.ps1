@@ -94,6 +94,7 @@ $daemonArguments = @(
   "--no-odin-announcements"
 )
 $env:AETHERIA_TRACE_EVE_SNAPSHOTS = "1"
+$env:AETHERIA_TRACE_CLIENT_RUDP = "1"
 $daemon = Start-Process -FilePath "dotnet" -ArgumentList $daemonArguments -PassThru -WindowStyle Hidden `
   -RedirectStandardOutput $daemonLogPath -RedirectStandardError (Join-Path $outputRoot "aetheria-daemon.error.log")
 Write-Host "Aetheria daemon PID: $($daemon.Id)"

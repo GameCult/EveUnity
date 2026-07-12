@@ -89,6 +89,8 @@ namespace GameCult.Eve.UnityScene
             if (feedbackEffects == null) feedbackEffects = gameObject.AddComponent<EveUnityFeedbackEffectRenderer>();
             feedbackEffects.Bind(this, Runtime.GameObjectAssetProvider);
             var thermal = GetComponent<EveUnityThermalPresenter>();
+            var thermalHud = GetComponent<EveUnityThermalHudSink>();
+            if (thermalHud == null) thermalHud = gameObject.AddComponent<EveUnityThermalHudSink>();
             if (thermal == null) thermal = gameObject.AddComponent<EveUnityThermalPresenter>();
             thermal.Bind(this, Runtime.GameObjectAssetProvider as IEveUnityNativeAssetProvider);
 

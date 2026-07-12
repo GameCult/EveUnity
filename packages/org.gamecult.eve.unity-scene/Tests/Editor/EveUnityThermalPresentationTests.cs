@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using NUnit.Framework;
+using UnityEngine;
+using UnityEngine.UIElements;
 
 namespace GameCult.Eve.UnityScene.Tests
 {
@@ -61,6 +63,34 @@ namespace GameCult.Eve.UnityScene.Tests
             Assert.That(reconnect.DeathCause, Is.EqualTo("heatstroke"));
             Assert.That(reconnect.DeathWeight, Is.EqualTo(1).Within(0.0001));
             Assert.That(reconnect.HeatstrokeWeight, Is.Zero);
+        }
+
+        [Test]
+        public void ThermalHudLowersCockpitAndExposureMetersWithoutProviderTypes()
+        {
+            var root = new GameObject("thermal-hud-test");
+            try
+            {
+                var hud = root.AddComponent<EveUnityThermalHudSink>();
+                hud.ApplyThermalPresentation(new EveUnityThermalPresentationFrame(
+                    "pilot", 340, 0.6f, 0.2f, true, false, 1, 0.5f, 0, 0, "", 0));
+
+                Assert.That(hud.Root, Is.Not.Null);
+                Assert.That(hud.Root!.Q<Label>(), Is.Not.Null);
+                Assert.That(hud.Root.Q<VisualElement>("heatstroke-fill").style.width.value.value,
+                    Is.EqualTo(60).Within(0.01));
+                Assert.That(hud.Root.Q<VisualElement>("hypothermia-fill").style.width.value.value,
+                    Is.EqualTo(20).Within(0.01));
+                Assert.That(hud.Root.Q<VisualElement>("temperature-marker").style.left.value.value,
+                    Is.EqualTo(100).Within(0.01));
+
+                hud.ApplyThermalPresentation(default);
+                Assert.That(hud.Root.style.display.value, Is.EqualTo(DisplayStyle.None));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(root);
+            }
         }
 
         private static EveUnityPlayableWorldProjection World(params EveUnityPlayableWorldEntity[] entities) =>

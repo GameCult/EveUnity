@@ -23,16 +23,19 @@ namespace GameCult.Eve.Surface
         internal EveSurfaceSelection(
             EveProviderAdvertisementDocument provider,
             EveAdvertisedSurface advertisement,
-            CultMeshDocumentHandle<EveSurfaceDocument> surface)
+            CultMeshDocumentHandle<EveSurfaceDocument> surface,
+            IReadOnlyList<EvePluginAdvertisementDocument> plugins)
         {
             Provider = provider;
             Advertisement = advertisement;
             Surface = surface;
+            Plugins = plugins;
         }
 
         public EveProviderAdvertisementDocument Provider { get; }
         public EveAdvertisedSurface Advertisement { get; }
         public CultMeshDocumentHandle<EveSurfaceDocument> Surface { get; }
+        public IReadOnlyList<EvePluginAdvertisementDocument> Plugins { get; }
     }
 
     public static class EveCultMeshSurfaceSelection
@@ -48,12 +51,54 @@ namespace GameCult.Eve.Surface
             var providers = await mesh.CollectionAsync<EveProviderAdvertisementDocument>(endpointId, cancellationToken)
                 .ConfigureAwait(false);
             var match = Select(await providers.LatestAsync().ConfigureAwait(false), resolved);
+            IReadOnlyList<EvePluginAdvertisementDocument> plugins = Array.Empty<EvePluginAdvertisementDocument>();
+            if (match.Surface.RequiresPlugins.Count > 0)
+            {
+                var advertisements = await mesh.CollectionAsync<EvePluginAdvertisementDocument>(endpointId, cancellationToken)
+                    .ConfigureAwait(false);
+                plugins = ResolvePlugins(match.Surface, await advertisements.LatestAsync().ConfigureAwait(false));
+            }
             var surface = await mesh.DocumentAsync<EveSurfaceDocument>(
                     endpointId,
                     match.Surface.RecordRef,
                     cancellationToken)
                 .ConfigureAwait(false);
-            return new EveSurfaceSelection(match.Provider, match.Surface, surface);
+            return new EveSurfaceSelection(match.Provider, match.Surface, surface, plugins);
+        }
+
+        public static IReadOnlyList<EvePluginAdvertisementDocument> ResolvePlugins(
+            EveAdvertisedSurface surface,
+            IEnumerable<EvePluginAdvertisementDocument> advertisements)
+        {
+            if (surface == null) throw new ArgumentNullException(nameof(surface));
+            if (advertisements == null) throw new ArgumentNullException(nameof(advertisements));
+            var available = advertisements
+                .GroupBy(plugin => plugin.PluginId, StringComparer.Ordinal)
+                .ToDictionary(group => group.Key, group => group.OrderByDescending(plugin => plugin.Version, StringComparer.Ordinal).First(), StringComparer.Ordinal);
+            var selected = new List<EvePluginAdvertisementDocument>();
+            foreach (var requirement in surface.RequiresPlugins)
+            {
+                if (!available.TryGetValue(requirement.PluginId, out var plugin))
+                {
+                    if (string.Equals(requirement.Availability, "required", StringComparison.OrdinalIgnoreCase))
+                        throw new InvalidOperationException(
+                            $"Eve surface '{surface.SurfaceId}' requires unavailable plugin '{requirement.PluginId}'.");
+                    continue;
+                }
+
+                var claims = plugin.Schemas.Concat(plugin.ComponentKinds).Concat(plugin.Commands)
+                    .ToHashSet(StringComparer.Ordinal);
+                var missing = requirement.RequiredCapabilities.Where(capability => !claims.Contains(capability)).ToArray();
+                if (missing.Length > 0)
+                {
+                    if (string.Equals(requirement.Availability, "required", StringComparison.OrdinalIgnoreCase))
+                        throw new InvalidOperationException(
+                            $"Eve plugin '{plugin.PluginId}' does not advertise required capabilities: {string.Join(", ", missing)}.");
+                    continue;
+                }
+                selected.Add(plugin);
+            }
+            return selected;
         }
 
         public static (EveProviderAdvertisementDocument Provider, EveAdvertisedSurface Surface) Select(

@@ -119,7 +119,8 @@ namespace GameCult.Eve.Surface
             string transport,
             string status,
             string surfaceKind,
-            EveWorldInteractionAdvertisement? worldInteraction = null)
+            EveWorldInteractionAdvertisement? worldInteraction = null,
+            IReadOnlyList<EvePluginRequirement>? requiresPlugins = null)
         {
             SurfaceId = surfaceId ?? "";
             Schema = schema ?? "";
@@ -128,6 +129,7 @@ namespace GameCult.Eve.Surface
             Status = status ?? "";
             SurfaceKind = surfaceKind ?? "";
             WorldInteraction = worldInteraction;
+            RequiresPlugins = requiresPlugins ?? Array.Empty<EvePluginRequirement>();
         }
 
         [Key(0)] public string SurfaceId { get; }
@@ -137,6 +139,32 @@ namespace GameCult.Eve.Surface
         [Key(4)] public string Status { get; }
         [Key(5)] public string SurfaceKind { get; }
         [Key(6)] public EveWorldInteractionAdvertisement? WorldInteraction { get; }
+        [Key(7)] public IReadOnlyList<EvePluginRequirement> RequiresPlugins { get; }
+    }
+
+    [MessagePackObject]
+    public sealed class EvePluginRequirement
+    {
+        [SerializationConstructor]
+        public EvePluginRequirement(
+            string pluginId,
+            string versionRange,
+            string availability,
+            IReadOnlyList<string> requiredCapabilities,
+            IReadOnlyList<string> optionalCapabilities)
+        {
+            PluginId = pluginId ?? "";
+            VersionRange = versionRange ?? "";
+            Availability = string.IsNullOrWhiteSpace(availability) ? "required" : availability;
+            RequiredCapabilities = requiredCapabilities ?? Array.Empty<string>();
+            OptionalCapabilities = optionalCapabilities ?? Array.Empty<string>();
+        }
+
+        [Key(0)] public string PluginId { get; }
+        [Key(1)] public string VersionRange { get; }
+        [Key(2)] public string Availability { get; }
+        [Key(3)] public IReadOnlyList<string> RequiredCapabilities { get; }
+        [Key(4)] public IReadOnlyList<string> OptionalCapabilities { get; }
     }
 
     [MessagePackObject]

@@ -61,6 +61,41 @@ namespace GameCult.Eve.UnityScene.Tests
                 new EveSurfaceRequest { LoweringTarget = "flutter" }));
         }
 
+        [Test]
+        public void ResolvePlugins_KeepsIndependentRequiredAndOptionalNestedCapabilities()
+        {
+            var surface = new EveAdvertisedSurface(
+                "sai.stage", EveSurfaceDocument.SchemaId, "eve:surface:sai", "cultmesh-record", "active", "interface",
+                requiresPlugins: new[]
+                {
+                    new EvePluginRequirement("sai.vn", "^0.1.0", "required", new[] { "vn.stage", "story.choose" }, Array.Empty<string>()),
+                    new EvePluginRequirement("norn.graph", "^0.1.0", "optional-nested", Array.Empty<string>(), new[] { "embed.norn" }),
+                    new EvePluginRequirement("tex.math", "^0.1.0", "optional-nested", Array.Empty<string>(), new[] { "embed.tex" })
+                });
+            var sai = Plugin("sai.vn", new[] { "vn.stage" }, new[] { "story.choose" });
+            var norn = Plugin("norn.graph", new[] { "embed.norn" }, Array.Empty<string>());
+
+            var selected = EveCultMeshSurfaceSelection.ResolvePlugins(surface, new[] { sai, norn });
+
+            Assert.That(selected, Is.EqualTo(new[] { sai, norn }));
+        }
+
+        [Test]
+        public void ResolvePlugins_RejectsMissingRequiredCapability()
+        {
+            var surface = new EveAdvertisedSurface(
+                "sai.stage", EveSurfaceDocument.SchemaId, "eve:surface:sai", "cultmesh-record", "active", "interface",
+                requiresPlugins: new[]
+                {
+                    new EvePluginRequirement("sai.vn", "^0.1.0", "required", new[] { "story.choose" }, Array.Empty<string>())
+                });
+
+            Assert.Throws<InvalidOperationException>(() =>
+                EveCultMeshSurfaceSelection.ResolvePlugins(
+                    surface,
+                    new[] { Plugin("sai.vn", new[] { "vn.stage" }, Array.Empty<string>()) }));
+        }
+
         private static EveProviderAdvertisementDocument Provider(EveAdvertisedSurface surface) =>
             new EveProviderAdvertisementDocument(
                 "aetheria.daemon",
@@ -75,5 +110,26 @@ namespace GameCult.Eve.UnityScene.Tests
                 Array.Empty<EveProviderWitness>(),
                 new[] { surface },
                 Array.Empty<EveAdvertisedCommand>());
+
+        private static EvePluginAdvertisementDocument Plugin(
+            string pluginId,
+            string[] components,
+            string[] commands) =>
+            new EvePluginAdvertisementDocument(
+                pluginId,
+                pluginId.Split('.')[0],
+                "0.1.0",
+                "cultmesh://plugins/" + pluginId,
+                new EvePluginRuntimeAdvertisement(
+                    "sidecar",
+                    "gamecult.eve.plugin_abi.v1",
+                    new[] { "cultmesh" },
+                    new[] { "plugin" },
+                    new EvePluginSidecarAdvertisement(
+                        "daemon", "cultmesh", "request", "response", Array.Empty<string>(), "command", "receipt", "plugin")),
+                Array.Empty<string>(),
+                components,
+                commands,
+                Array.Empty<string>());
     }
 }

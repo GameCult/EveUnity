@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using GameCult.Eve.Surface;
 using GameCult.Mesh;
 using GameCult.Networking;
@@ -49,15 +50,13 @@ namespace GameCult.Eve.UnityScene
             if (string.IsNullOrWhiteSpace(rendezvousEndpoint))
                 throw new ArgumentException("Rendezvous endpoint must be non-empty.", nameof(rendezvousEndpoint));
 
-            var response = CultMesh.CreateVerseDiscoveryClient().FetchAsync(
+            var response = RunNetwork(() => CultMesh.CreateVerseDiscoveryClient().FetchAsync(
                     rendezvousEndpoint,
                     new CultMeshVerseCatalogRequestMessage
                     {
                         VerseIds = string.IsNullOrWhiteSpace(verseId) ? null : new[] { verseId },
                         TransportVersion = "cultmesh.v0"
-                    })
-                .GetAwaiter()
-                .GetResult();
+                    }));
 
             var candidates = response.Verses
                 .Where(verse => string.IsNullOrWhiteSpace(verseId) ||
@@ -129,10 +128,11 @@ namespace GameCult.Eve.UnityScene
                         RudpMaxFragmentBytes = 2048
                     }
                 });
-            return snapshot.FetchDocumentsAsync<EveProviderAdvertisementDocument>()
-                .GetAwaiter()
-                .GetResult()
+            return RunNetwork(() => snapshot.FetchDocumentsAsync<EveProviderAdvertisementDocument>())
                 .ToArray();
         }
+
+        private static T RunNetwork<T>(Func<Task<T>> operation) =>
+            Task.Run(operation).GetAwaiter().GetResult();
     }
 }

@@ -120,7 +120,11 @@ namespace GameCult.Eve.UnityScene
                 worldRoot.GetProp("focusCommand"),
                 worldRoot.GetProp("targetCommand"),
                 worldRoot.GetProp("actionCommand"),
-                entities);
+                entities,
+                worldRoot.GetProp("entityViewPointerId"),
+                worldRoot.GetProp("entityViewSchema"),
+                worldRoot.GetProp("zoneRenderPointerId"),
+                worldRoot.GetProp("zoneRenderSchema"));
         }
 
         private static EveUnityPlayableWorldEntity BuildPlayableEntity(EveSurfaceComponent component)
@@ -316,7 +320,11 @@ namespace GameCult.Eve.UnityScene
             string focusCommand,
             string targetCommand,
             string actionCommand,
-            IReadOnlyList<EveUnityPlayableWorldEntity> entities)
+            IReadOnlyList<EveUnityPlayableWorldEntity> entities,
+            string entityViewPointerId = "",
+            string entityViewSchema = "",
+            string zoneRenderPointerId = "",
+            string zoneRenderSchema = "")
         {
             WorldRootId = worldRootId ?? "";
             StatePointerId = statePointerId ?? "";
@@ -330,11 +338,23 @@ namespace GameCult.Eve.UnityScene
             TargetCommand = targetCommand ?? "";
             ActionCommand = actionCommand ?? "";
             Entities = entities ?? Array.Empty<EveUnityPlayableWorldEntity>();
+            EntityViewPointerId = entityViewPointerId ?? "";
+            EntityViewSchema = entityViewSchema ?? "";
+            ZoneRenderPointerId = zoneRenderPointerId ?? "";
+            ZoneRenderSchema = zoneRenderSchema ?? "";
         }
 
         public string WorldRootId { get; }
 
         public string StatePointerId { get; }
+
+        public string EntityViewPointerId { get; }
+
+        public string EntityViewSchema { get; }
+
+        public string ZoneRenderPointerId { get; }
+
+        public string ZoneRenderSchema { get; }
 
         public string AssetManifest { get; }
 

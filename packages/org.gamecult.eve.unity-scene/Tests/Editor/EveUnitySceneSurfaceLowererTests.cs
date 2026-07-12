@@ -70,6 +70,9 @@ namespace GameCult.Eve.UnityScene.Tests
             Assert.That(projection.PlayableWorld, Is.Not.Null);
             Assert.That(projection.PlayableWorld!.WorldRootId, Is.EqualTo("aetheria.daemon.game.playable"));
             Assert.That(projection.PlayableWorld.StatePointerId, Is.EqualTo("cultmesh://aetheria/run/current"));
+            Assert.That(projection.PlayableWorld.EntityViewPointerId, Is.EqualTo("cultmesh://aetheria/world/entities.soa"));
+            Assert.That(projection.PlayableWorld.EntityViewSchema, Is.EqualTo(EveEntitySoaViewDocument.SchemaId));
+            Assert.That(projection.PlayableWorld.ZoneRenderPointerId, Is.EqualTo("cultmesh://aetheria/world/zone-render"));
             Assert.That(projection.PlayableWorld.AssetManifest, Is.EqualTo("cultmesh://aetheria/assets/manifest"));
             Assert.That(projection.PlayableWorld.InputProfile, Is.EqualTo("arpg-third-person"));
             Assert.That(projection.PlayableWorld.CameraRig, Is.EqualTo("third-person-orbit"));
@@ -1298,6 +1301,10 @@ namespace GameCult.Eve.UnityScene.Tests
                                 new Dictionary<string, string>(StringComparer.Ordinal)
                                 {
                                     ["statePointerId"] = "cultmesh://aetheria/run/current",
+                                    ["entityViewPointerId"] = "cultmesh://aetheria/world/entities.soa",
+                                    ["entityViewSchema"] = EveEntitySoaViewDocument.SchemaId,
+                                    ["zoneRenderPointerId"] = "cultmesh://aetheria/world/zone-render",
+                                    ["zoneRenderSchema"] = "gamecult.aetheria.zone_render.v1",
                                     ["assetManifest"] = "cultmesh://aetheria/assets/manifest",
                                     ["inputProfile"] = "arpg-third-person",
                                     ["cameraRig"] = "third-person-orbit",

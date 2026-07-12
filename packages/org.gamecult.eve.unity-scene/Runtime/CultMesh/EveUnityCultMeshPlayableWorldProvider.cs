@@ -92,6 +92,8 @@ namespace GameCult.Eve.UnityScene
                 Bridge.Refresh();
             else
                 Bridge.Connect();
+            _transport?.PumpLiveEvents();
+            DrainEntityViews();
         }
 
         public void Submit(EveSurfaceCommandRequest request)
@@ -134,6 +136,11 @@ namespace GameCult.Eve.UnityScene
         {
             CompleteDiscoveryOnMainThread();
             _transport?.PumpLiveEvents();
+            DrainEntityViews();
+        }
+
+        private void DrainEntityViews()
+        {
             EveEntitySoaViewDocument? latest = null;
             while (_pendingEntityViews.TryDequeue(out var next)) latest = next;
             if (latest == null) return;

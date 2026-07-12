@@ -41,9 +41,9 @@ namespace GameCult.Eve.UnityScene
         {
             if (string.IsNullOrWhiteSpace(rendezvousEndpoint))
                 throw new ArgumentException("Rendezvous endpoint must be non-empty.", nameof(rendezvousEndpoint));
-            var endpointId = !string.IsNullOrWhiteSpace(verseId) ? verseId : providerId;
-            if (string.IsNullOrWhiteSpace(endpointId))
-                throw new ArgumentException("Provider or Verse identity must be supplied for CultMesh discovery.", nameof(providerId));
+            var endpointId = !string.IsNullOrWhiteSpace(verseId)
+                ? verseId
+                : !string.IsNullOrWhiteSpace(providerId) ? providerId : "eve.providers";
 
             var mesh = new CultMeshClient(new CultMeshClientOptions
             {

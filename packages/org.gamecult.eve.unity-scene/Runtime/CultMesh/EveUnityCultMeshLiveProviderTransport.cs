@@ -4,6 +4,8 @@ using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Collections.Concurrent;
+using System.Threading;
+using System.Threading.Tasks;
 using GameCult.Caching;
 using GameCult.Caching.MessagePack;
 using GameCult.Eve.Surface;
@@ -348,13 +350,20 @@ namespace GameCult.Eve.UnityScene
         {
             var bytes = new byte[checked((int)manifest.SizeBytes)];
             var references = manifest.Chunks.OrderBy(chunk => chunk.Offset).ToArray();
-            for (var index = 0; index < references.Length; index += 2)
+            var batches = references.Select((reference, index) => new { reference, index })
+                .GroupBy(value => value.index / 2)
+                .Select(group => group.Select(value => value.reference).ToArray())
+                .ToArray();
+            using var concurrency = new SemaphoreSlim(2, 2);
+            var downloads = batches.Select(async batch =>
             {
-                var batch = references.Skip(index).Take(2).ToArray();
-                var chunks = batch.Select(reference => _mesh
-                        .ReadAsync<CultMeshCdnArtifactChunk>(_endpointId, reference.RecordKey)
-                        .GetAwaiter().GetResult())
-                    .ToArray();
+                await concurrency.WaitAsync().ConfigureAwait(false);
+                try
+                {
+                    var chunks = await _mesh.ReadManyAsync<CultMeshCdnArtifactChunk>(
+                            _endpointId,
+                            batch.Select(reference => reference.RecordKey).ToArray())
+                        .ConfigureAwait(false);
                 foreach (var reference in batch)
                 {
                     var chunk = chunks.FirstOrDefault(candidate =>
@@ -365,7 +374,13 @@ namespace GameCult.Eve.UnityScene
                         throw new InvalidDataException($"Provider asset chunk '{reference.RecordKey}' size did not match its manifest.");
                     Buffer.BlockCopy(chunk.Payload, 0, bytes, checked((int)reference.Offset), reference.SizeBytes);
                 }
-            }
+                }
+                finally
+                {
+                    concurrency.Release();
+                }
+            }).ToArray();
+            Task.WhenAll(downloads).GetAwaiter().GetResult();
             return bytes;
         }
 

@@ -5,8 +5,6 @@
     <LangVersion>latest</LangVersion>
     <ImplicitUsings>enable</ImplicitUsings>
     <Description>Portable Eve surface and provider contracts.</Description>
-    <BaseOutputPath>$(MSBuildThisFileDirectory)..\..\..\.dotnet\bin\GameCult.Eve.Surface\</BaseOutputPath>
-    <BaseIntermediateOutputPath>$(MSBuildThisFileDirectory)..\..\..\.dotnet\obj\GameCult.Eve.Surface\</BaseIntermediateOutputPath>
   </PropertyGroup>
 
   <ItemGroup>

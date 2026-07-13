@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using GameCult.Eve.Surface;
 using GameCult.Mesh;
 
@@ -124,7 +125,8 @@ namespace GameCult.Eve.UnityScene
                 worldRoot.GetProp("entityViewPointerId"),
                 worldRoot.GetProp("entityViewSchema"),
                 worldRoot.GetProp("zoneRenderPointerId"),
-                worldRoot.GetProp("zoneRenderSchema"));
+                worldRoot.GetProp("zoneRenderSchema"),
+                ParseStringList(worldRoot.GetProp("excludedRenderChannels")));
         }
 
         private static EveUnityPlayableWorldEntity BuildPlayableEntity(EveSurfaceComponent component)
@@ -196,6 +198,16 @@ namespace GameCult.Eve.UnityScene
         {
             return string.Equals(value, "true", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(value, "1", StringComparison.Ordinal);
+        }
+
+        private static IReadOnlyList<string> ParseStringList(string value)
+        {
+            return (value ?? "")
+                .Split(',')
+                .Select(part => part.Trim())
+                .Where(part => !string.IsNullOrWhiteSpace(part))
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
         }
 
         private static EveUnityScenePluginProjection? BuildPluginProjection(EveSurfaceComponent component)
@@ -324,7 +336,8 @@ namespace GameCult.Eve.UnityScene
             string entityViewPointerId = "",
             string entityViewSchema = "",
             string zoneRenderPointerId = "",
-            string zoneRenderSchema = "")
+            string zoneRenderSchema = "",
+            IReadOnlyList<string>? excludedRenderChannels = null)
         {
             WorldRootId = worldRootId ?? "";
             StatePointerId = statePointerId ?? "";
@@ -342,6 +355,7 @@ namespace GameCult.Eve.UnityScene
             EntityViewSchema = entityViewSchema ?? "";
             ZoneRenderPointerId = zoneRenderPointerId ?? "";
             ZoneRenderSchema = zoneRenderSchema ?? "";
+            ExcludedRenderChannels = excludedRenderChannels ?? Array.Empty<string>();
         }
 
         public string WorldRootId { get; }
@@ -373,6 +387,8 @@ namespace GameCult.Eve.UnityScene
         public string TargetCommand { get; }
 
         public string ActionCommand { get; }
+
+        public IReadOnlyList<string> ExcludedRenderChannels { get; }
 
         public int EntityCount => Entities.Count;
 

@@ -6,7 +6,7 @@ namespace GameCult.Eve.UnityScene
 {
     public interface IEveUnityCameraRenderPolicySource
     {
-        bool TryGetCameraCullingMask(string viewId, out int cullingMask);
+        bool TryGetRenderChannelLayer(string channel, out int layer);
     }
 
     public sealed class EveUnityPlayableWorldCameraRig : MonoBehaviour
@@ -58,10 +58,15 @@ namespace GameCult.Eve.UnityScene
                 return false;
 
             var cameraComponent = camera.GetComponent<Camera>();
-            if (cameraComponent != null &&
-                _renderPolicySource != null &&
-                _renderPolicySource.TryGetCameraCullingMask(activeWorld.ViewId, out var cullingMask))
+            if (cameraComponent != null && _renderPolicySource != null)
             {
+                var cullingMask = cameraComponent.cullingMask;
+                foreach (var channel in activeWorld.ExcludedRenderChannels)
+                {
+                    if (_renderPolicySource.TryGetRenderChannelLayer(channel, out var layer) &&
+                        layer >= 0 && layer < 32)
+                        cullingMask &= ~(1 << layer);
+                }
                 cameraComponent.cullingMask = cullingMask;
             }
             var bounds = CalculateVisualBounds(player);

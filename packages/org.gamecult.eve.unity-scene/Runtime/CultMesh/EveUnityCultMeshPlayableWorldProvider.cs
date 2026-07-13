@@ -108,10 +108,10 @@ namespace GameCult.Eve.UnityScene
             return _transport!.ResolveAsset(asset, assetType);
         }
 
-        public bool TryGetCameraCullingMask(string viewId, out int cullingMask)
+        public bool TryGetRenderChannelLayer(string channel, out int layer)
         {
             EnsureTransport();
-            return _transport!.TryGetCameraCullingMask(viewId, out cullingMask);
+            return _transport!.TryGetRenderChannelLayer(channel, out layer);
         }
 
         private void OnDestroy()

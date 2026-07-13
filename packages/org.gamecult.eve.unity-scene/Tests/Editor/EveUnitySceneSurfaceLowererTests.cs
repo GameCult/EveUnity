@@ -332,6 +332,7 @@ namespace GameCult.Eve.UnityScene.Tests
             Assert.That(projection.PlayableWorld.AssetManifest, Is.EqualTo("cultmesh://aetheria/assets/manifest"));
             Assert.That(projection.PlayableWorld.InputProfile, Is.EqualTo("arpg-third-person"));
             Assert.That(projection.PlayableWorld.CameraRig, Is.EqualTo("third-person-orbit"));
+            Assert.That(projection.PlayableWorld.ExcludedRenderChannels, Is.EqualTo(new[] { "map" }));
             Assert.That(projection.PlayableWorld.PlayerEntityId, Is.EqualTo("player-vanguard"));
             Assert.That(projection.PlayableWorld.MovementCommand, Is.EqualTo("aetheria.daemon.move_intent"));
             Assert.That(projection.PlayableWorld.FocusCommand, Is.EqualTo("aetheria.daemon.focus"));
@@ -939,6 +940,8 @@ namespace GameCult.Eve.UnityScene.Tests
                 var rig = hostObject.AddComponent<EveUnityPlayableWorldCameraRig>();
                 rig.Host = host;
                 rig.CameraTransform = cameraObject.transform;
+                rig.RenderPolicySource = new FixedRenderChannelPolicy("map", 14);
+                var camera = cameraObject.AddComponent<Camera>();
 
                 var player = rootObject.GetComponentInChildren<EveUnityPlayableWorldEntityMarker>();
                 Assert.That(player, Is.Not.Null);
@@ -947,6 +950,7 @@ namespace GameCult.Eve.UnityScene.Tests
                 largeVisual.transform.localScale = Vector3.one * 100f;
 
                 Assert.That(rig.ApplyRig(0f), Is.True);
+                Assert.That(camera.cullingMask & (1 << 14), Is.Zero);
                 Assert.That(cameraObject.transform.position.y, Is.GreaterThan(0f));
                 Assert.That(Vector3.Distance(cameraObject.transform.position, largeVisual.transform.position), Is.GreaterThan(100f));
             }
@@ -1562,6 +1566,7 @@ namespace GameCult.Eve.UnityScene.Tests
                                     ["assetManifest"] = "cultmesh://aetheria/assets/manifest",
                                     ["inputProfile"] = "arpg-third-person",
                                     ["cameraRig"] = "third-person-orbit",
+                                    ["excludedRenderChannels"] = "map",
                                     ["playerEntityId"] = "player-vanguard",
                                     ["movementCommand"] = "aetheria.daemon.move_intent",
                                     ["focusCommand"] = "aetheria.daemon.focus",
@@ -2117,6 +2122,24 @@ namespace GameCult.Eve.UnityScene.Tests
             {
                 _onResolve();
                 return null;
+            }
+        }
+
+        private sealed class FixedRenderChannelPolicy : IEveUnityCameraRenderPolicySource
+        {
+            private readonly string _channel;
+            private readonly int _layer;
+
+            public FixedRenderChannelPolicy(string channel, int layer)
+            {
+                _channel = channel;
+                _layer = layer;
+            }
+
+            public bool TryGetRenderChannelLayer(string channel, out int layer)
+            {
+                layer = _layer;
+                return string.Equals(channel, _channel, StringComparison.Ordinal);
             }
         }
 

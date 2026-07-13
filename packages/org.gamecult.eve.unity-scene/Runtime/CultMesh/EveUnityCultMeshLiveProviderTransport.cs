@@ -46,7 +46,7 @@ namespace GameCult.Eve.UnityScene
         private readonly Dictionary<string, GameObject> _prefabs = new Dictionary<string, GameObject>(StringComparer.Ordinal);
         private readonly Dictionary<string, UnityEngine.Object> _nativeAssets = new Dictionary<string, UnityEngine.Object>(StringComparer.Ordinal);
         private readonly List<AssetBundle> _assetBundles = new List<AssetBundle>();
-        private readonly Dictionary<string, int> _cameraCullingMasks = new Dictionary<string, int>(StringComparer.Ordinal);
+        private readonly Dictionary<string, int> _renderChannelLayers = new Dictionary<string, int>(StringComparer.Ordinal);
         private readonly ConcurrentQueue<object> _liveDocuments = new ConcurrentQueue<object>();
         private CultMeshNode? _node;
         private CultMeshSnapshotSession? _snapshot;
@@ -210,9 +210,9 @@ namespace GameCult.Eve.UnityScene
                 ? value : null;
         }
 
-        public bool TryGetCameraCullingMask(string viewId, out int cullingMask)
+        public bool TryGetRenderChannelLayer(string channel, out int layer)
         {
-            return _cameraCullingMasks.TryGetValue(viewId ?? "", out cullingMask);
+            return _renderChannelLayers.TryGetValue(channel ?? "", out layer);
         }
 
         private void EnsureOpen()
@@ -497,7 +497,7 @@ namespace GameCult.Eve.UnityScene
             _assetBundles.Clear();
             _prefabs.Clear();
             _nativeAssets.Clear();
-            _cameraCullingMasks.Clear();
+            _renderChannelLayers.Clear();
             var selected = catalog.Assets
                 .Select(asset => new
                 {
@@ -547,24 +547,20 @@ namespace GameCult.Eve.UnityScene
 
         private void ReadCameraPolicies(IEnumerable<EveAssetVariant> variants)
         {
-            _cameraCullingMasks.Clear();
+            _renderChannelLayers.Clear();
             foreach (var variant in variants)
             {
                 foreach (var pair in variant.Metadata)
                 {
-                    const string prefix = "view.";
-                    const string suffix = ".excludeUnityLayers";
+                    const string prefix = "renderChannel.";
+                    const string suffix = ".unityLayer";
                     if (!pair.Key.StartsWith(prefix, StringComparison.Ordinal) ||
                         !pair.Key.EndsWith(suffix, StringComparison.Ordinal))
                         continue;
-                    var viewId = pair.Key.Substring(prefix.Length, pair.Key.Length - prefix.Length - suffix.Length);
-                    var mask = -1;
-                    foreach (var token in (pair.Value ?? "").Split(','))
-                    {
-                        if (int.TryParse(token.Trim(), out var layer) && layer >= 0 && layer < 32)
-                            mask &= ~(1 << layer);
-                    }
-                    _cameraCullingMasks[viewId] = mask;
+                    var channel = pair.Key.Substring(prefix.Length, pair.Key.Length - prefix.Length - suffix.Length);
+                    if (!string.IsNullOrWhiteSpace(channel) &&
+                        int.TryParse(pair.Value, out var layer) && layer >= 0 && layer < 32)
+                        _renderChannelLayers[channel] = layer;
                 }
             }
         }

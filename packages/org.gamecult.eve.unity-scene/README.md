@@ -21,6 +21,14 @@ id or source index. Camera, selection, and provider UI adapters consume that
 registry instead of reconstructing provider gameplay objects. It owns
 presentation lookup only; simulation state and commands remain provider-owned.
 
+World surfaces may exclude semantic render channels through the
+`excludedRenderChannels` world-root property. Runtime asset variants map those
+channel names to Unity layers with `renderChannel.<channel>.unityLayer`
+metadata. Surfaces never publish Unity layer numbers or camera masks: providers
+own which semantic content belongs in a view, while EveUnity owns the native
+layer mapping and subtracts only those layers from the camera's configured
+culling mask.
+
 Retained provider feedback is lowered without becoming Unity authority.
 `EveUnityFeedbackPresenter` emits each new `feedback.event` identity once, and
 `EveUnityShotReceiptPresenter` does the same for `shot.receipt` trajectories.

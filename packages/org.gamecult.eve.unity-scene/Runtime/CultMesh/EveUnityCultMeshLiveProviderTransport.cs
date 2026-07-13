@@ -125,7 +125,7 @@ namespace GameCult.Eve.UnityScene
         public void Refresh()
         {
             EnsureOpen();
-            ResolveAdvertisement();
+            ResolveAdvertisement(forceRefresh: true);
             RefreshSurface();
             RefreshAssetCatalog();
         }
@@ -266,8 +266,10 @@ namespace GameCult.Eve.UnityScene
                 _networkRegistry);
         }
 
-        private void ResolveAdvertisement()
+        private void ResolveAdvertisement(bool forceRefresh = false)
         {
+            if (!forceRefresh && _advertisement != null && _advertisedSurface != null)
+                return;
             var documents = _snapshot!
                 .FetchDocumentsAsync<EveProviderAdvertisementDocument>()
                 .GetAwaiter()

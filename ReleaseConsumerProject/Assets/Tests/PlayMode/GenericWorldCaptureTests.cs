@@ -188,6 +188,8 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             WitnessReceipt actionReceipt = null;
             EveUnityShotReceipt combatShot = null;
             string combatActionId = "";
+            string collectedPickupId = "";
+            bool pickupCollected = false;
             long initialVersion = 0;
             float movementDistance = 0f;
             var commandReceipts = new Dictionary<string, EveUnitySceneCommandReceipt>(StringComparer.Ordinal);
@@ -241,6 +243,14 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
 
                 var playerId = runtime.ActiveWorld.PlayerEntityId;
                 var marker = FindMarker(root, playerId);
+                var seededPickup = root.GetComponentsInChildren<EveUnityPlayableWorldEntityMarker>()
+                    .SingleOrDefault(candidate => string.Equals(candidate.EntityKind, "pickup", StringComparison.Ordinal));
+                Assert.That(seededPickup, Is.Not.Null, "The daemon-authored salvage pickup was not lowered through the Eve entity view.");
+                collectedPickupId = seededPickup.EntityId;
+                Assert.That(
+                    seededPickup.GetComponentsInChildren<Transform>(includeInactive: true).Length,
+                    Is.GreaterThan(1),
+                    "The generic client did not instantiate the provider-authored pickup asset.");
                 var realtimeAction = provider.CurrentInputCapability?.Actions
                     .FirstOrDefault(action => string.Equals(action.ActionId, "simulation.rate.realtime", StringComparison.Ordinal));
                 Assert.That(realtimeAction, Is.Not.Null, "Terminus did not advertise its user-controlled simulation clock.");
@@ -281,6 +291,17 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 Assert.That(runtime.ActiveVersion, Is.GreaterThanOrEqualTo(movementCommandReceipt.SourceVersion));
                 movementDistance = Vector3.Distance(FindMarker(root, playerId).transform.position, initialPosition);
                 Assert.That(movementDistance, Is.GreaterThan(0.01f));
+                var pickupDeadline = Time.realtimeSinceStartup + 8f;
+                while (Time.realtimeSinceStartup < pickupDeadline &&
+                       root.GetComponentsInChildren<EveUnityPlayableWorldEntityMarker>()
+                           .Any(candidate => string.Equals(candidate.EntityId, collectedPickupId, StringComparison.Ordinal)))
+                {
+                    yield return new WaitForSecondsRealtime(0.1f);
+                    runtime.Refresh();
+                }
+                pickupCollected = !root.GetComponentsInChildren<EveUnityPlayableWorldEntityMarker>()
+                    .Any(candidate => string.Equals(candidate.EntityId, collectedPickupId, StringComparison.Ordinal));
+                Assert.That(pickupCollected, Is.True, "Ymir/daemon simulation did not collect the seeded pickup when the player crossed it.");
                 movementReceipt = WitnessReceipt.From("movement", movementCommandReceipt);
 
                 var stop = runtime.SubmitMoveVectorIntent(playerId, 0f, 0f, 0f);
@@ -441,7 +462,9 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     focusReceipt,
                     actionReceipt,
                     combatActionId,
-                    combatShot);
+                    combatShot,
+                    collectedPickupId,
+                    pickupCollected);
             }
             finally
             {
@@ -465,7 +488,9 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             WitnessReceipt targeting,
             WitnessReceipt action,
             string combatActionId,
-            EveUnityShotReceipt combatShot)
+            EveUnityShotReceipt combatShot,
+            string collectedPickupId,
+            bool pickupCollected)
         {
             var path = Environment.GetEnvironmentVariable("EVEUNITY_WITNESS_FACTS_PATH");
             if (string.IsNullOrWhiteSpace(path)) return;
@@ -482,6 +507,9 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 shotOutcome = combatShot?.Outcome ?? "",
                 shotPresentationKind = combatShot?.PresentationKind ?? "",
                 shotHit = combatShot?.Hit ?? false,
+                pickupVisible = !string.IsNullOrWhiteSpace(collectedPickupId),
+                pickupCollected = pickupCollected,
+                pickupId = collectedPickupId ?? "",
                 initialVersion = initialVersion,
                 finalVersion = finalVersion,
                 movementDistance = movementDistance,
@@ -505,6 +533,9 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             public string shotOutcome;
             public string shotPresentationKind;
             public bool shotHit;
+            public bool pickupVisible;
+            public bool pickupCollected;
+            public string pickupId;
             public long initialVersion;
             public long finalVersion;
             public float movementDistance;

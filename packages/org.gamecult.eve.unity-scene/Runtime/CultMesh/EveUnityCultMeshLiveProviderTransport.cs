@@ -56,6 +56,7 @@ namespace GameCult.Eve.UnityScene
         private EveProviderAdvertisementDocument? _advertisement;
         private EveAdvertisedSurface? _advertisedSurface;
         private CultMeshBodyPublicationResolver? _bodyResolver;
+        private DateTime _nextReceiptPollUtc;
 
         public EveUnityCultMeshLiveProviderTransport(
             string replicaPath,
@@ -141,6 +142,26 @@ namespace GameCult.Eve.UnityScene
                 else if (document is EveCommandReceiptDocument receipt)
                     PublishReceipt(receipt);
             }
+            PollPendingReceipts();
+        }
+
+        private void PollPendingReceipts()
+        {
+            if (_pendingCommandIds.Count == 0 || DateTime.UtcNow < _nextReceiptPollUtc)
+                return;
+            _nextReceiptPollUtc = DateTime.UtcNow.AddMilliseconds(250);
+            var interaction = RequireWorldInteraction();
+            if (string.IsNullOrWhiteSpace(interaction.ReceiptRecordRef))
+                return;
+            var receipts = _snapshot!
+                .FetchDocumentsAsync<EveCommandReceiptDocument>(
+                    recordKeys: _pendingCommandIds
+                        .Select(commandId => ChildRecordKey(interaction.ReceiptRecordRef, commandId))
+                        .ToArray(),
+                    schemaIds: new[] { EveCommandReceiptDocument.SchemaId })
+                .GetAwaiter().GetResult();
+            foreach (var receipt in receipts)
+                PublishReceipt(receipt);
         }
 
         public void SubmitCommand(EveSurfaceCommandRequest request)

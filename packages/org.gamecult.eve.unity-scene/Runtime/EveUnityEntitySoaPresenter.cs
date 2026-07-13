@@ -27,6 +27,7 @@ namespace GameCult.Eve.UnityScene
         public void Apply(EveEntitySoaViewDocument document, ICultMeshBodyReadLease lease)
         {
             using var view = EveUnityEntitySoaView.Open(document, lease);
+            var presented = new List<EveUnityPresentedEntity>();
             var next = new HashSet<string>(StringComparer.Ordinal);
             for (var row = 0; row < view.EntityCount; row++)
             {
@@ -34,7 +35,10 @@ namespace GameCult.Eve.UnityScene
                 if (view.TryReadByte("render.visibility", row, out var visible) && visible == 0) continue;
                 if (!view.TryReadVector3("transform.position", row, out var position)) continue;
                 view.TryReadFloat("transform.rotation.radians", row, out var rotationRadians);
+                view.TryReadVector3("transform.velocity", row, out var velocity);
+                view.TryReadFloat("physics.body.radius", row, out var radius);
                 view.TryReadFloat("render.scale", row, out var scale);
+                view.TryReadInt32("render.lod", row, out var lod);
                 view.TryReadUInt32("render.group.id", row, out var groupId);
                 var renderGroup = view.RenderGroups.FirstOrDefault(group => group.GroupId == groupId);
                 var identity = document.Identities.FirstOrDefault(item => item.Index == entityIndex);
@@ -43,34 +47,43 @@ namespace GameCult.Eve.UnityScene
                 var assetRef = string.IsNullOrWhiteSpace(identity?.AssetRef)
                     ? renderGroup?.MeshAssetRef ?? ""
                     : identity!.AssetRef;
+                var fact = new EveUnityPresentedEntity(
+                    entityIndex,
+                    entityId,
+                    identity?.EntityKind ?? "entity",
+                    string.IsNullOrWhiteSpace(identity?.Label) ? entityId : identity!.Label,
+                    identity?.Faction ?? "",
+                    position,
+                    rotationRadians * 57.2957795f,
+                    velocity,
+                    radius,
+                    scale > 0f ? scale : renderGroup?.DefaultScale ?? 1f,
+                    groupId,
+                    lod,
+                    identity?.Selectable ?? true,
+                    identity?.Controllable ?? false,
+                    assetRef);
+                presented.Add(fact);
+                if (_sink is IEveUnityEntityGenerationSink)
+                    continue;
                 _sink.UpsertEntity(
-                    new EveUnityPlayableWorldEntity(
-                        entityId,
-                        entityId,
-                        identity?.EntityKind ?? "entity",
-                        string.IsNullOrWhiteSpace(identity?.Label) ? entityId : identity!.Label,
-                        identity?.Faction ?? "",
-                        assetRef,
-                        position.x,
-                        position.y,
-                        position.z,
-                        rotationRadians * 57.2957795f,
-                        scale > 0f ? scale : renderGroup?.DefaultScale ?? 1f,
-                        selectable: identity?.Selectable ?? true,
-                        controllable: identity?.Controllable ?? false,
-                        focusCommand: "",
-                        moveCommand: "",
-                        targetCommand: "",
-                        actionCommand: "",
-                        props: new Dictionary<string, string>()),
+                    fact.ToPlayableWorldEntity(),
                     new EveUnityPlayableWorldAssetBinding(
                         assetRef,
                         "entity",
                         string.IsNullOrWhiteSpace(assetRef) ? "unity-generated-placeholder" : "provider-asset-ref"));
             }
 
-            foreach (var entityId in _known.Where(entityId => !next.Contains(entityId)).ToArray())
-                _sink.RemoveEntity(entityId);
+            if (_sink is IEveUnityEntityGenerationSink generationSink)
+            {
+                generationSink.ApplyGeneration(new EveUnityPresentedEntityGeneration(
+                    document.ViewId, document.ProducerEpoch, document.Sequence, presented));
+            }
+            else
+            {
+                foreach (var entityId in _known.Where(entityId => !next.Contains(entityId)).ToArray())
+                    _sink.RemoveEntity(entityId);
+            }
             _known.Clear();
             foreach (var entityId in next) _known.Add(entityId);
         }

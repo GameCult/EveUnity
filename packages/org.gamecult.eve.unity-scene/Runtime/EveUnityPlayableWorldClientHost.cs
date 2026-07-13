@@ -31,6 +31,7 @@ namespace GameCult.Eve.UnityScene
         public EveUnityPlayableWorldPresentation? LastPresentation => Runtime?.LastPresentation;
 
         public EveUnitySceneCommandReceipt? LastReceipt => Runtime?.LastReceipt;
+        public IEveUnityPresentedEntityRegistry? PresentedEntities => Runtime?.PresentedEntities;
 
         public long ActiveVersion => Runtime?.ActiveVersion ?? 0;
 

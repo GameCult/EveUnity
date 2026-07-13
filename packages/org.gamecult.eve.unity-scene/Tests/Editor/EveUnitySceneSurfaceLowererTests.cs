@@ -172,6 +172,102 @@ namespace GameCult.Eve.UnityScene.Tests
         }
 
         [Test]
+        public void EntitySoaPresenterPublishesImmutableGenerationFactsAndRegistryLookups()
+        {
+            var root = new GameObject("presented-entities");
+            try
+            {
+                var bytes = new byte[48];
+                Buffer.BlockCopy(new[] { 12 }, 0, bytes, 0, 4);
+                Buffer.BlockCopy(new[] { 1f, 2f, 3f }, 0, bytes, 4, 12);
+                Buffer.BlockCopy(new[] { 0.5f }, 0, bytes, 16, 4);
+                Buffer.BlockCopy(new[] { 4f, 5f, 6f }, 0, bytes, 20, 12);
+                Buffer.BlockCopy(new[] { 7f }, 0, bytes, 32, 4);
+                Buffer.BlockCopy(new[] { 1.5f }, 0, bytes, 36, 4);
+                Buffer.BlockCopy(new[] { 9 }, 0, bytes, 40, 4);
+                Buffer.BlockCopy(new[] { 2 }, 0, bytes, 44, 4);
+                var document = EntityLeaseDocument();
+                document.Buffers[0].ByteLength = bytes.Length;
+                document.Columns = new[]
+                {
+                    SoaColumn("entity.index", "int32", 0, 4),
+                    SoaColumn("transform.position", "float3", 4, 12),
+                    SoaColumn("transform.rotation.radians", "float32", 16, 4),
+                    SoaColumn("transform.velocity", "float3", 20, 12),
+                    SoaColumn("physics.body.radius", "float32", 32, 4),
+                    SoaColumn("render.scale", "float32", 36, 4),
+                    SoaColumn("render.group.id", "uint32", 40, 4),
+                    SoaColumn("render.lod", "int32", 44, 4)
+                };
+                var sink = new EveUnityGameObjectPlayableWorldSceneSink(
+                    root.transform, new FixedGameObjectAssetProvider(null));
+
+                new EveUnityEntitySoaPresenter(sink).Apply(document, new FakeBodyReadLease(document, bytes));
+
+                Assert.That(sink.CurrentGeneration, Is.Not.Null);
+                Assert.That(sink.CurrentGeneration!.ProducerEpoch, Is.EqualTo(document.ProducerEpoch));
+                Assert.That(sink.CurrentGeneration.Sequence, Is.EqualTo(document.Sequence));
+                Assert.That(sink.TryGetByEntityId("entity:pilot", out var byId), Is.True);
+                Assert.That(sink.TryGetBySourceIndex(12, out var byIndex), Is.True);
+                Assert.That(byIndex, Is.SameAs(byId));
+                Assert.That(byId.Entity.Position, Is.EqualTo(new Vector3(1f, 2f, 3f)));
+                Assert.That(byId.Entity.Velocity, Is.EqualTo(new Vector3(4f, 5f, 6f)));
+                Assert.That(byId.Entity.Radius, Is.EqualTo(7f));
+                Assert.That(byId.Entity.Scale, Is.EqualTo(1.5f));
+                Assert.That(byId.Entity.RenderGroupId, Is.EqualTo(9));
+                Assert.That(byId.Entity.Lod, Is.EqualTo(2));
+                Assert.That(byId.Entity.Selectable, Is.True);
+                Assert.That(byId.Entity.Controllable, Is.True);
+                Assert.That(byId.Entity.AssetRef, Is.EqualTo("cultmesh://assets/pilot"));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(root);
+            }
+        }
+
+        [Test]
+        public void GameObjectGenerationRegistrySwapsOnlyAfterCompleteApplication()
+        {
+            var root = new GameObject("atomic-generation");
+            EveUnityGameObjectPlayableWorldSceneSink? sink = null;
+            long observedSequenceDuringApply = -1;
+            try
+            {
+                var provider = new ObservingGameObjectAssetProvider(() =>
+                    observedSequenceDuringApply = sink?.CurrentGeneration?.Sequence ?? -1);
+                sink = new EveUnityGameObjectPlayableWorldSceneSink(root.transform, provider);
+                sink.ApplyGeneration(new EveUnityPresentedEntityGeneration(
+                    "entities", 3, 10,
+                    new[] { PresentedEntity(1, "first", "asset:first") }));
+                Assert.That(sink.TryGetByEntityId("first", out var firstGeneration), Is.True);
+                var firstTransform = firstGeneration.Transform;
+
+                observedSequenceDuringApply = -1;
+                sink.ApplyGeneration(new EveUnityPresentedEntityGeneration(
+                    "entities", 3, 11,
+                    new[]
+                    {
+                        PresentedEntity(1, "first", "asset:first"),
+                        PresentedEntity(2, "second", "asset:second")
+                    }));
+
+                Assert.That(observedSequenceDuringApply, Is.EqualTo(10));
+                Assert.That(sink.CurrentGeneration!.Sequence, Is.EqualTo(11));
+                Assert.That(sink.TryGetByEntityId("first", out var retained), Is.True);
+                Assert.That(retained.Transform, Is.SameAs(firstTransform));
+                Assert.That(sink.TryGetByEntityId("second", out var second), Is.True);
+                Assert.That(sink.TryGetBySourceIndex(2, out var byIndex), Is.True);
+                Assert.That(byIndex, Is.SameAs(second));
+                Assert.That(sink.ActiveEntityCount, Is.EqualTo(2));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(root);
+            }
+        }
+
+        [Test]
         public void LowerCarriesProviderAdvertisedWorldBoundary()
         {
             var lowerer = new EveUnitySceneSurfaceLowerer();
@@ -1935,6 +2031,26 @@ namespace GameCult.Eve.UnityScene.Tests
             };
         }
 
+        private static EveEntitySoaColumn SoaColumn(
+            string semantic,
+            string scalarType,
+            long byteOffset,
+            int stride) => new EveEntitySoaColumn
+        {
+            ColumnId = semantic,
+            Semantic = semantic,
+            BufferId = "hot",
+            ScalarType = scalarType,
+            ByteOffset = byteOffset,
+            ElementStride = stride,
+            ElementCount = 1
+        };
+
+        private static EveUnityPresentedEntity PresentedEntity(int index, string entityId, string assetRef) =>
+            new EveUnityPresentedEntity(
+                index, entityId, "entity", entityId, "", Vector3.zero, 0f, Vector3.zero,
+                1f, 1f, 0, 0, true, false, assetRef);
+
         private sealed class FakeBodyReadLease : ICultMeshBodyReadLease
         {
             private readonly byte[] _bytes;
@@ -1986,6 +2102,22 @@ namespace GameCult.Eve.UnityScene.Tests
             }
 
             public GameObject? ResolvePrefab(EveUnityPlayableWorldAssetBinding asset) => _prefab;
+        }
+
+        private sealed class ObservingGameObjectAssetProvider : IEveUnityGameObjectAssetProvider
+        {
+            private readonly Action _onResolve;
+
+            public ObservingGameObjectAssetProvider(Action onResolve)
+            {
+                _onResolve = onResolve;
+            }
+
+            public GameObject? ResolvePrefab(EveUnityPlayableWorldAssetBinding asset)
+            {
+                _onResolve();
+                return null;
+            }
         }
 
         private sealed class FakePlayableWorldProviderComponent :

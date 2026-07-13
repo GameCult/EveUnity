@@ -14,6 +14,7 @@ namespace GameCult.Eve.UnityScene
         private readonly EveUnityPlayableWorldAssetManifestDocumentSource? _assetManifestSource;
         private readonly IEveUnityEntitySoaViewDocumentSource? _entityViews;
         private readonly EveUnityEntitySoaPresenter _entityPresenter;
+        private readonly IEveUnityPresentedEntityRegistry? _presentedEntities;
         private bool _entityViewsConnected;
         private bool _assetManifestConnected;
 
@@ -33,6 +34,7 @@ namespace GameCult.Eve.UnityScene
             AssetManifests = assetManifests ?? new EveUnityPlayableWorldAssetManifestCache();
             _surfaceSource = new EveUnitySceneProviderSurfaceDocumentSource(surfaceDocuments);
             _entityViews = surfaceDocuments as IEveUnityEntitySoaViewDocumentSource;
+            _presentedEntities = sceneSink as IEveUnityPresentedEntityRegistry;
             _entityPresenter = new EveUnityEntitySoaPresenter(sceneSink);
             _connection = new EveUnitySceneProviderConnection(_surfaceSource, commandSink);
             _client = new EveUnityPlayableWorldLiveClient(
@@ -47,6 +49,7 @@ namespace GameCult.Eve.UnityScene
         public EveUnityPlayableWorldAssetManifestCache AssetManifests { get; }
 
         public IEveUnityGameObjectAssetProvider? GameObjectAssetProvider { get; private set; }
+        public IEveUnityPresentedEntityRegistry? PresentedEntities => _presentedEntities;
 
         public EveUnityPlayableWorldProjection? ActiveWorld => _client.ActiveWorld;
 

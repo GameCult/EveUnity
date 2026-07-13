@@ -15,6 +15,12 @@ selection filters; they are not product knowledge required by the client.
 
 The package never imports provider product assemblies.
 
+`IEveUnityPresentedEntityRegistry` exposes each committed SoA generation as
+immutable entity facts plus presentation transforms, addressable by Eve entity
+id or source index. Camera, selection, and provider UI adapters consume that
+registry instead of reconstructing provider gameplay objects. It owns
+presentation lookup only; simulation state and commands remain provider-owned.
+
 Retained provider feedback is lowered without becoming Unity authority.
 `EveUnityFeedbackPresenter` emits each new `feedback.event` identity once, and
 `EveUnityShotReceiptPresenter` does the same for `shot.receipt` trajectories.

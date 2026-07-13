@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 
 #nullable enable
@@ -16,11 +17,18 @@ namespace GameCult.Eve.UnityScene
         UnityEngine.Object? ResolveAsset(EveUnityPlayableWorldAssetBinding asset, Type assetType);
     }
 
-    public sealed class EveUnityGameObjectPlayableWorldSceneSink : IEveUnityPlayableWorldSceneSink
+    public sealed class EveUnityGameObjectPlayableWorldSceneSink :
+        IEveUnityPlayableWorldSceneSink,
+        IEveUnityEntityGenerationSink,
+        IEveUnityPresentedEntityRegistry
     {
         private readonly Transform _root;
         private readonly IEveUnityGameObjectAssetProvider _assetProvider;
         private readonly Dictionary<string, GameObject> _instances = new Dictionary<string, GameObject>(StringComparer.Ordinal);
+        private IReadOnlyDictionary<string, EveUnityPresentedEntityHandle> _presentedById =
+            new Dictionary<string, EveUnityPresentedEntityHandle>(StringComparer.Ordinal);
+        private IReadOnlyDictionary<int, EveUnityPresentedEntityHandle> _presentedByIndex =
+            new Dictionary<int, EveUnityPresentedEntityHandle>();
 
         public EveUnityGameObjectPlayableWorldSceneSink(
             Transform root,
@@ -31,6 +39,13 @@ namespace GameCult.Eve.UnityScene
         }
 
         public int ActiveEntityCount => _instances.Count;
+        public EveUnityPresentedEntityGeneration? CurrentGeneration { get; private set; }
+
+        public bool TryGetByEntityId(string entityId, out EveUnityPresentedEntityHandle handle) =>
+            _presentedById.TryGetValue(entityId ?? "", out handle!);
+
+        public bool TryGetBySourceIndex(int sourceIndex, out EveUnityPresentedEntityHandle handle) =>
+            _presentedByIndex.TryGetValue(sourceIndex, out handle!);
 
         public void ConfigureWorld(EveUnityPlayableWorldProjection world)
         {
@@ -66,6 +81,90 @@ namespace GameCult.Eve.UnityScene
             ApplyEntity(instance, entity, asset);
         }
 
+        public void ApplyGeneration(EveUnityPresentedEntityGeneration generation)
+        {
+            if (generation == null) throw new ArgumentNullException(nameof(generation));
+            if (generation.Entities.Any(entity => string.IsNullOrWhiteSpace(entity.EntityId)))
+                throw new InvalidOperationException("Presented entity generations require stable entity ids.");
+            var factsById = generation.Entities.ToDictionary(entity => entity.EntityId, StringComparer.Ordinal);
+            var factsByIndex = generation.Entities.ToDictionary(entity => entity.SourceIndex);
+            GameObject? staging = null;
+            var created = new Dictionary<string, GameObject>(StringComparer.Ordinal);
+            var nextInstances = new Dictionary<string, GameObject>(StringComparer.Ordinal);
+            try
+            {
+                foreach (var fact in generation.Entities)
+                {
+                    if (_instances.TryGetValue(fact.EntityId, out var existing) && existing != null)
+                    {
+                        nextInstances.Add(fact.EntityId, existing);
+                        continue;
+                    }
+
+                    staging ??= new GameObject($"{_root.name}.generation.{generation.ProducerEpoch}.{generation.Sequence}");
+                    if (staging.transform.parent == null)
+                    {
+                        staging.SetActive(false);
+                        staging.transform.SetParent(_root, false);
+                    }
+                    var entity = fact.ToPlayableWorldEntity();
+                    var asset = new EveUnityPlayableWorldAssetBinding(
+                        fact.AssetRef,
+                        fact.EntityKind,
+                        string.IsNullOrWhiteSpace(fact.AssetRef) ? "unity-generated-placeholder" : "provider-asset-ref");
+                    var instance = InstantiateEntity(entity, asset, staging.transform);
+                    created.Add(fact.EntityId, instance);
+                    nextInstances.Add(fact.EntityId, instance);
+                }
+
+                foreach (var fact in generation.Entities)
+                {
+                    var entity = fact.ToPlayableWorldEntity();
+                    var asset = new EveUnityPlayableWorldAssetBinding(
+                        fact.AssetRef,
+                        fact.EntityKind,
+                        string.IsNullOrWhiteSpace(fact.AssetRef) ? "unity-generated-placeholder" : "provider-asset-ref");
+                    ApplyEntity(nextInstances[fact.EntityId], entity, asset);
+                }
+
+                var nextById = factsById.ToDictionary(
+                    pair => pair.Key,
+                    pair => new EveUnityPresentedEntityHandle(pair.Value, nextInstances[pair.Key].transform),
+                    StringComparer.Ordinal);
+                var nextByIndex = factsByIndex.ToDictionary(
+                    pair => pair.Key,
+                    pair => nextById[pair.Value.EntityId]);
+
+                foreach (var pair in _instances)
+                    if (!nextInstances.ContainsKey(pair.Key) && pair.Value != null)
+                        DestroyInstance(pair.Value);
+                _instances.Clear();
+                foreach (var pair in nextInstances)
+                {
+                    if (created.ContainsKey(pair.Key))
+                    {
+                        pair.Value.transform.SetParent(_root, true);
+                        pair.Value.SetActive(true);
+                    }
+                    _instances.Add(pair.Key, pair.Value);
+                }
+                _presentedById = nextById;
+                _presentedByIndex = nextByIndex;
+                CurrentGeneration = generation;
+            }
+            catch
+            {
+                foreach (var instance in created.Values)
+                    if (instance != null) DestroyInstance(instance);
+                throw;
+            }
+            finally
+            {
+                if (staging != null)
+                    DestroyInstance(staging);
+            }
+        }
+
         public void RemoveEntity(string entityId)
         {
             if (string.IsNullOrWhiteSpace(entityId))
@@ -80,14 +179,18 @@ namespace GameCult.Eve.UnityScene
                 DestroyInstance(instance);
         }
 
-        private GameObject InstantiateEntity(EveUnityPlayableWorldEntity entity, EveUnityPlayableWorldAssetBinding asset)
+        private GameObject InstantiateEntity(
+            EveUnityPlayableWorldEntity entity,
+            EveUnityPlayableWorldAssetBinding asset,
+            Transform? parent = null)
         {
+            parent ??= _root;
             var prefab = _assetProvider.ResolvePrefab(asset);
             GameObject instance;
             if (prefab != null)
             {
                 instance = new GameObject(entity.EntityId);
-                instance.transform.SetParent(_root, false);
+                instance.transform.SetParent(parent, false);
                 var visual = UnityEngine.Object.Instantiate(prefab, instance.transform);
                 visual.transform.localPosition = Vector3.zero;
                 visual.transform.localRotation = Quaternion.identity;
@@ -97,8 +200,8 @@ namespace GameCult.Eve.UnityScene
                 instance = GameObject.CreatePrimitive(PrimitiveType.Capsule);
             }
 
-            if (instance.transform.parent != _root)
-                instance.transform.SetParent(_root, false);
+            if (instance.transform.parent != parent)
+                instance.transform.SetParent(parent, false);
 
             return instance;
         }

@@ -53,7 +53,7 @@ namespace GameCult.Eve.UnityScene
             }
 
             var camera = cameraTransform != null ? cameraTransform : transform;
-            var player = FindPlayerMarker(resolvedHost, activeWorld.PlayerEntityId);
+            var player = FindPlayer(resolvedHost, activeWorld.PlayerEntityId);
             if (player == null)
                 return false;
 
@@ -65,7 +65,7 @@ namespace GameCult.Eve.UnityScene
                 cameraComponent.cullingMask = cullingMask;
             }
             var bounds = CalculateVisualBounds(player);
-            var target = bounds?.center ?? player.transform.position;
+            var target = bounds?.center ?? player.position;
             var radius = bounds?.extents.magnitude ?? 0f;
             var verticalFov = cameraComponent != null ? cameraComponent.fieldOfView : 60f;
             var framingDistance = radius > 0f
@@ -84,7 +84,7 @@ namespace GameCult.Eve.UnityScene
             return true;
         }
 
-        private static Bounds? CalculateVisualBounds(EveUnityPlayableWorldEntityMarker player)
+        private static Bounds? CalculateVisualBounds(Transform player)
         {
             var renderers = player.GetComponentsInChildren<Renderer>(includeInactive: false);
             Bounds? bounds = null;
@@ -121,18 +121,23 @@ namespace GameCult.Eve.UnityScene
             return host;
         }
 
-        private static EveUnityPlayableWorldEntityMarker? FindPlayerMarker(
+        private static Transform? FindPlayer(
             EveUnityPlayableWorldClientHost host,
             string playerEntityId)
         {
             if (string.IsNullOrWhiteSpace(playerEntityId))
                 return null;
 
+            if (host.PresentedEntities?.CurrentGeneration != null)
+                return host.PresentedEntities.TryGetByEntityId(playerEntityId, out var presented)
+                    ? presented.Transform
+                    : null;
+
             var markers = host.SceneRoot.GetComponentsInChildren<EveUnityPlayableWorldEntityMarker>();
             foreach (var marker in markers)
             {
                 if (marker != null && marker.EntityId == playerEntityId)
-                    return marker;
+                    return marker.transform;
             }
 
             return null;

@@ -5,10 +5,11 @@
     <LangVersion>latest</LangVersion>
     <ImplicitUsings>enable</ImplicitUsings>
     <Description>Portable Eve surface and provider contracts.</Description>
+    <CultLibRoot Condition="'$(CultLibRoot)' == ''">$(MSBuildThisFileDirectory)..\..\..\CultLib</CultLibRoot>
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\..\CultLib\src\GameCult.Caching\GameCult.Caching.csproj" />
-    <ProjectReference Include="..\..\..\CultLib\src\GameCult.Mesh\GameCult.Mesh.csproj" />
+    <ProjectReference Include="$(CultLibRoot)\src\GameCult.Caching\GameCult.Caching.csproj" />
+    <ProjectReference Include="$(CultLibRoot)\src\GameCult.Mesh\GameCult.Mesh.csproj" />
   </ItemGroup>
 </Project>

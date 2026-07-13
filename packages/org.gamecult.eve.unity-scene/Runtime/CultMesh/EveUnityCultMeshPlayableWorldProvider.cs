@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Collections.Concurrent;
 using GameCult.Eve.Surface;
+using GameCult.Mesh;
 using UnityEngine;
 
 #nullable enable
@@ -29,11 +30,9 @@ namespace GameCult.Eve.UnityScene
 
         private EveUnityCultMeshLiveProviderTransport? _transport;
         private EveUnitySceneLiveProviderBridge? _bridge;
-        private readonly ConcurrentQueue<EveEntitySoaViewDocument> _pendingEntityViews = new ConcurrentQueue<EveEntitySoaViewDocument>();
+        private readonly ConcurrentQueue<EntityViewLease> _pendingEntityViews = new ConcurrentQueue<EntityViewLease>();
 
-        public EveEntitySoaViewDocument? CurrentEntityView { get; private set; }
-
-        public event Action<EveEntitySoaViewDocument>? EntityViewAvailable;
+        public event Action<EveEntitySoaViewDocument, ICultMeshBodyReadLease>? EntityViewAvailable;
 
         public EveUnityCultMeshProviderSelection? Selection { get; private set; }
 
@@ -119,6 +118,7 @@ namespace GameCult.Eve.UnityScene
         {
             _bridge?.Dispose();
             _transport?.Dispose();
+            while (_pendingEntityViews.TryDequeue(out var pending)) pending.Lease.Dispose();
             _bridge = null;
             _transport = null;
             Selection = null;
@@ -127,11 +127,16 @@ namespace GameCult.Eve.UnityScene
         private void Update()
         {
             _transport?.PumpLiveEvents();
-            EveEntitySoaViewDocument? latest = null;
-            while (_pendingEntityViews.TryDequeue(out var next)) latest = next;
+            EntityViewLease? latest = null;
+            while (_pendingEntityViews.TryDequeue(out var next))
+            {
+                latest?.Lease.Dispose();
+                latest = next;
+            }
             if (latest == null) return;
-            CurrentEntityView = latest;
-            EntityViewAvailable?.Invoke(latest);
+            var handler = EntityViewAvailable;
+            if (handler == null) latest.Lease.Dispose();
+            else handler(latest.Document, latest.Lease);
         }
 
         private EveUnitySceneLiveProviderBridge Bridge
@@ -165,8 +170,20 @@ namespace GameCult.Eve.UnityScene
                 Selection.ProviderId,
                 Selection.SurfaceId,
                 runtimeId);
-            _transport.EntityViewAvailable += view => _pendingEntityViews.Enqueue(view);
+            _transport.EntityViewAvailable += (view, lease) => _pendingEntityViews.Enqueue(new EntityViewLease(view, lease));
             _bridge = new EveUnitySceneLiveProviderBridge(_transport);
+        }
+
+        private sealed class EntityViewLease
+        {
+            public EntityViewLease(EveEntitySoaViewDocument document, ICultMeshBodyReadLease lease)
+            {
+                Document = document;
+                Lease = lease;
+            }
+
+            public EveEntitySoaViewDocument Document { get; }
+            public ICultMeshBodyReadLease Lease { get; }
         }
     }
 }

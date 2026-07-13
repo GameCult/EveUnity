@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO.MemoryMappedFiles;
 using GameCult.Eve.Surface;
 using GameCult.Mesh;
 using NUnit.Framework;
@@ -13,42 +12,58 @@ namespace GameCult.Eve.UnityScene.Tests
     public sealed class EveUnitySceneSurfaceLowererTests
     {
         [Test]
-        public void EntitySoaViewReadsGenericSemanticColumnsFromAdvertisedBackend()
+        public void EntitySoaViewReadsGenericSemanticColumnsFromInjectedLease()
         {
-            var location = $"eve-unity-soa-{Guid.NewGuid():N}";
-            using var mapped = MemoryMappedFile.CreateNew(location, 32);
-            using (var writer = mapped.CreateViewAccessor())
-            {
-                writer.Write(0, 4f);
-                writer.Write(4, 5f);
-                writer.Write(8, 6f);
-                writer.Write(12, 7f);
-                writer.Write(16, 8f);
-                writer.Write(20, 9f);
-                writer.Write(24, 41);
-                writer.Write(28, 42);
-            }
+            var bytes = new byte[32];
+            Buffer.BlockCopy(new[] { 4f, 5f, 6f, 7f, 8f, 9f }, 0, bytes, 0, 24);
+            Buffer.BlockCopy(new[] { 41, 42 }, 0, bytes, 24, 8);
             var document = new EveEntitySoaViewDocument
             {
                 ProviderId = "provider",
                 ViewId = "pilot",
-                Generation = 7,
-                Backend = "memory_mapped_file",
-                Buffers = new[] { new EveEntitySoaBuffer { BufferId = "hot", Backend = "memory_mapped_file", Location = location, ByteLength = 32, Generation = 7 } },
+                BodySchemaId = "test.entity.slab.v1",
+                LayoutVersion = 3,
+                ProducerEpoch = 5,
+                Sequence = 7,
+                Capacity = 2,
+                Buffers = new[] { new EveEntitySoaBuffer { BufferId = "hot", ByteLength = 32 } },
                 Columns = new[]
                 {
                     new EveEntitySoaColumn { ColumnId = "position", Semantic = "transform.position", BufferId = "hot", ScalarType = "float3", ElementStride = 12, ElementCount = 2 },
                     new EveEntitySoaColumn { ColumnId = "entity-index", Semantic = "entity.index", BufferId = "hot", ScalarType = "int32", ByteOffset = 24, ElementStride = 4, ElementCount = 2 }
                 }
             };
+            var lease = new FakeBodyReadLease(document, bytes);
 
-            using var view = EveUnityEntitySoaView.Open(document);
+            using var view = EveUnityEntitySoaView.Open(document, lease);
 
             Assert.That(view.TryReadVector3("transform.position", 1, out var position), Is.True);
             Assert.That(position, Is.EqualTo(new Vector3(7f, 8f, 9f)));
             Assert.That(view.TryReadInt32("entity.index", 0, out var entityIndex), Is.True);
             Assert.That(entityIndex, Is.EqualTo(41));
             Assert.That(view.Generation, Is.EqualTo(7));
+            Assert.That(lease.Disposed, Is.False);
+        }
+
+        [TestCase("body")]
+        [TestCase("schema")]
+        [TestCase("layout")]
+        [TestCase("epoch")]
+        [TestCase("sequence")]
+        [TestCase("capacity")]
+        public void EntitySoaViewRejectsLeaseThatDisagreesWithLogicalLayout(string mismatch)
+        {
+            var document = EntityLeaseDocument();
+            var descriptor = FakeBodyReadLease.DescriptorFor(document, 4);
+            if (mismatch == "body") descriptor.BodyId = "wrong";
+            if (mismatch == "schema") descriptor.SchemaId = "wrong";
+            if (mismatch == "layout") descriptor.LayoutVersion++;
+            if (mismatch == "epoch") descriptor.ProducerEpoch++;
+            if (mismatch == "sequence") descriptor.Sequence++;
+            if (mismatch == "capacity") descriptor.Capacity++;
+
+            Assert.Throws<InvalidOperationException>(() => EveUnityEntitySoaView.Open(
+                document, new FakeBodyReadLease(descriptor, new byte[4])));
         }
 
         [Test]
@@ -1744,6 +1759,71 @@ namespace GameCult.Eve.UnityScene.Tests
                 true,
                 true,
                 "", "", "", "");
+        }
+
+        private static EveEntitySoaViewDocument EntityLeaseDocument() => new EveEntitySoaViewDocument
+        {
+            ProviderId = "provider",
+            ViewId = "entities",
+            BodySchemaId = "test.entity.slab.v1",
+            LayoutVersion = 3,
+            ProducerEpoch = 5,
+            Sequence = 7,
+            Capacity = 1,
+            Buffers = new[] { new EveEntitySoaBuffer { BufferId = "hot", ByteLength = 4 } },
+            Columns = new[]
+            {
+                new EveEntitySoaColumn
+                {
+                    ColumnId = "entity-index",
+                    Semantic = "entity.index",
+                    BufferId = "hot",
+                    ScalarType = "int32",
+                    ElementStride = 4,
+                    ElementCount = 1
+                }
+            }
+        };
+
+        private sealed class FakeBodyReadLease : ICultMeshBodyReadLease
+        {
+            private readonly byte[] _bytes;
+
+            public FakeBodyReadLease(EveEntitySoaViewDocument document, byte[] bytes)
+                : this(DescriptorFor(document, bytes.Length), bytes) { }
+
+            public FakeBodyReadLease(CultMeshBodyDescriptor descriptor, byte[] bytes)
+            {
+                Descriptor = descriptor;
+                _bytes = bytes;
+            }
+
+            public CultMeshBodyDescriptor Descriptor { get; }
+            public CultMeshBodyTransportKind TransportKind => CultMeshBodyTransportKind.Network;
+            public bool Disposed { get; private set; }
+            public byte ReadByte(long offset) => _bytes[checked((int)offset)];
+            public int ReadInt32(long offset) => BitConverter.ToInt32(_bytes, checked((int)offset));
+            public long ReadInt64(long offset) => BitConverter.ToInt64(_bytes, checked((int)offset));
+            public float ReadSingle(long offset) => BitConverter.ToSingle(_bytes, checked((int)offset));
+            public double ReadDouble(long offset) => BitConverter.ToDouble(_bytes, checked((int)offset));
+            public int CopyTo(long offset, byte[] destination, int destinationOffset, int count)
+            {
+                Buffer.BlockCopy(_bytes, checked((int)offset), destination, destinationOffset, count);
+                return count;
+            }
+            public void Dispose() => Disposed = true;
+
+            public static CultMeshBodyDescriptor DescriptorFor(EveEntitySoaViewDocument document, long byteSize) =>
+                new CultMeshBodyDescriptor
+                {
+                    BodyId = document.Buffers[0].BufferId,
+                    SchemaId = document.BodySchemaId,
+                    LayoutVersion = document.LayoutVersion,
+                    ByteSize = byteSize,
+                    Capacity = document.Capacity,
+                    ProducerEpoch = document.ProducerEpoch,
+                    Sequence = document.Sequence
+                };
         }
 
         private sealed class FixedGameObjectAssetProvider : IEveUnityGameObjectAssetProvider

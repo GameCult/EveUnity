@@ -9,6 +9,41 @@ namespace GameCult.Eve.Surface.Tests;
 [TestFixture]
 public sealed class EveSurfaceSerializationCompatibilityTests
 {
+    [Test]
+    public void EntitySoaV2SerializesLogicalLayoutWithoutTransportFields()
+    {
+        var document = new EveEntitySoaViewDocument
+        {
+            ProviderId = "provider",
+            ViewId = "entities",
+            BodySchemaId = "entity.slab.v1",
+            LayoutVersion = 2,
+            ProducerEpoch = 3,
+            Sequence = 4,
+            Capacity = 8,
+            Buffers = new[] { new EveEntitySoaBuffer { BufferId = "entity-hot", ByteLength = 64 } }
+        };
+
+        var bytes = MessagePackSerializer.Serialize(document, Options);
+        var reader = new MessagePackReader(bytes);
+        var restored = MessagePackSerializer.Deserialize<EveEntitySoaViewDocument>(bytes, Options);
+
+        Assert.That(reader.ReadArrayHeader(), Is.EqualTo(14));
+        Assert.That(restored.Schema, Is.EqualTo(EveEntitySoaViewDocument.SchemaId));
+        Assert.That(restored.Buffers[0].BufferId, Is.EqualTo("entity-hot"));
+    }
+
+    [Test]
+    public void EntitySoaContractsExposeNoTransportAuthorityFields()
+    {
+        var forbidden = new[] { "Backend", "Location", "CapabilityToken", "Synchronization", "SynchronizationMode", "Descriptor" };
+        var exposed = new[] { typeof(EveEntitySoaViewDocument), typeof(EveEntitySoaBuffer), typeof(EveEntitySoaColumn) }
+            .SelectMany(type => type.GetProperties())
+            .Select(property => property.Name);
+
+        Assert.That(exposed, Has.None.Matches<string>(name => forbidden.Contains(name, StringComparer.Ordinal)));
+    }
+
     private static readonly MessagePackSerializerOptions Options = MessagePackSerializerOptions.Standard;
 
     [Test]

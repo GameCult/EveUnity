@@ -30,6 +30,7 @@ namespace GameCult.Eve.UnityScene
             typeof(EveCommandReceiptDocument),
             typeof(EveAssetCatalogDocument),
             typeof(EveEntitySoaViewDocument),
+            typeof(CultMeshBodyPublicationDocument),
             typeof(CultMeshCdnArtifactManifest),
             typeof(CultMeshCdnArtifactChunk)
         };
@@ -53,13 +54,15 @@ namespace GameCult.Eve.UnityScene
         private CultNetDatabaseSubscriptionClient? _subscriptions;
         private EveProviderAdvertisementDocument? _advertisement;
         private EveAdvertisedSurface? _advertisedSurface;
+        private readonly CultMeshBodyPublicationResolver _bodyResolver;
 
         public EveUnityCultMeshLiveProviderTransport(
             string replicaPath,
             string endpoint,
             string providerId,
             string surfaceId,
-            string runtimeId = "eve-unity")
+            string runtimeId = "eve-unity",
+            CultMeshBodyPublicationResolver? bodyResolver = null)
         {
             _replicaPath = string.IsNullOrWhiteSpace(replicaPath)
                 ? throw new ArgumentException("Replica path must be non-empty.", nameof(replicaPath))
@@ -74,6 +77,7 @@ namespace GameCult.Eve.UnityScene
                 ? throw new ArgumentException("Surface id must be non-empty.", nameof(surfaceId))
                 : surfaceId.Trim();
             _runtimeId = string.IsNullOrWhiteSpace(runtimeId) ? "eve-unity" : runtimeId.Trim();
+            _bodyResolver = bodyResolver ?? CreateBodyResolver();
             CurrentSurfaceDocument = EmptySurfaceDocument();
             CurrentAssetManifestDocument = EmptyAssetManifest();
         }
@@ -94,7 +98,7 @@ namespace GameCult.Eve.UnityScene
 
         public event Action<EveUnitySceneCommandReceipt>? CommandReceiptAvailable;
 
-        public event Action<EveEntitySoaViewDocument>? EntityViewAvailable;
+        public event Action<EveEntitySoaViewDocument, ICultMeshBodyReadLease>? EntityViewAvailable;
 
         public void Connect()
         {
@@ -119,7 +123,7 @@ namespace GameCult.Eve.UnityScene
             while (_liveDocuments.TryDequeue(out var document))
             {
                 if (document is EveEntitySoaViewDocument entityView)
-                    EntityViewAvailable?.Invoke(entityView);
+                    PublishEntityView(entityView);
                 else if (document is EveSurfaceDocument surface)
                     PublishSurface(surface);
                 else if (document is EveCommandReceiptDocument receipt)
@@ -266,6 +270,62 @@ namespace GameCult.Eve.UnityScene
                 throw new InvalidOperationException("EveUnity CultMesh transport requires a cultmesh-record surface advertisement.");
             if (string.IsNullOrWhiteSpace(_advertisedSurface.RecordRef))
                 throw new InvalidOperationException("The provider surface advertisement does not publish a record reference.");
+        }
+
+        private CultMeshBodyPublicationResolver CreateBodyResolver()
+        {
+            var mappedRoot = Path.GetDirectoryName(_replicaPath) ?? ".";
+            return new CultMeshBodyPublicationResolver(new CultMeshBodyTransportService(
+                new ICultMeshBodyTransportAdapter[]
+                {
+                    new CultMeshSharedMemoryBodyAdapter(),
+                    new CultMeshMappedBodyAdapter(mappedRoot),
+                    new CultMeshNetworkBodyAdapter(_ => throw new NotSupportedException(
+                        "The connected Verse does not expose a CultMesh network body byte reader."))
+                },
+                (producerId, _) => string.Equals(producerId, _providerId, StringComparison.Ordinal)));
+        }
+
+        private void PublishEntityView(EveEntitySoaViewDocument document)
+        {
+            ResolveAdvertisement();
+            if (!string.Equals(document.ProviderId, _advertisement!.ProviderId, StringComparison.Ordinal))
+                throw new UnauthorizedAccessException("Entity layout provider does not match the advertised Eve provider.");
+            if (document.Buffers == null || document.Buffers.Length == 0)
+                throw new InvalidOperationException("Entity layout does not name a primary logical buffer.");
+            var bodyId = document.Buffers[0].BufferId;
+            var publication = _snapshot!
+                .FetchDocumentsAsync<CultMeshBodyPublicationDocument>(
+                    recordKeys: new[] { CultMeshBodyPublicationDocument.CreateRecordKey(bodyId).Value },
+                    schemaIds: new[] { CultMeshBodyPublicationSchemaVersions.Publication })
+                .GetAwaiter().GetResult().FirstOrDefault()
+                ?? throw new InvalidOperationException($"Provider did not publish CultMesh body '{bodyId}'.");
+            var lease = _bodyResolver.ResolveReadOnly(publication, new CultMeshBodyValidationRequest
+            {
+                BodyId = bodyId,
+                SchemaId = document.BodySchemaId,
+                LayoutVersion = document.LayoutVersion,
+                ProducerEpoch = document.ProducerEpoch,
+                Sequence = document.Sequence,
+                Capacity = document.Capacity,
+                AccessMode = CultMeshBodyAccessMode.ReadOnly,
+                NowUtc = DateTimeOffset.UtcNow
+            });
+            var handler = EntityViewAvailable;
+            if (handler == null)
+            {
+                lease.Dispose();
+                return;
+            }
+            try
+            {
+                handler(document, lease);
+            }
+            catch
+            {
+                lease.Dispose();
+                throw;
+            }
         }
 
         private void RefreshSurface()

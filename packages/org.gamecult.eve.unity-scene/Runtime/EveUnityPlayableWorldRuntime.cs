@@ -202,11 +202,10 @@ namespace GameCult.Eve.UnityScene
             if (_entityViewsConnected || _entityViews == null) return;
             _entityViews.EntityViewAvailable += OnEntityViewAvailable;
             _entityViewsConnected = true;
-            if (_entityViews.CurrentEntityView != null)
-                _entityPresenter.Apply(_entityViews.CurrentEntityView);
         }
 
-        private void OnEntityViewAvailable(EveEntitySoaViewDocument document) => _entityPresenter.Apply(document);
+        private void OnEntityViewAvailable(EveEntitySoaViewDocument document, GameCult.Mesh.ICultMeshBodyReadLease lease) =>
+            _entityPresenter.Apply(document, lease);
     }
 
     public sealed class EveUnityLivePlayableWorldAssetProvider : IEveUnityNativeAssetProvider

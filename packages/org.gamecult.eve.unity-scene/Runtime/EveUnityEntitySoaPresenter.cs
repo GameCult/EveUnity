@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using GameCult.Eve.Surface;
+using GameCult.Mesh;
 
 #nullable enable
 
@@ -9,8 +10,7 @@ namespace GameCult.Eve.UnityScene
 {
     public interface IEveUnityEntitySoaViewDocumentSource
     {
-        EveEntitySoaViewDocument? CurrentEntityView { get; }
-        event Action<EveEntitySoaViewDocument> EntityViewAvailable;
+        event Action<EveEntitySoaViewDocument, ICultMeshBodyReadLease> EntityViewAvailable;
     }
 
     /// <summary>Projects portable entity SoA generations into the ordinary Unity scene sink.</summary>
@@ -24,9 +24,9 @@ namespace GameCult.Eve.UnityScene
             _sink = sink ?? throw new ArgumentNullException(nameof(sink));
         }
 
-        public void Apply(EveEntitySoaViewDocument document)
+        public void Apply(EveEntitySoaViewDocument document, ICultMeshBodyReadLease lease)
         {
-            using var view = EveUnityEntitySoaView.Open(document);
+            using var view = EveUnityEntitySoaView.Open(document, lease);
             var next = new HashSet<string>(StringComparer.Ordinal);
             for (var row = 0; row < view.EntityCount; row++)
             {
@@ -37,14 +37,15 @@ namespace GameCult.Eve.UnityScene
                 view.TryReadFloat("render.scale", row, out var scale);
                 view.TryReadUInt32("render.group.id", row, out var groupId);
                 var renderGroup = view.RenderGroups.FirstOrDefault(group => group.GroupId == groupId);
-                var entityId = $"entity:{entityIndex}";
+                var identity = document.Identities.FirstOrDefault(item => item.Index == entityIndex);
+                var entityId = identity?.EntityId ?? $"entity:{entityIndex}";
                 next.Add(entityId);
                 var assetRef = renderGroup?.MeshAssetRef ?? "";
                 _sink.UpsertEntity(
                     new EveUnityPlayableWorldEntity(
                         entityId,
                         entityId,
-                        "entity",
+                        identity?.EntityKind ?? "entity",
                         entityId,
                         "",
                         assetRef,

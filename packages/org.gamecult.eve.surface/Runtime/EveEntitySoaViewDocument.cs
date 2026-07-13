@@ -10,31 +10,30 @@ namespace GameCult.Eve.Surface
     [MessagePackObject]
     public sealed class EveEntitySoaViewDocument
     {
-        public const string SchemaId = "gamecult.eve.entity_soa_view.v1";
+        public const string SchemaId = "gamecult.eve.entity_soa_view.v2";
 
         [Key(0)] public string Schema { get; set; } = SchemaId;
         [Key(1)] public string ProviderId { get; set; } = "";
         [Key(2)] public string ViewId { get; set; } = "";
-        [Key(3)] public long FrameId { get; set; }
-        [Key(4)] public long Generation { get; set; }
-        [Key(5)] public string PublishedAtUtc { get; set; } = "";
-        [Key(6)] public string Backend { get; set; } = "cultcache";
-        [Key(7)] public string SynchronizationMode { get; set; } = "immutable_frame";
-        [Key(8)] public EveEntitySoaBuffer[] Buffers { get; set; } = Array.Empty<EveEntitySoaBuffer>();
-        [Key(9)] public EveEntitySoaColumn[] Columns { get; set; } = Array.Empty<EveEntitySoaColumn>();
-        [Key(10)] public EveEntitySoaDirtyRange[] DirtyRanges { get; set; } = Array.Empty<EveEntitySoaDirtyRange>();
-        [Key(11)] public EveEntityRenderGroup[] RenderGroups { get; set; } = Array.Empty<EveEntityRenderGroup>();
+        [Key(3)] public string PublishedAtUtc { get; set; } = "";
+        [Key(4)] public string BodySchemaId { get; set; } = "";
+        [Key(5)] public int LayoutVersion { get; set; }
+        [Key(6)] public long ProducerEpoch { get; set; }
+        [Key(7)] public long Sequence { get; set; }
+        [Key(8)] public int Capacity { get; set; }
+        [Key(9)] public EveEntitySoaBuffer[] Buffers { get; set; } = Array.Empty<EveEntitySoaBuffer>();
+        [Key(10)] public EveEntitySoaColumn[] Columns { get; set; } = Array.Empty<EveEntitySoaColumn>();
+        [Key(11)] public EveEntitySoaDirtyRange[] DirtyRanges { get; set; } = Array.Empty<EveEntitySoaDirtyRange>();
+        [Key(12)] public EveEntityRenderGroup[] RenderGroups { get; set; } = Array.Empty<EveEntityRenderGroup>();
+        [Key(13)] public EveEntityIdentity[] Identities { get; set; } = Array.Empty<EveEntityIdentity>();
     }
 
     [MessagePackObject]
     public sealed class EveEntitySoaBuffer
     {
         [Key(0)] public string BufferId { get; set; } = "";
-        [Key(1)] public string Backend { get; set; } = "cultcache";
-        [Key(2)] public string Location { get; set; } = "";
-        [Key(3)] public long ByteOffset { get; set; }
-        [Key(4)] public long ByteLength { get; set; }
-        [Key(5)] public long Generation { get; set; }
+        [Key(1)] public long ByteOffset { get; set; }
+        [Key(2)] public long ByteLength { get; set; }
     }
 
     [MessagePackObject]
@@ -57,7 +56,15 @@ namespace GameCult.Eve.Surface
         [Key(0)] public string ColumnId { get; set; } = "";
         [Key(1)] public int StartIndex { get; set; }
         [Key(2)] public int Count { get; set; }
-        [Key(3)] public long Generation { get; set; }
+        [Key(3)] public long Sequence { get; set; }
+    }
+
+    [MessagePackObject]
+    public sealed class EveEntityIdentity
+    {
+        [Key(0)] public int Index { get; set; }
+        [Key(1)] public string EntityId { get; set; } = "";
+        [Key(2)] public string EntityKind { get; set; } = "";
     }
 
     [MessagePackObject]

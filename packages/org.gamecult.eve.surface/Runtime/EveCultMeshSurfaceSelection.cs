@@ -48,9 +48,23 @@ namespace GameCult.Eve.Surface
         {
             if (mesh == null) throw new ArgumentNullException(nameof(mesh));
             var resolved = request ?? new EveSurfaceRequest();
-            var providers = await mesh.CollectionAsync<EveProviderAdvertisementDocument>(endpointId, cancellationToken)
-                .ConfigureAwait(false);
-            var match = Select(await providers.LatestAsync().ConfigureAwait(false), resolved);
+            IReadOnlyList<EveProviderAdvertisementDocument> providerDocuments;
+            if (string.IsNullOrWhiteSpace(resolved.ProviderId))
+            {
+                var providers = await mesh.CollectionAsync<EveProviderAdvertisementDocument>(endpointId, cancellationToken)
+                    .ConfigureAwait(false);
+                providerDocuments = await providers.LatestAsync().ConfigureAwait(false);
+            }
+            else
+            {
+                var provider = await mesh.DocumentAsync<EveProviderAdvertisementDocument>(
+                        endpointId,
+                        ProviderAdvertisementRecordRef(resolved.ProviderId),
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                providerDocuments = new[] { await provider.LatestAsync().ConfigureAwait(false) };
+            }
+            var match = Select(providerDocuments, resolved);
             IReadOnlyList<EvePluginAdvertisementDocument> plugins = Array.Empty<EvePluginAdvertisementDocument>();
             if (match.Surface.RequiresPlugins.Count > 0)
             {
@@ -133,5 +147,12 @@ namespace GameCult.Eve.Surface
 
         private static bool Matches(string expected, string actual) =>
             string.IsNullOrWhiteSpace(expected) || string.Equals(expected, actual, StringComparison.Ordinal);
+
+        public static string ProviderAdvertisementRecordRef(string providerId)
+        {
+            if (string.IsNullOrWhiteSpace(providerId))
+                throw new ArgumentException("Provider id must be non-empty.", nameof(providerId));
+            return $"eve:provider:{providerId.Trim()}";
+        }
     }
 }

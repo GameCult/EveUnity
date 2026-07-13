@@ -186,8 +186,11 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             WitnessReceipt movementReceipt = null;
             WitnessReceipt focusReceipt = null;
             WitnessReceipt actionReceipt = null;
+            EveUnityShotReceipt combatShot = null;
+            string combatActionId = "";
             long initialVersion = 0;
             float movementDistance = 0f;
+            var commandReceipts = new Dictionary<string, EveUnitySceneCommandReceipt>(StringComparer.Ordinal);
 
             try
             {
@@ -199,7 +202,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     surfaceId,
                     requiredSurfaceKind: "interactive-world",
                     clientRuntimeId: $"eve-unity-test-{Guid.NewGuid():N}");
-                var publicationDeadline = Time.realtimeSinceStartup + 10f;
+                var publicationDeadline = Time.realtimeSinceStartup + 30f;
                 while (true)
                 {
                     var published = false;
@@ -225,6 +228,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     null,
                     provider,
                     provider);
+                runtime.ReceiptAvailable += receipt => commandReceipts[receipt.CommandId] = receipt;
                 var initial = runtime.Connect();
                 Assert.That(initial.ActiveEntities, Is.GreaterThan(0));
                 Assert.That(runtime.ActiveWorld.PlayerEntityId, Is.Not.Empty);
@@ -241,67 +245,84 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
 
                 var deadline = Time.realtimeSinceStartup + 12f;
                 while (Time.realtimeSinceStartup < deadline &&
-                       (runtime.LastReceipt == null || runtime.ActiveVersion <= initialVersion ||
+                       (!commandReceipts.TryGetValue(request.CommandId, out var observedMovement) ||
+                        runtime.ActiveVersion < observedMovement.SourceVersion ||
                         Vector3.Distance(FindMarker(root, playerId).transform.position, initialPosition) < 0.01f))
                 {
                     yield return new WaitForSecondsRealtime(0.1f);
                     runtime.Refresh();
                 }
 
-                Assert.That(runtime.LastReceipt, Is.Not.Null);
-                Assert.That(runtime.LastReceipt.CommandId, Is.EqualTo(request.CommandId));
+                Assert.That(commandReceipts.TryGetValue(request.CommandId, out var movementCommandReceipt), Is.True);
                 Assert.That(
-                    runtime.LastReceipt.State,
+                    movementCommandReceipt.State,
                     Is.EqualTo("accepted").Or.EqualTo("reconciled"),
-                    runtime.LastReceipt.Message);
-                Assert.That(runtime.LastReceipt.SourceVersion, Is.GreaterThan(initialVersion));
-                Assert.That(runtime.ActiveVersion, Is.GreaterThan(initialVersion));
+                    movementCommandReceipt.Message);
+                Assert.That(movementCommandReceipt.SourceVersion, Is.GreaterThan(initialVersion));
+                Assert.That(runtime.ActiveVersion, Is.GreaterThanOrEqualTo(movementCommandReceipt.SourceVersion));
                 movementDistance = Vector3.Distance(FindMarker(root, playerId).transform.position, initialPosition);
                 Assert.That(movementDistance, Is.GreaterThan(0.01f));
-                movementReceipt = WitnessReceipt.From("movement", runtime.LastReceipt);
+                movementReceipt = WitnessReceipt.From("movement", movementCommandReceipt);
 
                 var movementVersion = runtime.ActiveVersion;
                 var focus = runtime.SubmitFocusIntent(playerId);
                 var focusDeadline = Time.realtimeSinceStartup + 12f;
                 while (Time.realtimeSinceStartup < focusDeadline &&
-                       (runtime.LastReceipt == null || runtime.LastReceipt.CommandId != focus.CommandId ||
-                        runtime.ActiveVersion < runtime.LastReceipt.SourceVersion))
+                       (!commandReceipts.TryGetValue(focus.CommandId, out var observedFocus) ||
+                        runtime.ActiveVersion < observedFocus.SourceVersion))
                 {
                     yield return new WaitForSecondsRealtime(0.1f);
                     runtime.Refresh();
                 }
-                Assert.That(runtime.LastReceipt, Is.Not.Null);
-                Assert.That(runtime.LastReceipt.CommandId, Is.EqualTo(focus.CommandId));
-                Assert.That(runtime.LastReceipt.State, Is.EqualTo("accepted").Or.EqualTo("reconciled"));
-                Assert.That(runtime.LastReceipt.SourceVersion, Is.GreaterThan(movementVersion));
-                focusReceipt = WitnessReceipt.From("targeting", runtime.LastReceipt);
+                Assert.That(commandReceipts.TryGetValue(focus.CommandId, out var focusCommandReceipt), Is.True);
+                Assert.That(focusCommandReceipt.State, Is.EqualTo("accepted").Or.EqualTo("reconciled"));
+                Assert.That(focusCommandReceipt.SourceVersion, Is.GreaterThan(movementVersion));
+                focusReceipt = WitnessReceipt.From("targeting", focusCommandReceipt);
 
                 var focusVersion = runtime.ActiveVersion;
+                var trajectoryRenderer = root.AddComponent<EveUnityShotTrajectoryRenderer>();
+                runtime.ShotAvailable += shot =>
+                {
+                    var playerIdentity = provider.CurrentEntityView?.Identities
+                        .FirstOrDefault(identity => string.Equals(identity.EntityId, playerId, StringComparison.Ordinal));
+                    if (playerIdentity != null && shot.SourceEntityIndex == playerIdentity.EntityIndex)
+                    {
+                        combatShot = shot;
+                        trajectoryRenderer.Present(shot);
+                    }
+                };
                 Assert.That(provider.CurrentInputCapability, Is.Not.Null, "The pilot world did not advertise a typed input capability document.");
                 Assert.That(provider.CurrentInputCapability.Actions, Is.Not.Empty, "The pilot input capability advertised no available actions.");
                 var advertisedAction = provider.CurrentInputCapability.Actions
-                    .FirstOrDefault(candidate => string.Equals(candidate.Category, "weapon-group", StringComparison.Ordinal) &&
-                                                 string.Equals(candidate.Availability, "available", StringComparison.OrdinalIgnoreCase))
-                    ?? provider.CurrentInputCapability.Actions
-                        .First(candidate => string.Equals(candidate.ActionId, "pilot.scoop", StringComparison.Ordinal));
+                    .First(candidate => string.Equals(candidate.Category, "weapon-group", StringComparison.Ordinal) &&
+                                        string.Equals(candidate.Availability, "available", StringComparison.OrdinalIgnoreCase));
+                combatActionId = advertisedAction.ActionId;
                 var action = runtime.SubmitActionIntent(playerId, advertisedAction.ActionId);
                 var actionDeadline = Time.realtimeSinceStartup + 12f;
                 while (Time.realtimeSinceStartup < actionDeadline &&
-                       (runtime.LastReceipt == null || runtime.LastReceipt.CommandId != action.CommandId ||
-                        runtime.ActiveVersion < runtime.LastReceipt.SourceVersion))
+                       (!commandReceipts.TryGetValue(action.CommandId, out var observedAction) ||
+                        runtime.ActiveVersion < observedAction.SourceVersion || combatShot == null))
                 {
                     yield return new WaitForSecondsRealtime(0.1f);
                     runtime.Refresh();
                 }
-                Assert.That(runtime.LastReceipt, Is.Not.Null);
-                Assert.That(runtime.LastReceipt.CommandId, Is.EqualTo(action.CommandId));
+                Assert.That(commandReceipts.TryGetValue(action.CommandId, out var actionCommandReceipt), Is.True);
                 Assert.That(
-                    runtime.LastReceipt.State,
+                    actionCommandReceipt.State,
                     Is.EqualTo("accepted").Or.EqualTo("reconciled"),
-                    runtime.LastReceipt.Message);
-                Assert.That(runtime.LastReceipt.SourceVersion, Is.GreaterThan(focusVersion));
-                Assert.That(runtime.ActiveVersion, Is.GreaterThanOrEqualTo(runtime.LastReceipt.SourceVersion));
-                actionReceipt = WitnessReceipt.From("action", runtime.LastReceipt);
+                    actionCommandReceipt.Message);
+                Assert.That(actionCommandReceipt.SourceVersion, Is.GreaterThan(focusVersion));
+                Assert.That(runtime.ActiveVersion, Is.GreaterThanOrEqualTo(actionCommandReceipt.SourceVersion));
+                Assert.That(combatShot, Is.Not.Null,
+                    $"The daemon accepted fire but published no shot receipt through Eve. Weapon state: {DescribeWeaponStates(provider)}");
+                Assert.That(combatShot.ShotId, Is.Not.Empty);
+                var playerEntityIndex = provider.CurrentEntityView.Identities
+                    .Single(identity => string.Equals(identity.EntityId, playerId, StringComparison.Ordinal)).EntityIndex;
+                Assert.That(combatShot.SourceEntityIndex, Is.EqualTo(playerEntityIndex));
+                Assert.That(combatShot.TargetEntityIndex, Is.GreaterThanOrEqualTo(0));
+                Assert.That(combatShot.PresentationKind, Is.Not.Empty);
+                Assert.That(trajectoryRenderer.ActiveTrajectoryCount, Is.GreaterThan(0));
+                actionReceipt = WitnessReceipt.From("action", actionCommandReceipt);
 
                 var light = lightObject.AddComponent<Light>();
                 light.type = LightType.Directional;
@@ -350,7 +371,9 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     movementDistance,
                     movementReceipt,
                     focusReceipt,
-                    actionReceipt);
+                    actionReceipt,
+                    combatActionId,
+                    combatShot);
             }
             finally
             {
@@ -372,7 +395,9 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             float movementDistance,
             WitnessReceipt movement,
             WitnessReceipt targeting,
-            WitnessReceipt action)
+            WitnessReceipt action,
+            string combatActionId,
+            EveUnityShotReceipt combatShot)
         {
             var path = Environment.GetEnvironmentVariable("EVEUNITY_WITNESS_FACTS_PATH");
             if (string.IsNullOrWhiteSpace(path)) return;
@@ -383,6 +408,12 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 movement = movement != null,
                 targeting = targeting != null,
                 action = action != null,
+                combatShot = combatShot != null,
+                combatActionId = combatActionId ?? "",
+                shotId = combatShot?.ShotId ?? "",
+                shotOutcome = combatShot?.Outcome ?? "",
+                shotPresentationKind = combatShot?.PresentationKind ?? "",
+                shotHit = combatShot?.Hit ?? false,
                 initialVersion = initialVersion,
                 finalVersion = finalVersion,
                 movementDistance = movementDistance,
@@ -400,6 +431,12 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             public bool movement;
             public bool targeting;
             public bool action;
+            public bool combatShot;
+            public string combatActionId;
+            public string shotId;
+            public string shotOutcome;
+            public string shotPresentationKind;
+            public bool shotHit;
             public long initialVersion;
             public long finalVersion;
             public float movementDistance;
@@ -434,6 +471,34 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     return marker;
             }
             throw new InvalidOperationException($"Projected world has no entity marker '{entityId}'.");
+        }
+
+        private static string DescribeWeaponStates(EveUnityCultMeshPlayableWorldProvider provider)
+        {
+            return string.Join("; ", Flatten(provider.CurrentDocument.SurfaceDocument.Surface.Root)
+                .Where(node => string.Equals(node.Kind, "weapon.state", StringComparison.Ordinal))
+                .Select(node => string.Join(",", new[]
+                {
+                    Prop(node, "behaviorKind"),
+                    $"pending={Prop(node, "triggerPending")}",
+                    $"firing={Prop(node, "firing")}",
+                    $"charging={Prop(node, "charging")}",
+                    $"charged={Prop(node, "charged")}",
+                    $"lock={Prop(node, "lockProgress")}",
+                    $"target={Prop(node, "targetEntityId")}",
+                    $"refusal={Prop(node, "lastRefusalReason")}"
+                })));
+        }
+
+        private static string Prop(EveSurfaceComponent node, string key) =>
+            node.Props.TryGetValue(key, out var value) ? value : "";
+
+        private static IEnumerable<EveSurfaceComponent> Flatten(EveSurfaceComponent root)
+        {
+            yield return root;
+            foreach (var child in root.Children)
+            foreach (var descendant in Flatten(child))
+                yield return descendant;
         }
 
         private static EveUnitySceneProviderSurfaceDocument WorldDocument()

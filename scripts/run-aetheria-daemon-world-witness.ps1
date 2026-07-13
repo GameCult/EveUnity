@@ -101,12 +101,13 @@ $daemonArguments = @(
   "--client-cultmesh-host", "127.0.0.1",
   "--client-cultmesh-advertise-host", "127.0.0.1",
   "--client-cultmesh-port", $Port,
-  "--tick-interval-ms", 250,
+  "--tick-interval-ms", 20,
   "--fixed-delta-ms", 20,
   "--no-odin-announcements"
 )
 $env:AETHERIA_TRACE_EVE_SNAPSHOTS = "1"
 $env:AETHERIA_TRACE_CLIENT_RUDP = "1"
+$env:AETHERIA_TRACE_TICK_PHASES = "1"
 $daemon = Start-Process -FilePath "dotnet" -ArgumentList $daemonArguments -PassThru -WindowStyle Hidden `
   -RedirectStandardOutput $daemonLogPath -RedirectStandardError (Join-Path $outputRoot "aetheria-daemon.error.log")
 Write-Host "Aetheria daemon PID: $($daemon.Id)"
@@ -124,8 +125,8 @@ try {
   if (-not $ready) { throw "Aetheria daemon did not open CultMesh port $Port. See $daemonLogPath" }
 
   $env:EVEUNITY_RENDEZVOUS_ENDPOINT = "rudp://127.0.0.1:$Port"
-  Remove-Item Env:EVEUNITY_PROVIDER_ID -ErrorAction SilentlyContinue
-  Remove-Item Env:EVEUNITY_SURFACE_ID -ErrorAction SilentlyContinue
+  $env:EVEUNITY_PROVIDER_ID = "aetheria.daemon"
+  $env:EVEUNITY_SURFACE_ID = "aetheria.pilot"
   $env:EVEUNITY_REPLICA_PATH = $replicaPath
   $env:EVEUNITY_AETHERIA_CAPTURE_PATH = $capturePath
   $env:EVEUNITY_ASSET_CACHE_PATH = $assetCachePath
@@ -149,6 +150,11 @@ try {
   if (-not (Test-Path $capturePath) -or (Get-Item $capturePath).Length -lt 1024) { throw "Live world capture is missing: $capturePath" }
   if (-not (Test-Path $factsPath)) { throw "Live world witness facts are missing: $factsPath" }
   $facts = Get-Content -LiteralPath $factsPath -Raw | ConvertFrom-Json
+  if (-not $facts.combatShot -or [string]::IsNullOrWhiteSpace([string]$facts.combatActionId) -or
+      [string]::IsNullOrWhiteSpace([string]$facts.shotId) -or
+      [string]::IsNullOrWhiteSpace([string]$facts.shotPresentationKind)) {
+    throw "Live world witness did not prove an advertised weapon action and authoritative shot presentation."
+  }
   $releaseLock = Get-Content -LiteralPath (Join-Path $repoRoot "ReleaseConsumerProject\Packages\packages-lock.json") -Raw | ConvertFrom-Json
   $releasedPackageClient = $projectRoot -eq "ReleaseConsumerProject"
   $facts | Add-Member -NotePropertyName releasedPackageClient -NotePropertyValue $releasedPackageClient

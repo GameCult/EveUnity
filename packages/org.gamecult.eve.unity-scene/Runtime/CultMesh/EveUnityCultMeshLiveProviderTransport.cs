@@ -56,6 +56,7 @@ namespace GameCult.Eve.UnityScene
         private bool _liveSubscriptionsOpen;
         private EveProviderAdvertisementDocument? _advertisement;
         private EveAdvertisedSurface? _advertisedSurface;
+        private string _assetCatalogPointer = "";
 
         public EveUnityCultMeshLiveProviderTransport(
             string replicaPath,
@@ -123,6 +124,8 @@ namespace GameCult.Eve.UnityScene
                     PublishReceipt(receipt);
                 else if (document is EveInputCapabilityDocument inputCapability)
                     CurrentInputCapability = inputCapability;
+                else if (document is EveAssetCatalogDocument assetCatalog)
+                    ApplyAssetCatalog(assetCatalog);
             }
         }
 
@@ -274,8 +277,18 @@ namespace GameCult.Eve.UnityScene
             if (string.IsNullOrWhiteSpace(interaction.AssetManifestRecordRef))
                 return;
 
-            var catalog = _mesh.ReadAsync<EveAssetCatalogDocument>(_endpointId, interaction.AssetManifestRecordRef)
+            if (string.Equals(_assetCatalogPointer, interaction.AssetManifestRecordRef, StringComparison.Ordinal))
+                return;
+
+            _assetCatalogPointer = interaction.AssetManifestRecordRef;
+            var document = _mesh.DocumentAsync<EveAssetCatalogDocument>(_endpointId, _assetCatalogPointer)
                 .GetAwaiter().GetResult();
+            ApplyAssetCatalog(document.LatestAsync().GetAwaiter().GetResult());
+            _liveWatches.Add(document.Watch(catalog => _liveDocuments.Enqueue(catalog)));
+        }
+
+        private void ApplyAssetCatalog(EveAssetCatalogDocument catalog)
+        {
             if (catalog == null || catalog.Version == CurrentAssetCatalogVersion)
                 return;
 

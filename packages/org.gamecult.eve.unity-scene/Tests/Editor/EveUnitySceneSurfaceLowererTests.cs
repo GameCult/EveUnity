@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using GameCult.Eve.Surface;
 using GameCult.Mesh;
 using NUnit.Framework;
@@ -64,6 +65,33 @@ namespace GameCult.Eve.UnityScene.Tests
 
             Assert.Throws<InvalidOperationException>(() => EveUnityEntitySoaView.Open(
                 document, new FakeBodyReadLease(descriptor, new byte[4])));
+        }
+
+        [Test]
+        public void EntitySoaPresenterPreservesProviderAuthoredIdentityFacts()
+        {
+            var bytes = new byte[16];
+            Buffer.BlockCopy(new[] { 12 }, 0, bytes, 0, 4);
+            Buffer.BlockCopy(new[] { 1f, 2f, 3f }, 0, bytes, 4, 12);
+            var document = EntityLeaseDocument();
+            document.Buffers[0].ByteLength = bytes.Length;
+            document.Columns = new[]
+            {
+                new EveEntitySoaColumn { ColumnId = "entity-index", Semantic = "entity.index", BufferId = "hot", ScalarType = "int32", ElementStride = 4, ElementCount = 1 },
+                new EveEntitySoaColumn { ColumnId = "position", Semantic = "transform.position", BufferId = "hot", ScalarType = "float3", ByteOffset = 4, ElementStride = 12, ElementCount = 1 }
+            };
+            var sink = new FakePlayableWorldSceneSink();
+
+            new EveUnityEntitySoaPresenter(sink).Apply(document, new FakeBodyReadLease(document, bytes));
+
+            var entity = sink.Upserts.Single().entity;
+            Assert.That(entity.EntityId, Is.EqualTo("entity:pilot"));
+            Assert.That(entity.Label, Is.EqualTo("Pilot"));
+            Assert.That(entity.EntityKind, Is.EqualTo("player"));
+            Assert.That(entity.Faction, Is.EqualTo("alliance"));
+            Assert.That(entity.Selectable, Is.True);
+            Assert.That(entity.Controllable, Is.True);
+            Assert.That(entity.AssetRef, Is.EqualTo("cultmesh://assets/pilot"));
         }
 
         [Test]
@@ -1771,6 +1799,20 @@ namespace GameCult.Eve.UnityScene.Tests
             Sequence = 7,
             Capacity = 1,
             Buffers = new[] { new EveEntitySoaBuffer { BufferId = "hot", ByteLength = 4 } },
+            Identities = new[]
+            {
+                new EveEntityIdentity
+                {
+                    Index = 12,
+                    EntityId = "entity:pilot",
+                    EntityKind = "player",
+                    Label = "Pilot",
+                    Faction = "alliance",
+                    Selectable = true,
+                    Controllable = true,
+                    AssetRef = "cultmesh://assets/pilot"
+                }
+            },
             Columns = new[]
             {
                 new EveEntitySoaColumn

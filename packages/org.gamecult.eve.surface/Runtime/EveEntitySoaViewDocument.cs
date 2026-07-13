@@ -26,6 +26,7 @@ namespace GameCult.Eve.Surface
         [Key(11)] public EveEntitySoaDirtyRange[] DirtyRanges { get; set; } = Array.Empty<EveEntitySoaDirtyRange>();
         [Key(12)] public EveEntityRenderGroup[] RenderGroups { get; set; } = Array.Empty<EveEntityRenderGroup>();
         [Key(13)] public EveEntityIdentity[] Identities { get; set; } = Array.Empty<EveEntityIdentity>();
+        [Key(14)] public long FrameId { get; set; }
     }
 
     [MessagePackObject]
@@ -65,6 +66,11 @@ namespace GameCult.Eve.Surface
         [Key(0)] public int Index { get; set; }
         [Key(1)] public string EntityId { get; set; } = "";
         [Key(2)] public string EntityKind { get; set; } = "";
+        [Key(3)] public string Label { get; set; } = "";
+        [Key(4)] public string Faction { get; set; } = "";
+        [Key(5)] public bool Selectable { get; set; }
+        [Key(6)] public bool Controllable { get; set; }
+        [Key(7)] public string AssetRef { get; set; } = "";
     }
 
     [MessagePackObject]

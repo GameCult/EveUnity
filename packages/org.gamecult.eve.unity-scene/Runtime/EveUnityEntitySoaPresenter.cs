@@ -40,22 +40,24 @@ namespace GameCult.Eve.UnityScene
                 var identity = document.Identities.FirstOrDefault(item => item.Index == entityIndex);
                 var entityId = identity?.EntityId ?? $"entity:{entityIndex}";
                 next.Add(entityId);
-                var assetRef = renderGroup?.MeshAssetRef ?? "";
+                var assetRef = string.IsNullOrWhiteSpace(identity?.AssetRef)
+                    ? renderGroup?.MeshAssetRef ?? ""
+                    : identity!.AssetRef;
                 _sink.UpsertEntity(
                     new EveUnityPlayableWorldEntity(
                         entityId,
                         entityId,
                         identity?.EntityKind ?? "entity",
-                        entityId,
-                        "",
+                        string.IsNullOrWhiteSpace(identity?.Label) ? entityId : identity!.Label,
+                        identity?.Faction ?? "",
                         assetRef,
                         position.x,
                         position.y,
                         position.z,
                         rotationRadians * 57.2957795f,
                         scale > 0f ? scale : renderGroup?.DefaultScale ?? 1f,
-                        selectable: true,
-                        controllable: false,
+                        selectable: identity?.Selectable ?? true,
+                        controllable: identity?.Controllable ?? false,
                         focusCommand: "",
                         moveCommand: "",
                         targetCommand: "",

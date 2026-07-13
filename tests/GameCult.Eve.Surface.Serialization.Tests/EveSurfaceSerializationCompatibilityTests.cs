@@ -21,16 +21,37 @@ public sealed class EveSurfaceSerializationCompatibilityTests
             ProducerEpoch = 3,
             Sequence = 4,
             Capacity = 8,
-            Buffers = new[] { new EveEntitySoaBuffer { BufferId = "entity-hot", ByteLength = 64 } }
+            FrameId = 91,
+            Buffers = new[] { new EveEntitySoaBuffer { BufferId = "entity-hot", ByteLength = 64 } },
+            Identities = new[]
+            {
+                new EveEntityIdentity
+                {
+                    Index = 0,
+                    EntityId = "player",
+                    EntityKind = "ship",
+                    Label = "Vanguard",
+                    Faction = "alliance",
+                    Selectable = true,
+                    Controllable = true,
+                    AssetRef = "cultmesh://assets/player"
+                }
+            }
         };
 
         var bytes = MessagePackSerializer.Serialize(document, Options);
         var reader = new MessagePackReader(bytes);
         var restored = MessagePackSerializer.Deserialize<EveEntitySoaViewDocument>(bytes, Options);
 
-        Assert.That(reader.ReadArrayHeader(), Is.EqualTo(14));
+        Assert.That(reader.ReadArrayHeader(), Is.EqualTo(15));
         Assert.That(restored.Schema, Is.EqualTo(EveEntitySoaViewDocument.SchemaId));
         Assert.That(restored.Buffers[0].BufferId, Is.EqualTo("entity-hot"));
+        Assert.That(restored.FrameId, Is.EqualTo(91));
+        Assert.That(restored.Identities[0].Label, Is.EqualTo("Vanguard"));
+        Assert.That(restored.Identities[0].Faction, Is.EqualTo("alliance"));
+        Assert.That(restored.Identities[0].Selectable, Is.True);
+        Assert.That(restored.Identities[0].Controllable, Is.True);
+        Assert.That(restored.Identities[0].AssetRef, Is.EqualTo("cultmesh://assets/player"));
     }
 
     [Test]

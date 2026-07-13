@@ -70,6 +70,44 @@ public sealed class EveSurfaceSerializationCompatibilityTests
         Assert.That(roundTrip.Commands[0].Command, Is.EqualTo("current.execute"));
     }
 
+    [Test]
+    public void LegacyExpandedProviderAdvertisementDeserializesAsCanonicalContract()
+    {
+        var document = MessagePackSerializer.Deserialize<EveProviderAdvertisementDocument>(
+            WriteLegacyProviderAdvertisement(),
+            Options);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(document.ProviderId, Is.EqualTo("aetheria"));
+            Assert.That(document.ServiceId, Is.EqualTo("aetheria-daemon"));
+            Assert.That(document.VerseId, Is.EqualTo("aetheria.local"));
+            Assert.That(document.Title, Is.EqualTo("Aetheria"));
+            Assert.That(document.CultMeshAddress, Is.EqualTo("cultmesh://aetheria.local/aetheria"));
+            Assert.That(document.Surfaces[0].SurfaceId, Is.EqualTo("aetheria.pilot"));
+            Assert.That(document.Surfaces[0].Schema, Is.EqualTo(EveSurfaceDocument.SchemaId));
+            Assert.That(document.Commands[0].Command, Is.EqualTo("aetheria.pilot.move"));
+            Assert.That(document.Commands[0].SurfaceId, Is.Empty);
+        });
+    }
+
+    [Test]
+    public void CurrentProviderAdvertisementSerializationWritesCanonicalThirteenFields()
+    {
+        var document = new EveProviderAdvertisementDocument(
+            "provider", "service", "verse", "Title", "game.runtime", "cultmesh://verse/provider",
+            "2026-07-13T14:00:00Z", new EveProviderFreshness("fresh", "2026-07-13T14:00:00Z", 15000),
+            new[] { EveSurfaceDocument.SchemaId }, Array.Empty<EveProviderWitness>(),
+            Array.Empty<EveAdvertisedSurface>(), Array.Empty<EveAdvertisedCommand>());
+
+        var bytes = MessagePackSerializer.Serialize(document, Options);
+        var reader = new MessagePackReader(bytes);
+
+        Assert.That(reader.ReadArrayHeader(), Is.EqualTo(13));
+        Assert.That(MessagePackSerializer.Deserialize<EveProviderAdvertisementDocument>(bytes, Options).Title,
+            Is.EqualTo("Title"));
+    }
+
     private static EveSurfaceDocument CreateCurrentDocument() => new(
         "current-provider",
         "current-kind",
@@ -123,6 +161,45 @@ public sealed class EveSurfaceSerializationCompatibilityTests
         writer.Write("gamecult.legacy.command.v1");
         writer.Write("cultmesh");
         writer.Write("legacy.commands");
+        writer.Flush();
+        return buffer.WrittenSpan.ToArray();
+    }
+
+    private static byte[] WriteLegacyProviderAdvertisement()
+    {
+        var buffer = new ArrayBufferWriter<byte>();
+        var writer = new MessagePackWriter(buffer);
+        writer.WriteArrayHeader(16);
+        writer.Write(EveProviderAdvertisementDocument.SchemaId);
+        writer.Write("aetheria");
+        writer.Write("aetheria-daemon");
+        writer.Write("aetheria.local");
+        writer.Write("asgard");
+        writer.Write("aetheria");
+        writer.Write("aetheria.local/aetheria");
+        writer.Write("cultmesh://aetheria.local/aetheria");
+        writer.Write("Aetheria");
+        writer.Write("game.runtime");
+        writer.Write("2026-07-13T14:00:00Z");
+        writer.WriteArrayHeader(3);
+        writer.Write("fresh");
+        writer.Write("2026-07-13T14:00:00Z");
+        writer.Write(15000);
+        writer.WriteArrayHeader(1);
+        writer.Write(EveSurfaceDocument.SchemaId);
+        writer.WriteArrayHeader(0);
+        writer.WriteArrayHeader(1);
+        writer.WriteArrayHeader(5);
+        writer.Write(EveSurfaceDocument.SchemaId);
+        writer.Write("aetheria.pilot");
+        writer.Write("eve:surface:aetheria.pilot");
+        writer.Write("cultmesh");
+        writer.Write("available");
+        writer.WriteArrayHeader(1);
+        writer.WriteArrayHeader(3);
+        writer.Write("aetheria.pilot.move");
+        writer.Write("cultmesh");
+        writer.Write("Move the pilot ship");
         writer.Flush();
         return buffer.WrittenSpan.ToArray();
     }

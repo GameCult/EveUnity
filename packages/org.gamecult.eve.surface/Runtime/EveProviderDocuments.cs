@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using GameCult.Caching;
 using MessagePack;
+using MessagePack.Formatters;
 
 #nullable enable
 
@@ -9,6 +10,7 @@ namespace GameCult.Eve.Surface
 {
     [CultDocument("gamecult.eve.provider_advertisement", SchemaId)]
     [MessagePackObject]
+    [MessagePackFormatter(typeof(EveProviderAdvertisementCompatibilityFormatter))]
     public sealed class EveProviderAdvertisementDocument
     {
         public const string SchemaId = "gamecult.eve.provider_advertisement.v1";
@@ -75,6 +77,150 @@ namespace GameCult.Eve.Surface
         [Key(11)] public IReadOnlyList<EveAdvertisedSurface> Surfaces { get; }
         [Key(12)] public IReadOnlyList<EveAdvertisedCommand> Commands { get; }
     }
+
+    /// <summary>
+    /// Reads canonical provider advertisements and the original Aetheria-expanded v1 layout.
+    /// </summary>
+    public sealed class EveProviderAdvertisementCompatibilityFormatter :
+        IMessagePackFormatter<EveProviderAdvertisementDocument?>
+    {
+        private const int CurrentFieldCount = 13;
+        private const int LegacyFieldCount = 16;
+
+        public void Serialize(
+            ref MessagePackWriter writer,
+            EveProviderAdvertisementDocument? value,
+            MessagePackSerializerOptions options)
+        {
+            if (value == null) { writer.WriteNil(); return; }
+            writer.WriteArrayHeader(CurrentFieldCount);
+            writer.Write(value.Schema);
+            writer.Write(value.ProviderId);
+            writer.Write(value.ServiceId);
+            writer.Write(value.VerseId);
+            writer.Write(value.Title);
+            writer.Write(value.Kind);
+            writer.Write(value.CultMeshAddress);
+            writer.Write(value.UpdatedAtUtc);
+            Formatter<EveProviderFreshness>(options).Serialize(ref writer, value.Freshness, options);
+            Formatter<IReadOnlyList<string>>(options).Serialize(ref writer, value.Schemas, options);
+            Formatter<IReadOnlyList<EveProviderWitness>>(options).Serialize(ref writer, value.Witnesses, options);
+            Formatter<IReadOnlyList<EveAdvertisedSurface>>(options).Serialize(ref writer, value.Surfaces, options);
+            Formatter<IReadOnlyList<EveAdvertisedCommand>>(options).Serialize(ref writer, value.Commands, options);
+        }
+
+        public EveProviderAdvertisementDocument? Deserialize(
+            ref MessagePackReader reader,
+            MessagePackSerializerOptions options)
+        {
+            if (reader.TryReadNil()) return null;
+            if (reader.NextMessagePackType != MessagePackType.Array)
+                throw new MessagePackSerializationException("Eve provider advertisement must be an array.");
+
+            options.Security.DepthStep(ref reader);
+            try
+            {
+                var fields = reader.ReadArrayHeader();
+                if (fields == LegacyFieldCount)
+                    return ReadLegacy(ref reader, options);
+
+                var schema = ReadString(ref reader, fields, 0);
+                var providerId = ReadString(ref reader, fields, 1);
+                var serviceId = ReadString(ref reader, fields, 2);
+                var verseId = ReadString(ref reader, fields, 3);
+                var title = ReadString(ref reader, fields, 4);
+                var kind = ReadString(ref reader, fields, 5);
+                var address = ReadString(ref reader, fields, 6);
+                var updatedAtUtc = ReadString(ref reader, fields, 7);
+                var freshness = fields > 8 ? Formatter<EveProviderFreshness>(options).Deserialize(ref reader, options) : null;
+                var schemas = fields > 9 ? Formatter<IReadOnlyList<string>>(options).Deserialize(ref reader, options) : null;
+                var witnesses = fields > 10 ? Formatter<IReadOnlyList<EveProviderWitness>>(options).Deserialize(ref reader, options) : null;
+                var surfaces = fields > 11 ? Formatter<IReadOnlyList<EveAdvertisedSurface>>(options).Deserialize(ref reader, options) : null;
+                var commands = fields > 12 ? Formatter<IReadOnlyList<EveAdvertisedCommand>>(options).Deserialize(ref reader, options) : null;
+                for (var index = CurrentFieldCount; index < fields; index++) reader.Skip();
+                return new EveProviderAdvertisementDocument(
+                    schema, providerId, serviceId, verseId, title, kind, address, updatedAtUtc,
+                    freshness ?? new EveProviderFreshness("unknown", "", 0),
+                    schemas ?? Array.Empty<string>(),
+                    witnesses ?? Array.Empty<EveProviderWitness>(),
+                    surfaces ?? Array.Empty<EveAdvertisedSurface>(),
+                    commands ?? Array.Empty<EveAdvertisedCommand>());
+            }
+            finally { reader.Depth--; }
+        }
+
+        private static EveProviderAdvertisementDocument ReadLegacy(
+            ref MessagePackReader reader,
+            MessagePackSerializerOptions options)
+        {
+            var schema = ReadString(ref reader);
+            var providerId = ReadString(ref reader);
+            var serviceId = ReadString(ref reader);
+            var verseId = ReadString(ref reader);
+            reader.Skip(); // RootVerse remains provider-owned settings, not portable advertisement state.
+            reader.Skip(); // CanonicalService
+            reader.Skip(); // LocatedService
+            var address = ReadString(ref reader);
+            var title = ReadString(ref reader);
+            var kind = ReadString(ref reader);
+            var updatedAtUtc = ReadString(ref reader);
+            var freshness = Formatter<EveProviderFreshness>(options).Deserialize(ref reader, options)
+                ?? new EveProviderFreshness("unknown", "", 0);
+            var schemas = Formatter<IReadOnlyList<string>>(options).Deserialize(ref reader, options)
+                ?? Array.Empty<string>();
+            var witnesses = Formatter<IReadOnlyList<EveProviderWitness>>(options).Deserialize(ref reader, options)
+                ?? Array.Empty<EveProviderWitness>();
+            var surfaces = ReadLegacySurfaces(ref reader);
+            var commands = ReadLegacyCommands(ref reader);
+            return new EveProviderAdvertisementDocument(
+                schema, providerId, serviceId, verseId, title, kind, address, updatedAtUtc,
+                freshness, schemas, witnesses, surfaces, commands);
+        }
+
+        private static EveAdvertisedSurface[] ReadLegacySurfaces(ref MessagePackReader reader)
+        {
+            var count = reader.ReadArrayHeader();
+            var values = new EveAdvertisedSurface[count];
+            for (var index = 0; index < count; index++)
+            {
+                var fields = reader.ReadArrayHeader();
+                var schema = ReadString(ref reader, fields, 0);
+                var surfaceId = ReadString(ref reader, fields, 1);
+                var recordRef = ReadString(ref reader, fields, 2);
+                var transport = ReadString(ref reader, fields, 3);
+                var status = ReadString(ref reader, fields, 4);
+                for (var field = 5; field < fields; field++) reader.Skip();
+                values[index] = new EveAdvertisedSurface(
+                    surfaceId, schema, recordRef, transport, status, "", null);
+            }
+            return values;
+        }
+
+        private static EveAdvertisedCommand[] ReadLegacyCommands(ref MessagePackReader reader)
+        {
+            var count = reader.ReadArrayHeader();
+            var values = new EveAdvertisedCommand[count];
+            for (var index = 0; index < count; index++)
+            {
+                var fields = reader.ReadArrayHeader();
+                var command = ReadString(ref reader, fields, 0);
+                var transport = ReadString(ref reader, fields, 1);
+                var summary = ReadString(ref reader, fields, 2);
+                for (var field = 3; field < fields; field++) reader.Skip();
+                values[index] = new EveAdvertisedCommand(command, "", transport, summary);
+            }
+            return values;
+        }
+
+        private static IMessagePackFormatter<T> Formatter<T>(MessagePackSerializerOptions options) =>
+            options.Resolver.GetFormatter<T>()
+            ?? throw new MessagePackSerializationException($"No formatter is registered for {typeof(T).FullName}.");
+
+        private static string ReadString(ref MessagePackReader reader) => reader.ReadString() ?? "";
+        private static string ReadString(ref MessagePackReader reader, int fields, int index) =>
+            index < fields ? ReadString(ref reader) : "";
+    }
+
 
     [MessagePackObject]
     public sealed class EveProviderFreshness

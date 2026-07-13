@@ -186,6 +186,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             WitnessReceipt movementReceipt = null;
             WitnessReceipt focusReceipt = null;
             WitnessReceipt actionReceipt = null;
+            WitnessReceipt tradeReceipt = null;
             EveUnityShotReceipt combatShot = null;
             string combatActionId = "";
             string collectedPickupId = "";
@@ -258,24 +259,22 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     .Single(candidate => string.Equals(candidate.ActionId, "pilot.dock", StringComparison.Ordinal));
                 var undockAction = provider.CurrentInputCapability.Actions
                     .Single(candidate => string.Equals(candidate.ActionId, "pilot.undock", StringComparison.Ordinal));
-                var dock = runtime.SubmitActionIntent(playerId, dockAction.ActionId);
                 var realtimeAction = provider.CurrentInputCapability?.Actions
                     .FirstOrDefault(action => string.Equals(action.ActionId, "simulation.rate.realtime", StringComparison.Ordinal));
                 Assert.That(realtimeAction, Is.Not.Null, "Terminus did not advertise its user-controlled simulation clock.");
-                var resume = runtime.SubmitActionIntent(playerId, realtimeAction.ActionId);
-                var resumeDeadline = Time.realtimeSinceStartup + 12f;
-                while (Time.realtimeSinceStartup < resumeDeadline &&
-                       !commandReceipts.TryGetValue(resume.CommandId, out _))
-                {
-                    yield return new WaitForSecondsRealtime(0.1f);
-                    runtime.Refresh();
-                }
-                Assert.That(commandReceipts.TryGetValue(resume.CommandId, out var resumeReceipt), Is.True);
-                Assert.That(resumeReceipt.State, Is.EqualTo("accepted").Or.EqualTo("reconciled"), resumeReceipt.Message);
+                var pauseAction = provider.CurrentInputCapability.Actions
+                    .Single(candidate => string.Equals(candidate.ActionId, "simulation.pause", StringComparison.Ordinal));
+                var scoopAction = provider.CurrentInputCapability.Actions
+                    .Single(candidate => string.Equals(candidate.ActionId, "pilot.scoop", StringComparison.Ordinal));
+                var stepAction = provider.CurrentInputCapability.Actions
+                    .Single(candidate => string.Equals(candidate.ActionId, "simulation.step", StringComparison.Ordinal));
                 Assert.That(
                     marker.GetComponentsInChildren<Transform>(includeInactive: true).Length,
                     Is.GreaterThan(1),
                     "The generic client substituted its primitive fallback instead of the provider-authored AssetBundle prefab.");
+                runtime.SubmitMoveVectorIntent(playerId, 0f, 0f, 0f);
+                var dock = runtime.SubmitActionIntent(playerId, dockAction.ActionId);
+                var resumeDock = runtime.SubmitActionIntent(playerId, stepAction.ActionId);
                 var dockDeadline = Time.realtimeSinceStartup + 12f;
                 while (Time.realtimeSinceStartup < dockDeadline &&
                        (!commandReceipts.TryGetValue(dock.CommandId, out var observedDock) ||
@@ -285,6 +284,8 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     yield return new WaitForSecondsRealtime(0.1f);
                     runtime.Refresh();
                 }
+                Assert.That(commandReceipts.TryGetValue(resumeDock.CommandId, out var resumeDockReceipt), Is.True);
+                Assert.That(resumeDockReceipt.State, Is.EqualTo("accepted").Or.EqualTo("reconciled"), resumeDockReceipt.Message);
                 Assert.That(commandReceipts.TryGetValue(dock.CommandId, out var dockReceipt), Is.True);
                 Assert.That(dockReceipt.State, Is.EqualTo("accepted").Or.EqualTo("reconciled"), dockReceipt.Message);
                 Assert.That(runtime.ActiveWorld.PresentationMode, Is.EqualTo("docked"));
@@ -300,7 +301,44 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 Assert.That(FindMarker(root, playerId, includeInactive: true).gameObject.activeSelf, Is.False);
                 docked = true;
 
+                var servicePause = runtime.SubmitActionIntent(playerId, pauseAction.ActionId);
+                var servicePauseDeadline = Time.realtimeSinceStartup + 12f;
+                while (Time.realtimeSinceStartup < servicePauseDeadline &&
+                       (!commandReceipts.TryGetValue(servicePause.CommandId, out var observedServicePause) ||
+                        runtime.ActiveVersion < observedServicePause.SourceVersion))
+                {
+                    yield return new WaitForSecondsRealtime(0.1f);
+                    runtime.Refresh();
+                }
+                Assert.That(commandReceipts.TryGetValue(servicePause.CommandId, out var servicePauseReceipt), Is.True);
+                Assert.That(servicePauseReceipt.State, Is.EqualTo("accepted").Or.EqualTo("reconciled"), servicePauseReceipt.Message);
+
+                var tradeAction = provider.CurrentInputCapability.Actions
+                    .FirstOrDefault(candidate =>
+                        string.Equals(candidate.Category, "trade", StringComparison.Ordinal) &&
+                        string.Equals(candidate.Availability, "available", StringComparison.OrdinalIgnoreCase));
+                Assert.That(tradeAction, Is.Not.Null,
+                    "The docked pilot input capability did not advertise an available daemon-authored station stock action. Actions: " +
+                    string.Join("; ", provider.CurrentInputCapability.Actions.Select(candidate =>
+                        $"{candidate.ActionId}[category={candidate.Category},availability={candidate.Availability},label={candidate.Label}]")));
+                var trade = runtime.SubmitActionIntent(playerId, tradeAction.ActionId);
+                var tradeDeadline = Time.realtimeSinceStartup + 12f;
+                while (Time.realtimeSinceStartup < tradeDeadline &&
+                       (!commandReceipts.TryGetValue(trade.CommandId, out var observedTrade) ||
+                        runtime.ActiveVersion < observedTrade.SourceVersion))
+                {
+                    yield return new WaitForSecondsRealtime(0.1f);
+                    runtime.Refresh();
+                }
+                Assert.That(commandReceipts.TryGetValue(trade.CommandId, out var tradeCommandReceipt), Is.True);
+                Assert.That(
+                    tradeCommandReceipt.State,
+                    Is.EqualTo("accepted").Or.EqualTo("reconciled"),
+                    tradeCommandReceipt.Message);
+                tradeReceipt = WitnessReceipt.From("trade", tradeCommandReceipt);
+
                 var undock = runtime.SubmitActionIntent(playerId, undockAction.ActionId);
+                var resumeDeparture = runtime.SubmitActionIntent(playerId, stepAction.ActionId);
                 var undockDeadline = Time.realtimeSinceStartup + 12f;
                 while (Time.realtimeSinceStartup < undockDeadline &&
                        (!commandReceipts.TryGetValue(undock.CommandId, out var observedUndock) ||
@@ -310,6 +348,8 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     yield return new WaitForSecondsRealtime(0.1f);
                     runtime.Refresh();
                 }
+                Assert.That(commandReceipts.TryGetValue(resumeDeparture.CommandId, out var resumeDepartureReceipt), Is.True);
+                Assert.That(resumeDepartureReceipt.State, Is.EqualTo("accepted").Or.EqualTo("reconciled"), resumeDepartureReceipt.Message);
                 Assert.That(commandReceipts.TryGetValue(undock.CommandId, out var undockReceipt), Is.True);
                 Assert.That(undockReceipt.State, Is.EqualTo("accepted").Or.EqualTo("reconciled"), undockReceipt.Message);
                 Assert.That(runtime.ActiveWorld.PresentationMode, Is.EqualTo("world"));
@@ -318,60 +358,8 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 Assert.That(runtime.ActiveWorld.MovementEnabled, Is.True);
                 Assert.That(FindMarker(root, playerId).gameObject.activeSelf, Is.True);
                 undocked = true;
+                var undockPosition = marker.transform.position;
 
-                var initialPosition = marker.transform.position;
-                initialVersion = runtime.ActiveVersion;
-                var request = runtime.SubmitMoveVectorIntent(playerId, 1f, 0f, 1f);
-
-                var deadline = Time.realtimeSinceStartup + 12f;
-                while (Time.realtimeSinceStartup < deadline &&
-                       (!commandReceipts.TryGetValue(request.CommandId, out var observedMovement) ||
-                        runtime.ActiveVersion < observedMovement.SourceVersion ||
-                        Vector3.Distance(FindMarker(root, playerId).transform.position, initialPosition) < 0.01f))
-                {
-                    yield return new WaitForSecondsRealtime(0.1f);
-                    runtime.Refresh();
-                }
-
-                Assert.That(commandReceipts.TryGetValue(request.CommandId, out var movementCommandReceipt), Is.True);
-                Assert.That(
-                    movementCommandReceipt.State,
-                    Is.EqualTo("accepted").Or.EqualTo("reconciled"),
-                    movementCommandReceipt.Message);
-                Assert.That(movementCommandReceipt.SourceVersion, Is.GreaterThan(initialVersion));
-                Assert.That(runtime.ActiveVersion, Is.GreaterThanOrEqualTo(movementCommandReceipt.SourceVersion));
-                movementDistance = Vector3.Distance(FindMarker(root, playerId).transform.position, initialPosition);
-                Assert.That(movementDistance, Is.GreaterThan(0.01f));
-                var pickupDeadline = Time.realtimeSinceStartup + 8f;
-                while (Time.realtimeSinceStartup < pickupDeadline &&
-                       root.GetComponentsInChildren<EveUnityPlayableWorldEntityMarker>()
-                           .Any(candidate => string.Equals(candidate.EntityId, collectedPickupId, StringComparison.Ordinal)))
-                {
-                    yield return new WaitForSecondsRealtime(0.1f);
-                    runtime.Refresh();
-                }
-                pickupCollected = !root.GetComponentsInChildren<EveUnityPlayableWorldEntityMarker>()
-                    .Any(candidate => string.Equals(candidate.EntityId, collectedPickupId, StringComparison.Ordinal));
-                Assert.That(pickupCollected, Is.True, "Ymir/daemon simulation did not collect the seeded pickup when the player crossed it.");
-                movementReceipt = WitnessReceipt.From("movement", movementCommandReceipt);
-
-                var stop = runtime.SubmitMoveVectorIntent(playerId, 0f, 0f, 0f);
-                var stopDeadline = Time.realtimeSinceStartup + 12f;
-                while (Time.realtimeSinceStartup < stopDeadline &&
-                       (!commandReceipts.TryGetValue(stop.CommandId, out var observedStop) ||
-                        runtime.ActiveVersion < observedStop.SourceVersion))
-                {
-                    yield return new WaitForSecondsRealtime(0.1f);
-                    runtime.Refresh();
-                }
-                Assert.That(commandReceipts.TryGetValue(stop.CommandId, out var stopCommandReceipt), Is.True);
-                Assert.That(
-                    stopCommandReceipt.State,
-                    Is.EqualTo("accepted").Or.EqualTo("reconciled"),
-                    stopCommandReceipt.Message);
-
-                var pauseAction = provider.CurrentInputCapability.Actions
-                    .Single(candidate => string.Equals(candidate.ActionId, "simulation.pause", StringComparison.Ordinal));
                 var pause = runtime.SubmitActionIntent(playerId, pauseAction.ActionId);
                 var pauseDeadline = Time.realtimeSinceStartup + 12f;
                 while (Time.realtimeSinceStartup < pauseDeadline &&
@@ -384,7 +372,37 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 Assert.That(commandReceipts.TryGetValue(pause.CommandId, out var pauseReceipt), Is.True);
                 Assert.That(pauseReceipt.State, Is.EqualTo("accepted").Or.EqualTo("reconciled"), pauseReceipt.Message);
 
-                var movementVersion = runtime.ActiveVersion;
+                var scoop = runtime.SubmitActionIntent(playerId, scoopAction.ActionId);
+                var initialScoopDeadline = Time.realtimeSinceStartup + 12f;
+                while (Time.realtimeSinceStartup < initialScoopDeadline &&
+                       !commandReceipts.TryGetValue(scoop.CommandId, out _))
+                {
+                    yield return new WaitForSecondsRealtime(0.1f);
+                    runtime.Refresh();
+                }
+                Assert.That(commandReceipts.TryGetValue(scoop.CommandId, out var initialScoopReceipt), Is.True);
+                Assert.That(initialScoopReceipt.State, Is.EqualTo("accepted").Or.EqualTo("reconciled"), initialScoopReceipt.Message);
+                for (var simulationStep = 0; simulationStep < 300 &&
+                     root.GetComponentsInChildren<EveUnityPlayableWorldEntityMarker>()
+                         .Any(candidate => string.Equals(candidate.EntityId, collectedPickupId, StringComparison.Ordinal));
+                     simulationStep++)
+                {
+                    var step = runtime.SubmitActionIntent(playerId, stepAction.ActionId);
+                    var stepDeadline = Time.realtimeSinceStartup + 12f;
+                    while (Time.realtimeSinceStartup < stepDeadline &&
+                           !commandReceipts.TryGetValue(step.CommandId, out _))
+                    {
+                        yield return new WaitForSecondsRealtime(0.05f);
+                        runtime.Refresh();
+                    }
+                    Assert.That(commandReceipts.TryGetValue(step.CommandId, out var stepReceipt), Is.True);
+                    Assert.That(stepReceipt.State, Is.EqualTo("accepted").Or.EqualTo("reconciled"), stepReceipt.Message);
+                }
+                pickupCollected = !root.GetComponentsInChildren<EveUnityPlayableWorldEntityMarker>()
+                    .Any(candidate => string.Equals(candidate.EntityId, collectedPickupId, StringComparison.Ordinal));
+                Assert.That(pickupCollected, Is.True, "The pilot bot did not collect the daemon-authored salvage under explicit simulation steps.");
+
+                var combatStartVersion = runtime.ActiveVersion;
                 var visibleMarkers = root.GetComponentsInChildren<EveUnityPlayableWorldEntityMarker>();
                 var hostileTargets = visibleMarkers
                     .Where(candidate => candidate.Selectable && !candidate.Controllable &&
@@ -392,15 +410,20 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                                         !string.Equals(candidate.Faction, marker.Faction, StringComparison.Ordinal))
                     .OrderBy(candidate => Vector3.Distance(candidate.transform.position, marker.transform.position))
                     .ToArray();
-                var targetEntityId = hostileTargets.Length > 0
-                    ? hostileTargets[0].EntityId
-                    : stationObservedHostileId;
-                Assert.That(targetEntityId, Is.Not.Empty,
-                    "No hostile contact was available from pilot or shared station sensors. Visible entities: " +
+                Assert.That(hostileTargets, Is.Not.Empty,
+                    "No hostile contact was available from the ship's own sensors immediately after undocking. " +
+                    $"The station-only contact was {stationObservedHostileId}. Current entities: " +
                     string.Join(", ", visibleMarkers.Select(candidate =>
                         $"{candidate.EntityId}[kind={candidate.EntityKind},faction={candidate.Faction},selectable={candidate.Selectable}]")));
+                var targetEntityId = hostileTargets[0].EntityId;
                 var focus = runtime.SubmitTargetIntent(playerId, targetEntityId);
                 var focusVersion = runtime.ActiveVersion;
+                var aimVector = hostileTargets[0].transform.position - marker.transform.position;
+                var aim = runtime.SubmitMoveVectorIntent(
+                    playerId,
+                    aimVector.x,
+                    aimVector.z,
+                    0.1f);
                 var trajectoryRenderer = root.AddComponent<EveUnityShotTrajectoryRenderer>();
                 runtime.ShotAvailable += shot =>
                 {
@@ -434,8 +457,12 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 while (Time.realtimeSinceStartup < actionDeadline &&
                        (!commandReceipts.TryGetValue(focus.CommandId, out var observedFocus) ||
                         runtime.ActiveVersion < observedFocus.SourceVersion ||
+                        !commandReceipts.TryGetValue(aim.CommandId, out var observedAim) ||
+                        runtime.ActiveVersion < observedAim.SourceVersion ||
                         !commandReceipts.TryGetValue(action.CommandId, out var observedAction) ||
-                        runtime.ActiveVersion < observedAction.SourceVersion || combatShot == null))
+                        runtime.ActiveVersion < observedAction.SourceVersion ||
+                        Vector3.Distance(FindMarker(root, playerId).transform.position, undockPosition) < 0.01f ||
+                        combatShot == null))
                 {
                     yield return new WaitForSecondsRealtime(0.1f);
                     runtime.Refresh();
@@ -445,8 +472,16 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     focusCommandReceipt.State,
                     Is.EqualTo("accepted").Or.EqualTo("reconciled"),
                     focusCommandReceipt.Message);
-                Assert.That(focusCommandReceipt.SourceVersion, Is.GreaterThan(movementVersion));
+                Assert.That(focusCommandReceipt.SourceVersion, Is.GreaterThan(combatStartVersion));
                 focusReceipt = WitnessReceipt.From("targeting", focusCommandReceipt);
+                Assert.That(commandReceipts.TryGetValue(aim.CommandId, out var aimCommandReceipt), Is.True);
+                Assert.That(
+                    aimCommandReceipt.State,
+                    Is.EqualTo("accepted").Or.EqualTo("reconciled"),
+                    aimCommandReceipt.Message);
+                movementDistance = Vector3.Distance(FindMarker(root, playerId).transform.position, undockPosition);
+                movementReceipt = WitnessReceipt.From("movement", aimCommandReceipt);
+                Assert.That(movementDistance, Is.GreaterThan(0.01f));
                 Assert.That(commandReceipts.TryGetValue(action.CommandId, out var actionCommandReceipt), Is.True);
                 Assert.That(
                     actionCommandReceipt.State,
@@ -464,6 +499,112 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 Assert.That(combatShot.PresentationKind, Is.Not.Empty);
                 Assert.That(trajectoryRenderer.ActiveTrajectoryCount, Is.GreaterThan(0));
                 actionReceipt = WitnessReceipt.From("action", actionCommandReceipt);
+
+                if (!pickupCollected)
+                {
+                var retryScoopAction = provider.CurrentInputCapability.Actions
+                    .Single(candidate => string.Equals(candidate.ActionId, "pilot.scoop", StringComparison.Ordinal));
+                var retryScoop = runtime.SubmitActionIntent(playerId, retryScoopAction.ActionId);
+                var scoopDeadline = Time.realtimeSinceStartup + 12f;
+                while (Time.realtimeSinceStartup < scoopDeadline &&
+                       (!commandReceipts.TryGetValue(retryScoop.CommandId, out var observedScoop) ||
+                        runtime.ActiveVersion < observedScoop.SourceVersion))
+                {
+                    yield return new WaitForSecondsRealtime(0.1f);
+                    runtime.Refresh();
+                }
+                Assert.That(commandReceipts.TryGetValue(retryScoop.CommandId, out var scoopCommandReceipt), Is.True);
+                Assert.That(
+                    scoopCommandReceipt.State,
+                    Is.EqualTo("accepted").Or.EqualTo("reconciled"),
+                    scoopCommandReceipt.Message);
+
+                pickupCollected = !root.GetComponentsInChildren<EveUnityPlayableWorldEntityMarker>()
+                    .Any(candidate => string.Equals(candidate.EntityId, collectedPickupId, StringComparison.Ordinal));
+                if (pickupCollected)
+                {
+                    movementDistance = Vector3.Distance(marker.transform.position, undockPosition);
+                    movementReceipt = WitnessReceipt.From("movement", aimCommandReceipt);
+                }
+                else
+                {
+                    var initialPosition = marker.transform.position;
+                    initialVersion = runtime.ActiveVersion;
+                    var currentPickup = root.GetComponentsInChildren<EveUnityPlayableWorldEntityMarker>()
+                        .Single(candidate => string.Equals(candidate.EntityId, collectedPickupId, StringComparison.Ordinal));
+                    var pickupVector = currentPickup.transform.position - marker.transform.position;
+                    var request = runtime.SubmitMoveVectorIntent(playerId, pickupVector.x, pickupVector.z, 1f);
+
+                    var deadline = Time.realtimeSinceStartup + 12f;
+                    while (Time.realtimeSinceStartup < deadline &&
+                           (!commandReceipts.TryGetValue(request.CommandId, out var observedMovement) ||
+                            runtime.ActiveVersion < observedMovement.SourceVersion ||
+                            Vector3.Distance(FindMarker(root, playerId).transform.position, initialPosition) < 0.01f))
+                    {
+                        yield return new WaitForSecondsRealtime(0.1f);
+                        runtime.Refresh();
+                    }
+
+                    Assert.That(commandReceipts.TryGetValue(request.CommandId, out var movementCommandReceipt), Is.True);
+                    Assert.That(
+                        movementCommandReceipt.State,
+                        Is.EqualTo("accepted").Or.EqualTo("reconciled"),
+                        movementCommandReceipt.Message);
+                    Assert.That(movementCommandReceipt.SourceVersion, Is.GreaterThan(initialVersion));
+                    Assert.That(runtime.ActiveVersion, Is.GreaterThanOrEqualTo(movementCommandReceipt.SourceVersion));
+                    movementDistance = Vector3.Distance(FindMarker(root, playerId).transform.position, initialPosition);
+                    var pickupDeadline = Time.realtimeSinceStartup + 20f;
+                    var nextSteeringUpdate = 0f;
+                    while (Time.realtimeSinceStartup < pickupDeadline &&
+                           root.GetComponentsInChildren<EveUnityPlayableWorldEntityMarker>()
+                               .Any(candidate => string.Equals(candidate.EntityId, collectedPickupId, StringComparison.Ordinal)))
+                    {
+                        if (Time.realtimeSinceStartup >= nextSteeringUpdate)
+                        {
+                            var currentPlayer = FindMarker(root, playerId);
+                            var observedPickup = root.GetComponentsInChildren<EveUnityPlayableWorldEntityMarker>()
+                                .FirstOrDefault(candidate => string.Equals(candidate.EntityId, collectedPickupId, StringComparison.Ordinal));
+                            if (observedPickup != null)
+                            {
+                                var correction = observedPickup.transform.position - currentPlayer.transform.position;
+                                runtime.SubmitMoveVectorIntent(playerId, correction.x, correction.z, 1f);
+                            }
+                            nextSteeringUpdate = Time.realtimeSinceStartup + 0.25f;
+                        }
+                        yield return new WaitForSecondsRealtime(0.1f);
+                        runtime.Refresh();
+                    }
+                    pickupCollected = !root.GetComponentsInChildren<EveUnityPlayableWorldEntityMarker>()
+                        .Any(candidate => string.Equals(candidate.EntityId, collectedPickupId, StringComparison.Ordinal));
+                    movementReceipt = WitnessReceipt.From("movement", movementCommandReceipt);
+                }
+                Assert.That(movementDistance, Is.GreaterThan(0.01f));
+                var remainingPickup = root.GetComponentsInChildren<EveUnityPlayableWorldEntityMarker>()
+                    .FirstOrDefault(candidate => string.Equals(candidate.EntityId, collectedPickupId, StringComparison.Ordinal));
+                Assert.That(
+                    pickupCollected,
+                    Is.True,
+                    remainingPickup == null
+                        ? "Ymir/daemon simulation retained a collected pickup outside the active Eve entity view."
+                        : $"Ymir/daemon simulation produced no pickup contact. " +
+                          $"player={marker.transform.position}, pickup={remainingPickup.transform.position}, " +
+                          $"distance={Vector3.Distance(marker.transform.position, remainingPickup.transform.position):0.###}.");
+                }
+
+                var stop = runtime.SubmitMoveVectorIntent(playerId, 0f, 0f, 0f);
+                var stopDeadline = Time.realtimeSinceStartup + 12f;
+                while (Time.realtimeSinceStartup < stopDeadline &&
+                       (!commandReceipts.TryGetValue(stop.CommandId, out var observedStop) ||
+                        runtime.ActiveVersion < observedStop.SourceVersion))
+                {
+                    yield return new WaitForSecondsRealtime(0.1f);
+                    runtime.Refresh();
+                }
+                Assert.That(commandReceipts.TryGetValue(stop.CommandId, out var stopCommandReceipt), Is.True);
+                Assert.That(
+                    stopCommandReceipt.State,
+                    Is.EqualTo("accepted").Or.EqualTo("reconciled"),
+                    stopCommandReceipt.Message);
 
                 var light = lightObject.AddComponent<Light>();
                 light.type = LightType.Directional;
@@ -513,6 +654,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     movementReceipt,
                     focusReceipt,
                     actionReceipt,
+                    tradeReceipt,
                     combatActionId,
                     combatShot,
                     collectedPickupId,
@@ -541,6 +683,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             WitnessReceipt movement,
             WitnessReceipt targeting,
             WitnessReceipt action,
+            WitnessReceipt trade,
             string combatActionId,
             EveUnityShotReceipt combatShot,
             string collectedPickupId,
@@ -557,6 +700,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 movement = movement != null,
                 targeting = targeting != null,
                 action = action != null,
+                trade = trade != null,
                 combatShot = combatShot != null,
                 combatActionId = combatActionId ?? "",
                 shotId = combatShot?.ShotId ?? "",
@@ -571,7 +715,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 initialVersion = initialVersion,
                 finalVersion = finalVersion,
                 movementDistance = movementDistance,
-                receipts = new[] { movement, targeting, action }
+                receipts = new[] { movement, targeting, action, trade }
             };
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path)));
             File.WriteAllText(path, JsonUtility.ToJson(document, true));
@@ -585,6 +729,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             public bool movement;
             public bool targeting;
             public bool action;
+            public bool trade;
             public bool combatShot;
             public string combatActionId;
             public string shotId;

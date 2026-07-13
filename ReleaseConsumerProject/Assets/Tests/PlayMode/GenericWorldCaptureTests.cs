@@ -190,6 +190,9 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             string combatActionId = "";
             string collectedPickupId = "";
             bool pickupCollected = false;
+            bool docked = false;
+            bool undocked = false;
+            string stationObservedHostileId = "";
             long initialVersion = 0;
             float movementDistance = 0f;
             var commandReceipts = new Dictionary<string, EveUnitySceneCommandReceipt>(StringComparer.Ordinal);
@@ -251,6 +254,11 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     seededPickup.GetComponentsInChildren<Transform>(includeInactive: true).Length,
                     Is.GreaterThan(1),
                     "The generic client did not instantiate the provider-authored pickup asset.");
+                var dockAction = provider.CurrentInputCapability.Actions
+                    .Single(candidate => string.Equals(candidate.ActionId, "pilot.dock", StringComparison.Ordinal));
+                var undockAction = provider.CurrentInputCapability.Actions
+                    .Single(candidate => string.Equals(candidate.ActionId, "pilot.undock", StringComparison.Ordinal));
+                var dock = runtime.SubmitActionIntent(playerId, dockAction.ActionId);
                 var realtimeAction = provider.CurrentInputCapability?.Actions
                     .FirstOrDefault(action => string.Equals(action.ActionId, "simulation.rate.realtime", StringComparison.Ordinal));
                 Assert.That(realtimeAction, Is.Not.Null, "Terminus did not advertise its user-controlled simulation clock.");
@@ -268,6 +276,49 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     marker.GetComponentsInChildren<Transform>(includeInactive: true).Length,
                     Is.GreaterThan(1),
                     "The generic client substituted its primitive fallback instead of the provider-authored AssetBundle prefab.");
+                var dockDeadline = Time.realtimeSinceStartup + 12f;
+                while (Time.realtimeSinceStartup < dockDeadline &&
+                       (!commandReceipts.TryGetValue(dock.CommandId, out var observedDock) ||
+                        runtime.ActiveVersion < observedDock.SourceVersion ||
+                        !string.Equals(runtime.ActiveWorld.PresentationMode, "docked", StringComparison.Ordinal)))
+                {
+                    yield return new WaitForSecondsRealtime(0.1f);
+                    runtime.Refresh();
+                }
+                Assert.That(commandReceipts.TryGetValue(dock.CommandId, out var dockReceipt), Is.True);
+                Assert.That(dockReceipt.State, Is.EqualTo("accepted").Or.EqualTo("reconciled"), dockReceipt.Message);
+                Assert.That(runtime.ActiveWorld.PresentationMode, Is.EqualTo("docked"));
+                Assert.That(runtime.ActiveWorld.CameraTargetEntityId, Is.Not.Empty.And.Not.EqualTo(playerId));
+                Assert.That(FindMarker(root, runtime.ActiveWorld.CameraTargetEntityId), Is.Not.Null,
+                    "The daemon did not include the authoritative dock parent in the docked SoA view.");
+                stationObservedHostileId = provider.CurrentEntityView.Identities
+                    .FirstOrDefault(identity => string.Equals(identity.Faction, "raider", StringComparison.Ordinal))?.EntityId ?? "";
+                Assert.That(stationObservedHostileId, Is.Not.Empty,
+                    "The docked pilot did not inherit the station's sensor-derived hostile contacts.");
+                Assert.That(runtime.ActiveWorld.SubjectVisible, Is.False);
+                Assert.That(runtime.ActiveWorld.MovementEnabled, Is.False);
+                Assert.That(FindMarker(root, playerId, includeInactive: true).gameObject.activeSelf, Is.False);
+                docked = true;
+
+                var undock = runtime.SubmitActionIntent(playerId, undockAction.ActionId);
+                var undockDeadline = Time.realtimeSinceStartup + 12f;
+                while (Time.realtimeSinceStartup < undockDeadline &&
+                       (!commandReceipts.TryGetValue(undock.CommandId, out var observedUndock) ||
+                        runtime.ActiveVersion < observedUndock.SourceVersion ||
+                        !string.Equals(runtime.ActiveWorld.PresentationMode, "world", StringComparison.Ordinal)))
+                {
+                    yield return new WaitForSecondsRealtime(0.1f);
+                    runtime.Refresh();
+                }
+                Assert.That(commandReceipts.TryGetValue(undock.CommandId, out var undockReceipt), Is.True);
+                Assert.That(undockReceipt.State, Is.EqualTo("accepted").Or.EqualTo("reconciled"), undockReceipt.Message);
+                Assert.That(runtime.ActiveWorld.PresentationMode, Is.EqualTo("world"));
+                Assert.That(runtime.ActiveWorld.CameraTargetEntityId, Is.EqualTo(playerId));
+                Assert.That(runtime.ActiveWorld.SubjectVisible, Is.True);
+                Assert.That(runtime.ActiveWorld.MovementEnabled, Is.True);
+                Assert.That(FindMarker(root, playerId).gameObject.activeSelf, Is.True);
+                undocked = true;
+
                 var initialPosition = marker.transform.position;
                 initialVersion = runtime.ActiveVersion;
                 var request = runtime.SubmitMoveVectorIntent(playerId, 1f, 0f, 1f);
@@ -337,17 +388,18 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 var visibleMarkers = root.GetComponentsInChildren<EveUnityPlayableWorldEntityMarker>();
                 var hostileTargets = visibleMarkers
                     .Where(candidate => candidate.Selectable && !candidate.Controllable &&
+                                        string.Equals(candidate.EntityKind, "ship", StringComparison.OrdinalIgnoreCase) &&
                                         !string.Equals(candidate.Faction, marker.Faction, StringComparison.Ordinal))
                     .OrderBy(candidate => Vector3.Distance(candidate.transform.position, marker.transform.position))
                     .ToArray();
-                Assert.That(
-                    hostileTargets,
-                    Is.Not.Empty,
-                    "No selectable hostile contact was lowered. Visible entities: " +
+                var targetEntityId = hostileTargets.Length > 0
+                    ? hostileTargets[0].EntityId
+                    : stationObservedHostileId;
+                Assert.That(targetEntityId, Is.Not.Empty,
+                    "No hostile contact was available from pilot or shared station sensors. Visible entities: " +
                     string.Join(", ", visibleMarkers.Select(candidate =>
                         $"{candidate.EntityId}[kind={candidate.EntityKind},faction={candidate.Faction},selectable={candidate.Selectable}]")));
-                var targetMarker = hostileTargets[0];
-                var focus = runtime.SubmitTargetIntent(playerId, targetMarker.EntityId);
+                var focus = runtime.SubmitTargetIntent(playerId, targetEntityId);
                 var focusVersion = runtime.ActiveVersion;
                 var trajectoryRenderer = root.AddComponent<EveUnityShotTrajectoryRenderer>();
                 runtime.ShotAvailable += shot =>
@@ -464,7 +516,9 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     combatActionId,
                     combatShot,
                     collectedPickupId,
-                    pickupCollected);
+                    pickupCollected,
+                    docked,
+                    undocked);
             }
             finally
             {
@@ -490,7 +544,9 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             string combatActionId,
             EveUnityShotReceipt combatShot,
             string collectedPickupId,
-            bool pickupCollected)
+            bool pickupCollected,
+            bool docked,
+            bool undocked)
         {
             var path = Environment.GetEnvironmentVariable("EVEUNITY_WITNESS_FACTS_PATH");
             if (string.IsNullOrWhiteSpace(path)) return;
@@ -509,6 +565,8 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 shotHit = combatShot?.Hit ?? false,
                 pickupVisible = !string.IsNullOrWhiteSpace(collectedPickupId),
                 pickupCollected = pickupCollected,
+                docked = docked,
+                undocked = undocked,
                 pickupId = collectedPickupId ?? "",
                 initialVersion = initialVersion,
                 finalVersion = finalVersion,
@@ -535,6 +593,8 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             public bool shotHit;
             public bool pickupVisible;
             public bool pickupCollected;
+            public bool docked;
+            public bool undocked;
             public string pickupId;
             public long initialVersion;
             public long finalVersion;
@@ -562,9 +622,12 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             }
         }
 
-        private static EveUnityPlayableWorldEntityMarker FindMarker(GameObject root, string entityId)
+        private static EveUnityPlayableWorldEntityMarker FindMarker(
+            GameObject root,
+            string entityId,
+            bool includeInactive = false)
         {
-            foreach (var marker in root.GetComponentsInChildren<EveUnityPlayableWorldEntityMarker>())
+            foreach (var marker in root.GetComponentsInChildren<EveUnityPlayableWorldEntityMarker>(includeInactive))
             {
                 if (string.Equals(marker.EntityId, entityId, StringComparison.Ordinal))
                     return marker;

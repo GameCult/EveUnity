@@ -125,7 +125,11 @@ namespace GameCult.Eve.UnityScene
                 worldRoot.GetProp("entityViewSchema"),
                 worldRoot.GetProp("zoneRenderPointerId"),
                 worldRoot.GetProp("zoneRenderSchema"),
-                worldRoot.GetProp("inputCapability"));
+                worldRoot.GetProp("inputCapability"),
+                worldRoot.GetProp("cameraTargetEntityId"),
+                ParseBoolean(worldRoot.GetProp("subjectVisible", "true")),
+                ParseBoolean(worldRoot.GetProp("movementEnabled", "true")),
+                worldRoot.GetProp("presentationMode", "world"));
         }
 
         private static EveUnityPlayableWorldEntity BuildPlayableEntity(EveSurfaceComponent component)
@@ -326,7 +330,11 @@ namespace GameCult.Eve.UnityScene
             string entityViewSchema = "",
             string zoneRenderPointerId = "",
             string zoneRenderSchema = "",
-            string inputCapabilityPointerId = "")
+            string inputCapabilityPointerId = "",
+            string cameraTargetEntityId = "",
+            bool subjectVisible = true,
+            bool movementEnabled = true,
+            string presentationMode = "world")
         {
             WorldRootId = worldRootId ?? "";
             StatePointerId = statePointerId ?? "";
@@ -345,6 +353,12 @@ namespace GameCult.Eve.UnityScene
             ZoneRenderPointerId = zoneRenderPointerId ?? "";
             ZoneRenderSchema = zoneRenderSchema ?? "";
             InputCapabilityPointerId = inputCapabilityPointerId ?? "";
+            CameraTargetEntityId = string.IsNullOrWhiteSpace(cameraTargetEntityId)
+                ? PlayerEntityId
+                : cameraTargetEntityId;
+            SubjectVisible = subjectVisible;
+            MovementEnabled = movementEnabled;
+            PresentationMode = presentationMode ?? "";
         }
 
         public string WorldRootId { get; }
@@ -370,6 +384,14 @@ namespace GameCult.Eve.UnityScene
         public string ViewId { get; }
 
         public string PlayerEntityId { get; }
+
+        public string CameraTargetEntityId { get; }
+
+        public bool SubjectVisible { get; }
+
+        public bool MovementEnabled { get; }
+
+        public string PresentationMode { get; }
 
         public string MovementCommand { get; }
 

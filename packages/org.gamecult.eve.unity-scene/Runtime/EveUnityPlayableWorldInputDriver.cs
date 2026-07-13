@@ -39,7 +39,7 @@ namespace GameCult.Eve.UnityScene
             DateTimeOffset? issuedAt = null)
         {
             var resolvedHost = ResolveHost();
-            if (resolvedHost == null || resolvedHost.ActiveWorld == null)
+            if (resolvedHost == null || resolvedHost.ActiveWorld == null || !resolvedHost.ActiveWorld.MovementEnabled)
                 return null;
 
             var movement = EveUnityPlayableWorldMoveVector.FromCameraRelativeInput(

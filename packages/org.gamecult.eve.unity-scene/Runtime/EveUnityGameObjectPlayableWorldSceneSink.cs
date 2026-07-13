@@ -21,6 +21,8 @@ namespace GameCult.Eve.UnityScene
         private readonly Transform _root;
         private readonly IEveUnityGameObjectAssetProvider _assetProvider;
         private readonly Dictionary<string, GameObject> _instances = new Dictionary<string, GameObject>(StringComparer.Ordinal);
+        private string _subjectEntityId = "";
+        private bool _subjectVisible = true;
 
         public EveUnityGameObjectPlayableWorldSceneSink(
             Transform root,
@@ -37,6 +39,9 @@ namespace GameCult.Eve.UnityScene
             if (world == null) throw new ArgumentNullException(nameof(world));
             if (!string.IsNullOrWhiteSpace(world.WorldRootId))
                 _root.name = world.WorldRootId;
+            _subjectEntityId = world.PlayerEntityId;
+            _subjectVisible = world.SubjectVisible;
+            ApplySubjectVisibility();
         }
 
         public void UpsertEntity(EveUnityPlayableWorldEntity entity, EveUnityPlayableWorldAssetBinding asset)
@@ -64,6 +69,7 @@ namespace GameCult.Eve.UnityScene
             }
 
             ApplyEntity(instance, entity, asset);
+            ApplySubjectVisibility(instance, entity.EntityId);
         }
 
         public void RemoveEntity(string entityId)
@@ -139,6 +145,19 @@ namespace GameCult.Eve.UnityScene
                 UnityEngine.Object.Destroy(instance);
             else
                 UnityEngine.Object.DestroyImmediate(instance);
+        }
+
+        private void ApplySubjectVisibility()
+        {
+            foreach (var pair in _instances)
+                ApplySubjectVisibility(pair.Value, pair.Key);
+        }
+
+        private void ApplySubjectVisibility(GameObject instance, string entityId)
+        {
+            if (instance == null || !string.Equals(entityId, _subjectEntityId, StringComparison.Ordinal))
+                return;
+            instance.SetActive(_subjectVisible);
         }
     }
 

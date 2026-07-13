@@ -53,8 +53,8 @@ namespace GameCult.Eve.UnityScene
             }
 
             var camera = cameraTransform != null ? cameraTransform : transform;
-            var player = FindPlayerMarker(resolvedHost, activeWorld.PlayerEntityId);
-            if (player == null)
+            var targetMarker = FindEntityMarker(resolvedHost, activeWorld.CameraTargetEntityId);
+            if (targetMarker == null)
                 return false;
 
             var cameraComponent = camera.GetComponent<Camera>();
@@ -64,8 +64,8 @@ namespace GameCult.Eve.UnityScene
             {
                 cameraComponent.cullingMask = cullingMask;
             }
-            var bounds = CalculateVisualBounds(player);
-            var target = bounds?.center ?? player.transform.position;
+            var bounds = CalculateVisualBounds(targetMarker);
+            var target = bounds?.center ?? targetMarker.transform.position;
             var radius = bounds?.extents.magnitude ?? 0f;
             var verticalFov = cameraComponent != null ? cameraComponent.fieldOfView : 60f;
             var framingDistance = radius > 0f
@@ -84,9 +84,9 @@ namespace GameCult.Eve.UnityScene
             return true;
         }
 
-        private static Bounds? CalculateVisualBounds(EveUnityPlayableWorldEntityMarker player)
+        private static Bounds? CalculateVisualBounds(EveUnityPlayableWorldEntityMarker target)
         {
-            var renderers = player.GetComponentsInChildren<Renderer>(includeInactive: false);
+            var renderers = target.GetComponentsInChildren<Renderer>(includeInactive: false);
             Bounds? bounds = null;
             foreach (var visual in renderers)
             {
@@ -121,17 +121,17 @@ namespace GameCult.Eve.UnityScene
             return host;
         }
 
-        private static EveUnityPlayableWorldEntityMarker? FindPlayerMarker(
+        private static EveUnityPlayableWorldEntityMarker? FindEntityMarker(
             EveUnityPlayableWorldClientHost host,
-            string playerEntityId)
+            string entityId)
         {
-            if (string.IsNullOrWhiteSpace(playerEntityId))
+            if (string.IsNullOrWhiteSpace(entityId))
                 return null;
 
-            var markers = host.SceneRoot.GetComponentsInChildren<EveUnityPlayableWorldEntityMarker>();
+            var markers = host.SceneRoot.GetComponentsInChildren<EveUnityPlayableWorldEntityMarker>(includeInactive: true);
             foreach (var marker in markers)
             {
-                if (marker != null && marker.EntityId == playerEntityId)
+                if (marker != null && marker.EntityId == entityId)
                     return marker;
             }
 

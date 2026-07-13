@@ -117,6 +117,10 @@ namespace GameCult.Eve.UnityScene.Tests
             Assert.That(projection.PlayableWorld.InputProfile, Is.EqualTo("arpg-third-person"));
             Assert.That(projection.PlayableWorld.CameraRig, Is.EqualTo("third-person-orbit"));
             Assert.That(projection.PlayableWorld.PlayerEntityId, Is.EqualTo("player-vanguard"));
+            Assert.That(projection.PlayableWorld.CameraTargetEntityId, Is.EqualTo("player-vanguard"));
+            Assert.That(projection.PlayableWorld.SubjectVisible, Is.True);
+            Assert.That(projection.PlayableWorld.MovementEnabled, Is.True);
+            Assert.That(projection.PlayableWorld.PresentationMode, Is.EqualTo("world"));
             Assert.That(projection.PlayableWorld.MovementCommand, Is.EqualTo("aetheria.daemon.move_intent"));
             Assert.That(projection.PlayableWorld.FocusCommand, Is.EqualTo("aetheria.daemon.focus"));
             Assert.That(projection.PlayableWorld.TargetCommand, Is.EqualTo("aetheria.daemon.target"));
@@ -1419,6 +1423,10 @@ namespace GameCult.Eve.UnityScene.Tests
                                     ["inputProfile"] = "arpg-third-person",
                                     ["cameraRig"] = "third-person-orbit",
                                     ["playerEntityId"] = "player-vanguard",
+                                    ["cameraTargetEntityId"] = "player-vanguard",
+                                    ["subjectVisible"] = "true",
+                                    ["movementEnabled"] = "true",
+                                    ["presentationMode"] = "world",
                                     ["movementCommand"] = "aetheria.daemon.move_intent",
                                     ["focusCommand"] = "aetheria.daemon.focus",
                                     ["targetCommand"] = "aetheria.daemon.target",

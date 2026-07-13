@@ -346,7 +346,8 @@ namespace GameCult.Eve.UnityScene
         {
             ResolveAdvertisement();
             if (!string.Equals(document.ProviderId, _advertisement!.ProviderId, StringComparison.Ordinal))
-                throw new UnauthorizedAccessException("Entity layout provider does not match the advertised Eve provider.");
+                throw new UnauthorizedAccessException(
+                    $"Entity layout provider '{document.ProviderId}' does not match advertised Eve provider '{_advertisement.ProviderId}'.");
             if (document.Buffers == null || document.Buffers.Length == 0)
                 throw new InvalidOperationException("Entity layout does not name a primary logical buffer.");
             var handle = BodyPublicationHandle(document);

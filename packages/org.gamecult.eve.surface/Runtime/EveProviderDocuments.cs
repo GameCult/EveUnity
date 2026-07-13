@@ -27,8 +27,9 @@ namespace GameCult.Eve.Surface
             IReadOnlyList<string> schemas,
             IReadOnlyList<EveProviderWitness> witnesses,
             IReadOnlyList<EveAdvertisedSurface> surfaces,
-            IReadOnlyList<EveAdvertisedCommand> commands)
-            : this(SchemaId, providerId, serviceId, verseId, title, kind, cultMeshAddress, updatedAtUtc, freshness, schemas, witnesses, surfaces, commands)
+            IReadOnlyList<EveAdvertisedCommand> commands,
+            IReadOnlyList<string>? authorizedBodyProducerIds = null)
+            : this(SchemaId, providerId, serviceId, verseId, title, kind, cultMeshAddress, updatedAtUtc, freshness, schemas, witnesses, surfaces, commands, authorizedBodyProducerIds)
         {
         }
 
@@ -46,7 +47,8 @@ namespace GameCult.Eve.Surface
             IReadOnlyList<string> schemas,
             IReadOnlyList<EveProviderWitness> witnesses,
             IReadOnlyList<EveAdvertisedSurface> surfaces,
-            IReadOnlyList<EveAdvertisedCommand> commands)
+            IReadOnlyList<EveAdvertisedCommand> commands,
+            IReadOnlyList<string>? authorizedBodyProducerIds = null)
         {
             Schema = string.IsNullOrWhiteSpace(schema) ? SchemaId : schema;
             ProviderId = providerId ?? "";
@@ -61,6 +63,7 @@ namespace GameCult.Eve.Surface
             Witnesses = witnesses ?? Array.Empty<EveProviderWitness>();
             Surfaces = surfaces ?? Array.Empty<EveAdvertisedSurface>();
             Commands = commands ?? Array.Empty<EveAdvertisedCommand>();
+            AuthorizedBodyProducerIds = authorizedBodyProducerIds ?? Array.Empty<string>();
         }
 
         [Key(0)] public string Schema { get; }
@@ -76,6 +79,7 @@ namespace GameCult.Eve.Surface
         [Key(10)] public IReadOnlyList<EveProviderWitness> Witnesses { get; }
         [Key(11)] public IReadOnlyList<EveAdvertisedSurface> Surfaces { get; }
         [Key(12)] public IReadOnlyList<EveAdvertisedCommand> Commands { get; }
+        [Key(13)] public IReadOnlyList<string> AuthorizedBodyProducerIds { get; }
     }
 
     /// <summary>
@@ -84,7 +88,7 @@ namespace GameCult.Eve.Surface
     public sealed class EveProviderAdvertisementCompatibilityFormatter :
         IMessagePackFormatter<EveProviderAdvertisementDocument?>
     {
-        private const int CurrentFieldCount = 13;
+        private const int CurrentFieldCount = 14;
         private const int LegacyFieldCount = 16;
 
         public void Serialize(
@@ -107,6 +111,7 @@ namespace GameCult.Eve.Surface
             Formatter<IReadOnlyList<EveProviderWitness>>(options).Serialize(ref writer, value.Witnesses, options);
             Formatter<IReadOnlyList<EveAdvertisedSurface>>(options).Serialize(ref writer, value.Surfaces, options);
             Formatter<IReadOnlyList<EveAdvertisedCommand>>(options).Serialize(ref writer, value.Commands, options);
+            Formatter<IReadOnlyList<string>>(options).Serialize(ref writer, value.AuthorizedBodyProducerIds, options);
         }
 
         public EveProviderAdvertisementDocument? Deserialize(
@@ -137,6 +142,7 @@ namespace GameCult.Eve.Surface
                 var witnesses = fields > 10 ? Formatter<IReadOnlyList<EveProviderWitness>>(options).Deserialize(ref reader, options) : null;
                 var surfaces = fields > 11 ? Formatter<IReadOnlyList<EveAdvertisedSurface>>(options).Deserialize(ref reader, options) : null;
                 var commands = fields > 12 ? Formatter<IReadOnlyList<EveAdvertisedCommand>>(options).Deserialize(ref reader, options) : null;
+                var authorizedBodyProducerIds = fields > 13 ? Formatter<IReadOnlyList<string>>(options).Deserialize(ref reader, options) : null;
                 for (var index = CurrentFieldCount; index < fields; index++) reader.Skip();
                 return new EveProviderAdvertisementDocument(
                     schema, providerId, serviceId, verseId, title, kind, address, updatedAtUtc,
@@ -144,7 +150,8 @@ namespace GameCult.Eve.Surface
                     schemas ?? Array.Empty<string>(),
                     witnesses ?? Array.Empty<EveProviderWitness>(),
                     surfaces ?? Array.Empty<EveAdvertisedSurface>(),
-                    commands ?? Array.Empty<EveAdvertisedCommand>());
+                    commands ?? Array.Empty<EveAdvertisedCommand>(),
+                    authorizedBodyProducerIds ?? Array.Empty<string>());
             }
             finally { reader.Depth--; }
         }

@@ -313,12 +313,19 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 Assert.That(pauseReceipt.State, Is.EqualTo("accepted").Or.EqualTo("reconciled"), pauseReceipt.Message);
 
                 var movementVersion = runtime.ActiveVersion;
-                var targetMarker = root.GetComponentsInChildren<EveUnityPlayableWorldEntityMarker>()
+                var visibleMarkers = root.GetComponentsInChildren<EveUnityPlayableWorldEntityMarker>();
+                var hostileTargets = visibleMarkers
                     .Where(candidate => candidate.Selectable && !candidate.Controllable &&
-                                        string.Equals(candidate.EntityKind, "ship", StringComparison.OrdinalIgnoreCase) &&
                                         !string.Equals(candidate.Faction, marker.Faction, StringComparison.Ordinal))
                     .OrderBy(candidate => Vector3.Distance(candidate.transform.position, marker.transform.position))
-                    .First();
+                    .ToArray();
+                Assert.That(
+                    hostileTargets,
+                    Is.Not.Empty,
+                    "No selectable hostile contact was lowered. Visible entities: " +
+                    string.Join(", ", visibleMarkers.Select(candidate =>
+                        $"{candidate.EntityId}[kind={candidate.EntityKind},faction={candidate.Faction},selectable={candidate.Selectable}]")));
+                var targetMarker = hostileTargets[0];
                 var focus = runtime.SubmitTargetIntent(playerId, targetMarker.EntityId);
                 var focusVersion = runtime.ActiveVersion;
                 var trajectoryRenderer = root.AddComponent<EveUnityShotTrajectoryRenderer>();

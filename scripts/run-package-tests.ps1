@@ -17,6 +17,18 @@ foreach ($required in @($UnityExe, $projectPath, $cultLibBuilder)) {
 powershell -ExecutionPolicy Bypass -File $cultLibBuilder
 if ($LASTEXITCODE -ne 0) { throw "CultLib Unity package build failed with exit code $LASTEXITCODE" }
 
+$builtCultLibPackage = Join-Path $CultLibRoot "artifacts\unity\org.gamecult.cultlib"
+$stagedDependenciesRoot = Join-Path $repoRoot "artifacts\test-dependencies"
+$stagedCultLibPackage = Join-Path $stagedDependenciesRoot "org.gamecult.cultlib"
+if (-not (Test-Path -LiteralPath $builtCultLibPackage)) {
+  throw "CultLib Unity package build did not produce: $builtCultLibPackage"
+}
+New-Item -ItemType Directory -Force -Path $stagedDependenciesRoot | Out-Null
+if (Test-Path -LiteralPath $stagedCultLibPackage) {
+  [IO.Directory]::Delete($stagedCultLibPackage, $true)
+}
+Copy-Item -LiteralPath $builtCultLibPackage -Destination $stagedCultLibPackage -Recurse
+
 $runRoot = Join-Path $output (Get-Date -Format "yyyyMMddTHHmmss")
 New-Item -ItemType Directory -Force -Path $runRoot | Out-Null
 $resultsPath = Join-Path $runRoot "unity-editmode-results.xml"
@@ -40,3 +52,4 @@ if ($null -eq $run -or [int]$run.total -eq 0 -or [int]$run.failed -gt 0) {
 }
 Write-Host "EveUnity generic package tests: $($run.passed) passed, $($run.total) total"
 Write-Host "Consumer: $projectPath"
+Write-Host "CultLib package: $stagedCultLibPackage"

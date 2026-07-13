@@ -100,6 +100,17 @@ namespace GameCult.Eve.UnityScene
 
         public event Action<EveEntitySoaViewDocument, ICultMeshBodyReadLease>? EntityViewAvailable;
 
+        private static CultMeshBodyPublicationHandle BodyPublicationHandle(EveEntitySoaViewDocument document)
+        {
+            if (document == null) throw new ArgumentNullException(nameof(document));
+            if (document.Buffers == null || document.Buffers.Length == 0)
+                throw new InvalidOperationException("Entity layout does not name a primary logical buffer.");
+            return new CultMeshBodyPublicationHandle(
+                document.Buffers[0].BufferId,
+                document.ProducerEpoch,
+                document.Sequence);
+        }
+
         public void Connect()
         {
             EnsureOpen();
@@ -293,16 +304,18 @@ namespace GameCult.Eve.UnityScene
                 throw new UnauthorizedAccessException("Entity layout provider does not match the advertised Eve provider.");
             if (document.Buffers == null || document.Buffers.Length == 0)
                 throw new InvalidOperationException("Entity layout does not name a primary logical buffer.");
-            var bodyId = document.Buffers[0].BufferId;
+            var handle = BodyPublicationHandle(document);
             var publication = _snapshot!
                 .FetchDocumentsAsync<CultMeshBodyPublicationDocument>(
-                    recordKeys: new[] { CultMeshBodyPublicationDocument.CreateRecordKey(bodyId).Value },
+                    recordKeys: new[] { handle.RecordKey.Value },
                     schemaIds: new[] { CultMeshBodyPublicationSchemaVersions.Publication })
                 .GetAwaiter().GetResult().FirstOrDefault()
-                ?? throw new InvalidOperationException($"Provider did not publish CultMesh body '{bodyId}'.");
+                ?? throw new InvalidOperationException(
+                    $"Provider did not publish CultMesh body generation '{handle.RecordKey.Value}'.");
+            handle.Validate(publication);
             var lease = _bodyResolver.ResolveReadOnly(publication, new CultMeshBodyValidationRequest
             {
-                BodyId = bodyId,
+                BodyId = handle.BodyId,
                 SchemaId = document.BodySchemaId,
                 LayoutVersion = document.LayoutVersion,
                 ProducerEpoch = document.ProducerEpoch,

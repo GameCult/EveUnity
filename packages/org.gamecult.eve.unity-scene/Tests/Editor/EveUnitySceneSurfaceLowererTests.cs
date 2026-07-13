@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
+using GameCult.Caching;
 using GameCult.Eve.Surface;
 using GameCult.Mesh;
 using NUnit.Framework;
@@ -12,6 +14,29 @@ namespace GameCult.Eve.UnityScene.Tests
 {
     public sealed class EveUnitySceneSurfaceLowererTests
     {
+        [Test]
+        public async System.Threading.Tasks.Task LiveTransportResolvesViewGenerationWhenNextPublicationAlreadyExists()
+        {
+            var view = EntityLeaseDocument();
+            var generationN = BodyPublication(view, sequence: view.Sequence);
+            var generationNPlusOne = BodyPublication(view, sequence: view.Sequence + 1);
+            var cache = new CultCache();
+            await cache.UpsertAsync(generationN,
+                new CultRecordHandle<CultMeshBodyPublicationDocument>(generationN.RecordKey));
+            await cache.UpsertAsync(generationNPlusOne,
+                new CultRecordHandle<CultMeshBodyPublicationDocument>(generationNPlusOne.RecordKey));
+
+            var handle = (CultMeshBodyPublicationHandle)typeof(EveUnityCultMeshLiveProviderTransport)
+                .GetMethod("BodyPublicationHandle", BindingFlags.NonPublic | BindingFlags.Static)!
+                .Invoke(null, new object[] { view })!;
+            var resolved = cache.Get<CultMeshBodyPublicationDocument>(handle.RecordKey);
+
+            Assert.That(resolved, Is.Not.Null);
+            handle.Validate(resolved!);
+            Assert.That(resolved!.Sequence, Is.EqualTo(view.Sequence));
+            Assert.That(handle.RecordKey, Is.Not.EqualTo(generationNPlusOne.RecordKey));
+        }
+
         [Test]
         public void EntitySoaViewReadsGenericSemanticColumnsFromInjectedLease()
         {
@@ -1826,6 +1851,37 @@ namespace GameCult.Eve.UnityScene.Tests
                 }
             }
         };
+
+        private static CultMeshBodyPublicationDocument BodyPublication(
+            EveEntitySoaViewDocument view,
+            long sequence)
+        {
+            var descriptor = FakeBodyReadLease.DescriptorFor(view, view.Buffers[0].ByteLength);
+            descriptor.Sequence = sequence;
+            descriptor.Synchronization = CultMeshBodySynchronization.ImmutableSequence;
+            descriptor.LeaseExpiresAtUnixMs = DateTimeOffset.UtcNow.AddMinutes(1).ToUnixTimeMilliseconds();
+            descriptor.TransportKind = CultMeshBodyTransportKind.SharedFileMapping;
+            var network = FakeBodyReadLease.DescriptorFor(view, view.Buffers[0].ByteLength);
+            network.Sequence = sequence;
+            network.Synchronization = descriptor.Synchronization;
+            network.LeaseExpiresAtUnixMs = descriptor.LeaseExpiresAtUnixMs;
+            network.TransportKind = CultMeshBodyTransportKind.Network;
+            return new CultMeshBodyPublicationDocument
+            {
+                BodyId = descriptor.BodyId,
+                ProducerId = view.ProviderId,
+                SchemaId = descriptor.SchemaId,
+                LayoutVersion = descriptor.LayoutVersion,
+                ByteSize = descriptor.ByteSize,
+                Capacity = descriptor.Capacity,
+                ProducerEpoch = descriptor.ProducerEpoch,
+                Sequence = sequence,
+                Synchronization = descriptor.Synchronization,
+                LivenessExpiresAtUnixMs = descriptor.LeaseExpiresAtUnixMs,
+                PreferredLocal = descriptor,
+                NetworkFallback = network
+            };
+        }
 
         private sealed class FakeBodyReadLease : ICultMeshBodyReadLease
         {

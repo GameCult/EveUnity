@@ -481,7 +481,13 @@ namespace GameCult.Eve.UnityScene
                         recordKeys: new[] { entityViewPointer },
                         schemaIds: new[] { EveEntitySoaViewDocument.SchemaId })
                     .GetAwaiter().GetResult();
-                if (_node.Database.Cache.Get(new CultRecordKey(entityViewPointer)) is EveEntitySoaViewDocument current)
+                var current = _node.Database.Cache.Get(new CultRecordKey(entityViewPointer)) as EveEntitySoaViewDocument
+                    ?? _snapshot!
+                        .FetchDocumentsAsync<EveEntitySoaViewDocument>(
+                            recordKeys: new[] { entityViewPointer },
+                            schemaIds: new[] { EveEntitySoaViewDocument.SchemaId })
+                        .GetAwaiter().GetResult().FirstOrDefault();
+                if (current != null)
                     _liveDocuments.Enqueue(current);
             }
             _subscriptions.SubscribeAsync(

@@ -103,36 +103,56 @@ namespace GameCult.Eve.UnityScene.Tests
         }
 
         [Test]
-        public void LiveTransportAuthorizesBodiesWithAdvertisedServiceIdentity()
+        public void LiveTransportAuthorizesOnlyExplicitlyAdvertisedBodyProducers()
         {
-            var advertisement = ProviderAdvertisement("aetheria", "aetheria.daemon");
+            var advertisement = ProviderAdvertisement("aetheria", "aetheria-daemon-17", "aetheria.daemon");
             var method = typeof(EveUnityCultMeshLiveProviderTransport)
-                .GetMethod("RequireAdvertisedBodyProducerId", BindingFlags.NonPublic | BindingFlags.Static)!;
+                .GetMethod("RequireAdvertisedBodyProducerIds", BindingFlags.NonPublic | BindingFlags.Static)!;
 
-            var producerId = (string)method.Invoke(null, new object?[] { advertisement })!;
+            var producerIds = (IReadOnlyList<string>)method.Invoke(null, new object?[] { advertisement })!;
 
-            Assert.That(producerId, Is.EqualTo("aetheria.daemon"));
-            Assert.That(producerId, Is.Not.EqualTo(advertisement.ProviderId));
+            Assert.That(producerIds, Is.EqualTo(new[] { "aetheria.daemon" }));
+            Assert.That(producerIds, Does.Not.Contain(advertisement.ProviderId));
+            Assert.That(producerIds, Does.Not.Contain(advertisement.ServiceId));
 
             var authorizes = typeof(EveUnityCultMeshLiveProviderTransport)
                 .GetMethod("IsAdvertisedBodyProducer", BindingFlags.NonPublic | BindingFlags.Static)!;
-            Assert.That(authorizes.Invoke(null, new object[] { producerId, "aetheria.daemon" }), Is.True);
-            Assert.That(authorizes.Invoke(null, new object[] { producerId, "aetheria" }), Is.False);
-            Assert.That(authorizes.Invoke(null, new object[] { producerId, "impostor" }), Is.False);
+            Assert.That(authorizes.Invoke(null, new object[] { producerIds, "aetheria.daemon" }), Is.True);
+            Assert.That(authorizes.Invoke(null, new object[] { producerIds, "aetheria" }), Is.False);
+            Assert.That(authorizes.Invoke(null, new object[] { producerIds, "aetheria-daemon-17" }), Is.False);
+            Assert.That(authorizes.Invoke(null, new object[] { producerIds, "impostor" }), Is.False);
         }
 
         [Test]
         public void LiveTransportRejectsAdvertisementWithoutBodyProducerIdentity()
         {
-            var advertisement = ProviderAdvertisement("aetheria", "");
+            var advertisement = ProviderAdvertisement("aetheria", "aetheria-daemon-17");
             var method = typeof(EveUnityCultMeshLiveProviderTransport)
-                .GetMethod("RequireAdvertisedBodyProducerId", BindingFlags.NonPublic | BindingFlags.Static)!;
+                .GetMethod("RequireAdvertisedBodyProducerIds", BindingFlags.NonPublic | BindingFlags.Static)!;
 
             var error = Assert.Throws<TargetInvocationException>(() =>
                 method.Invoke(null, new object?[] { advertisement }));
 
             Assert.That(error!.InnerException, Is.TypeOf<InvalidOperationException>());
-            StringAssert.Contains("does not advertise a service identity", error.InnerException!.Message);
+            StringAssert.Contains("does not advertise an authorized body producer", error.InnerException!.Message);
+        }
+
+        [Test]
+        public void ProviderAdvertisementRoundTripPreservesBodyProducerAuthority()
+        {
+            var advertisement = ProviderAdvertisement(
+                "aetheria",
+                "aetheria-daemon-17",
+                "aetheria.daemon",
+                "aetheria.asset-publisher");
+
+            var bytes = MessagePack.MessagePackSerializer.Serialize(advertisement);
+            var decoded = MessagePack.MessagePackSerializer.Deserialize<EveProviderAdvertisementDocument>(bytes);
+
+            Assert.That(decoded.ProviderId, Is.EqualTo("aetheria"));
+            Assert.That(decoded.ServiceId, Is.EqualTo("aetheria-daemon-17"));
+            Assert.That(decoded.AuthorizedBodyProducerIds,
+                Is.EqualTo(new[] { "aetheria.daemon", "aetheria.asset-publisher" }));
         }
 
         [Test]
@@ -2055,7 +2075,10 @@ namespace GameCult.Eve.UnityScene.Tests
             }
         };
 
-        private static EveProviderAdvertisementDocument ProviderAdvertisement(string providerId, string serviceId) =>
+        private static EveProviderAdvertisementDocument ProviderAdvertisement(
+            string providerId,
+            string serviceId,
+            params string[] authorizedBodyProducerIds) =>
             new EveProviderAdvertisementDocument(
                 providerId,
                 serviceId,
@@ -2068,7 +2091,8 @@ namespace GameCult.Eve.UnityScene.Tests
                 Array.Empty<string>(),
                 Array.Empty<EveProviderWitness>(),
                 Array.Empty<EveAdvertisedSurface>(),
-                Array.Empty<EveAdvertisedCommand>());
+                Array.Empty<EveAdvertisedCommand>(),
+                authorizedBodyProducerIds);
 
         private static CultMeshBodyPublicationDocument BodyPublication(
             EveEntitySoaViewDocument view,

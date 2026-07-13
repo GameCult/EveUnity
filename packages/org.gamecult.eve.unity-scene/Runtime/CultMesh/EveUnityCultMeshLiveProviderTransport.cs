@@ -286,7 +286,7 @@ namespace GameCult.Eve.UnityScene
 
         private CultMeshBodyPublicationResolver CreateBodyResolver()
         {
-            var producerId = RequireAdvertisedBodyProducerId(_advertisement);
+            var producerIds = RequireAdvertisedBodyProducerIds(_advertisement);
             var mappedRoot = Path.GetDirectoryName(_replicaPath) ?? ".";
             return new CultMeshBodyPublicationResolver(new CultMeshBodyTransportService(
                 new ICultMeshBodyTransportAdapter[]
@@ -295,20 +295,27 @@ namespace GameCult.Eve.UnityScene
                     new CultMeshMappedBodyAdapter(mappedRoot),
                     new CultMeshNetworkBodyAdapter(ReadNetworkBody)
                 },
-                (candidateProducerId, _) => IsAdvertisedBodyProducer(producerId, candidateProducerId)));
+                (candidateProducerId, _) => IsAdvertisedBodyProducer(producerIds, candidateProducerId)));
         }
 
-        private static bool IsAdvertisedBodyProducer(string advertisedProducerId, string candidateProducerId) =>
-            string.Equals(candidateProducerId, advertisedProducerId, StringComparison.Ordinal);
+        private static bool IsAdvertisedBodyProducer(
+            IReadOnlyList<string> advertisedProducerIds,
+            string candidateProducerId) =>
+            advertisedProducerIds.Any(producerId =>
+                string.Equals(candidateProducerId, producerId, StringComparison.Ordinal));
 
-        private static string RequireAdvertisedBodyProducerId(EveProviderAdvertisementDocument? advertisement)
+        private static IReadOnlyList<string> RequireAdvertisedBodyProducerIds(EveProviderAdvertisementDocument? advertisement)
         {
             if (advertisement == null)
                 throw new InvalidOperationException("The Eve provider advertisement must be resolved before body transport authorization.");
-            if (string.IsNullOrWhiteSpace(advertisement.ServiceId))
+            var producerIds = advertisement.AuthorizedBodyProducerIds
+                .Where(producerId => !string.IsNullOrWhiteSpace(producerId))
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+            if (producerIds.Length == 0)
                 throw new InvalidOperationException(
-                    $"Eve provider '{advertisement.ProviderId}' does not advertise a service identity for body production.");
-            return advertisement.ServiceId;
+                    $"Eve provider '{advertisement.ProviderId}' does not advertise an authorized body producer.");
+            return producerIds;
         }
 
         private byte[] ReadNetworkBody(CultMeshBodyDescriptor descriptor)

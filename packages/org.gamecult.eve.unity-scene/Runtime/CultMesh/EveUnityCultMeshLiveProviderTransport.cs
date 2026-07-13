@@ -258,7 +258,7 @@ namespace GameCult.Eve.UnityScene
                     ShardId = RemoteShardId,
                     ShardEpoch = 1,
                     ConnectTimeout = TimeSpan.FromSeconds(5),
-                    ResponseTimeout = TimeSpan.FromSeconds(10),
+                    ResponseTimeout = TimeSpan.FromSeconds(30),
                     MessageIdPrefix = "eve-unity",
                     RudpRuntimeId = _runtimeId,
                     RudpMaxFragmentBytes = 1024

@@ -1,6 +1,8 @@
 param(
   [string] $UnityExe = "C:\Program Files\Unity\Hub\Editor\6000.4.2f1\Editor\Unity.exe",
   [string] $AetheriaRoot = "E:\Projects\Aetheria",
+  [string] $CultLibRoot = "E:\Projects\CultLib",
+  [string] $EveUnityRoot = "E:\Projects\EveUnity",
   [string] $ClientProject = "ReleaseConsumerProject",
   [int] $Port = 3076,
   [string] $OutputDirectory = "artifacts\aetheria-daemon",
@@ -18,6 +20,7 @@ $unityLogPath = Join-Path $outputRoot "unity.log"
 $bundleBuildLogPath = Join-Path $outputRoot "asset-bundle-build.log"
 $daemonLogPath = Join-Path $outputRoot "aetheria-daemon.log"
 $capturePath = Join-Path $outputRoot "aetheria-daemon-world.png"
+$mapCapturePath = Join-Path $outputRoot "aetheria-daemon-map.png"
 $factsPath = Join-Path $outputRoot "witness-facts.json"
 $witnessPath = Join-Path $outputRoot "runtime-witness.json"
 $replicaPath = Join-Path $outputRoot "eve-unity-replica.cc"
@@ -55,13 +58,24 @@ foreach ($ephemeralPath in @(
   if (Test-Path -LiteralPath $resolved) { Remove-Item -LiteralPath $resolved -Recurse -Force }
 }
 
-$import = Start-Process -FilePath "dotnet" -ArgumentList @(
-  "run", "--project", $importProject, "--", $AetheriaRoot, $statePath
-) -PassThru -WindowStyle Hidden -Wait `
-  -RedirectStandardOutput (Join-Path $outputRoot "aetheria-import.log") `
-  -RedirectStandardError (Join-Path $outputRoot "aetheria-import.error.log")
-if ($import.ExitCode -ne 0) {
-  throw "Aetheria state import failed with exit code $($import.ExitCode). See $outputRoot\aetheria-import.error.log"
+$importArguments = @(
+  "run", "--project", $importProject,
+  "-p:CultLibRoot=$CultLibRoot", "-p:EveUnityRoot=$EveUnityRoot",
+  "--", $AetheriaRoot, $statePath
+)
+$importLogPath = Join-Path $outputRoot "aetheria-import.log"
+$importErrorLogPath = Join-Path $outputRoot "aetheria-import.error.log"
+$previousErrorActionPreference = $ErrorActionPreference
+try {
+  $ErrorActionPreference = "Continue"
+  & dotnet @importArguments 1> $importLogPath 2> $importErrorLogPath
+  $importExitCode = $LASTEXITCODE
+}
+finally {
+  $ErrorActionPreference = $previousErrorActionPreference
+}
+if ($importExitCode -ne 0) {
+  throw "Aetheria state import failed with exit code $importExitCode. See $importErrorLogPath"
 }
 if (-not $SkipAssetBundleBuild) {
   $bundleBuilder = Start-Process -FilePath $UnityExe -ArgumentList @(
@@ -83,7 +97,9 @@ if (-not $SkipAssetBundleBuild) {
 }
 
 $daemonArguments = @(
-  "run", "--project", $daemonProject, "--",
+  "run", "--project", $daemonProject,
+  "-p:CultLibRoot=$CultLibRoot", "-p:EveUnityRoot=$EveUnityRoot",
+  "--",
   "--root", $AetheriaRoot,
   "--state", $statePath,
   "--client-cultmesh-host", "127.0.0.1",
@@ -112,10 +128,12 @@ try {
   if (-not $ready) { throw "Aetheria daemon did not open CultMesh port $Port. See $daemonLogPath" }
 
   $env:EVEUNITY_RENDEZVOUS_ENDPOINT = "rudp://127.0.0.1:$Port"
-  Remove-Item Env:EVEUNITY_PROVIDER_ID -ErrorAction SilentlyContinue
+  $env:EVEUNITY_PROVIDER_ID = "aetheria"
   Remove-Item Env:EVEUNITY_SURFACE_ID -ErrorAction SilentlyContinue
   $env:EVEUNITY_REPLICA_PATH = $replicaPath
   $env:EVEUNITY_AETHERIA_CAPTURE_PATH = $capturePath
+  $env:EVEUNITY_AETHERIA_MAP_CAPTURE_PATH = $mapCapturePath
+  $env:EVEUNITY_DISABLE_AUTO_LAUNCHER = "1"
   $env:EVEUNITY_ASSET_CACHE_PATH = $assetCachePath
   $env:EVEUNITY_WITNESS_FACTS_PATH = $factsPath
   $arguments = @(
@@ -135,6 +153,7 @@ try {
   $run = $results.SelectSingleNode("//test-run")
   if ($null -eq $run -or [int]$run.passed -ne 1 -or [int]$run.failed -ne 0) { throw "Live world witness did not pass: $resultsPath" }
   if (-not (Test-Path $capturePath) -or (Get-Item $capturePath).Length -lt 1024) { throw "Live world capture is missing: $capturePath" }
+  if (-not (Test-Path $mapCapturePath) -or (Get-Item $mapCapturePath).Length -lt 1024) { throw "Live map-channel capture is missing: $mapCapturePath" }
   if (-not (Test-Path $factsPath)) { throw "Live world witness facts are missing: $factsPath" }
   $facts = Get-Content -LiteralPath $factsPath -Raw | ConvertFrom-Json
   $releaseLock = Get-Content -LiteralPath (Join-Path $repoRoot "ReleaseConsumerProject\Packages\packages-lock.json") -Raw | ConvertFrom-Json
@@ -144,6 +163,7 @@ try {
   $facts | Add-Member -NotePropertyName eveUnityPackageCommit -NotePropertyValue $releaseLock.dependencies.'org.gamecult.eve.unity-scene'.hash
   $facts | Add-Member -NotePropertyName cultLibPackageCommit -NotePropertyValue $releaseLock.dependencies.'org.gamecult.cultlib'.hash
   $capture = Get-Item -LiteralPath $capturePath
+  $mapCapture = Get-Item -LiteralPath $mapCapturePath
   $resultsArtifact = Get-Item -LiteralPath $resultsPath
   $durationMs = [Math]::Round(([DateTimeOffset]::UtcNow - $witnessStartedAt).TotalMilliseconds, 3)
   $testDurationMs = [Math]::Round(([double]$run.duration) * 1000, 3)
@@ -152,7 +172,7 @@ try {
     witnessId = "eveunity.aetheria.game.$observedCacheState"
     runtimeId = "unity-scene"
     runtimeOwnerRepo = "EveUnity"
-    providerId = "aetheria.daemon"
+    providerId = "aetheria"
     surfaceId = "aetheria.game"
     projectionKind = "provider-authored-world-surface"
     status = "pass"
@@ -169,6 +189,9 @@ try {
       height = 360
       encodedSizeBytes = $capture.Length
       sha256 = (Get-FileHash -LiteralPath $capture.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+      mapEncodedSizeBytes = $mapCapture.Length
+      mapSha256 = (Get-FileHash -LiteralPath $mapCapture.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+      mapChangedPixels = $facts.mapChangedPixels
     }
     artifacts = @(
       [ordered]@{
@@ -176,6 +199,14 @@ try {
         path = $capture.Name
         sha256 = (Get-FileHash -LiteralPath $capture.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
         sizeBytes = $capture.Length
+        width = 640
+        height = 360
+      },
+      [ordered]@{
+        kind = "unity-map-channel-png"
+        path = $mapCapture.Name
+        sha256 = (Get-FileHash -LiteralPath $mapCapture.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+        sizeBytes = $mapCapture.Length
         width = 640
         height = 360
       },
@@ -193,11 +224,12 @@ try {
   $witness | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $stateWitnessPath -Encoding UTF8
   Write-Host "Aetheria daemon world witness: passed"
   Write-Host "Capture: $capturePath"
+  Write-Host "Map capture: $mapCapturePath"
   Write-Host "Runtime witness: $witnessPath"
   Write-Host "Cache-state witness: $stateWitnessPath"
 }
 finally {
   if ($null -ne $daemon -and -not $daemon.HasExited) { Stop-Process -Id $daemon.Id -Force }
-  Remove-Item Env:EVEUNITY_RENDEZVOUS_ENDPOINT, Env:EVEUNITY_PROVIDER_ENDPOINT, Env:EVEUNITY_PROVIDER_ID, Env:EVEUNITY_SURFACE_ID, Env:EVEUNITY_REPLICA_PATH, Env:EVEUNITY_AETHERIA_CAPTURE_PATH, Env:EVEUNITY_ASSET_CACHE_PATH, Env:EVEUNITY_WITNESS_FACTS_PATH -ErrorAction SilentlyContinue
+  Remove-Item Env:EVEUNITY_RENDEZVOUS_ENDPOINT, Env:EVEUNITY_PROVIDER_ENDPOINT, Env:EVEUNITY_PROVIDER_ID, Env:EVEUNITY_SURFACE_ID, Env:EVEUNITY_REPLICA_PATH, Env:EVEUNITY_AETHERIA_CAPTURE_PATH, Env:EVEUNITY_AETHERIA_MAP_CAPTURE_PATH, Env:EVEUNITY_DISABLE_AUTO_LAUNCHER, Env:EVEUNITY_ASSET_CACHE_PATH, Env:EVEUNITY_WITNESS_FACTS_PATH -ErrorAction SilentlyContinue
   Remove-Item Env:AETHERIA_TRACE_EVE_SNAPSHOTS -ErrorAction SilentlyContinue
 }

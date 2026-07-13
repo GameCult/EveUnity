@@ -948,11 +948,15 @@ namespace GameCult.Eve.UnityScene.Tests
                 var largeVisual = GameObject.CreatePrimitive(PrimitiveType.Cube);
                 largeVisual.transform.SetParent(player.transform, false);
                 largeVisual.transform.localScale = Vector3.one * 100f;
+                largeVisual.layer = 14;
 
                 Assert.That(rig.ApplyRig(0f), Is.True);
                 Assert.That(camera.cullingMask & (1 << 14), Is.Zero);
                 Assert.That(cameraObject.transform.position.y, Is.GreaterThan(0f));
-                Assert.That(Vector3.Distance(cameraObject.transform.position, largeVisual.transform.position), Is.GreaterThan(100f));
+                Assert.That(
+                    Vector3.Distance(cameraObject.transform.position, player.transform.position),
+                    Is.LessThan(50f),
+                    "An excluded map glyph changed pilot-camera framing.");
             }
             finally
             {

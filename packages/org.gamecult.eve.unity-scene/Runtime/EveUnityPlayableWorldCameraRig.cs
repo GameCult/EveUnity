@@ -69,7 +69,9 @@ namespace GameCult.Eve.UnityScene
                 }
                 cameraComponent.cullingMask = cullingMask;
             }
-            var bounds = CalculateVisualBounds(player);
+            var bounds = CalculateVisualBounds(
+                player,
+                cameraComponent != null ? cameraComponent.cullingMask : -1);
             var target = bounds?.center ?? player.position;
             var radius = bounds?.extents.magnitude ?? 0f;
             var verticalFov = cameraComponent != null ? cameraComponent.fieldOfView : 60f;
@@ -89,13 +91,14 @@ namespace GameCult.Eve.UnityScene
             return true;
         }
 
-        private static Bounds? CalculateVisualBounds(Transform player)
+        private static Bounds? CalculateVisualBounds(Transform player, int cullingMask)
         {
             var renderers = player.GetComponentsInChildren<Renderer>(includeInactive: false);
             Bounds? bounds = null;
             foreach (var visual in renderers)
             {
-                if (visual == null || !visual.enabled)
+                if (visual == null || !visual.enabled ||
+                    (cullingMask & (1 << visual.gameObject.layer)) == 0)
                     continue;
                 if (bounds.HasValue)
                 {

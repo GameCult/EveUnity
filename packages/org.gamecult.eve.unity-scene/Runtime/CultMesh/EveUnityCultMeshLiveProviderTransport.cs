@@ -616,9 +616,10 @@ namespace GameCult.Eve.UnityScene
         {
             var bytes = new byte[checked((int)manifest.SizeBytes)];
             var references = manifest.Chunks.OrderBy(chunk => chunk.Offset).ToArray();
-            for (var index = 0; index < references.Length; index += 2)
+            const int chunkBatchSize = 32;
+            for (var index = 0; index < references.Length; index += chunkBatchSize)
             {
-                var batch = references.Skip(index).Take(2).ToArray();
+                var batch = references.Skip(index).Take(chunkBatchSize).ToArray();
                 var chunks = _snapshot!
                     .FetchDocumentsAsync<CultMeshCdnArtifactChunk>(
                         recordKeys: batch.Select(reference => reference.RecordKey).ToArray(),

@@ -566,14 +566,16 @@ namespace GameCult.Eve.UnityScene
                 if (bundle == null)
                     throw new InvalidOperationException($"Unity could not load provider asset bundle '{variant.Uri}'.");
                 _assetBundles.Add(bundle);
+                var bundleAssetNames = bundle.GetAllAssetNames();
                 foreach (var selection in group)
                 {
-                    var value = bundle.LoadAsset(selection.Variant!.AssetKey);
+                    var bundleAssetName = ResolveBundleAssetName(bundleAssetNames, selection.Variant!.AssetKey);
+                    var value = bundleAssetName == null ? null : bundle.LoadAsset(bundleAssetName);
                     if (value == null)
                         throw new InvalidOperationException(
                             $"Provider asset '{selection.Asset.AssetRef}' advertises missing Unity bundle asset " +
                             $"'{selection.Variant.AssetKey}'. Available assets: " +
-                            string.Join(", ", bundle.GetAllAssetNames()));
+                            string.Join(", ", bundleAssetNames));
                     _nativeAssets[selection.Asset.AssetRef] = value;
                     if (selection.Asset.Metadata.TryGetValue("presentationRole", out var role) &&
                         !string.IsNullOrWhiteSpace(role))
@@ -587,6 +589,12 @@ namespace GameCult.Eve.UnityScene
             }
 
             CurrentAssetCatalogVersion = catalog.Version;
+        }
+
+        private static string? ResolveBundleAssetName(IEnumerable<string> bundleAssetNames, string advertisedAssetKey)
+        {
+            return bundleAssetNames.FirstOrDefault(assetName =>
+                string.Equals(assetName, advertisedAssetKey, StringComparison.OrdinalIgnoreCase));
         }
 
         private void ReadCameraPolicies(IEnumerable<EveAssetVariant> variants)

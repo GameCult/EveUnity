@@ -196,6 +196,8 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             string stationObservedHostileId = "";
             long initialVersion = 0;
             float movementDistance = 0f;
+            int cargoQuantityBeforePickup = 0;
+            int cargoQuantityAfterPickup = 0;
             var commandReceipts = new Dictionary<string, EveUnitySceneCommandReceipt>(StringComparer.Ordinal);
 
             try
@@ -372,6 +374,11 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 Assert.That(commandReceipts.TryGetValue(pause.CommandId, out var pauseReceipt), Is.True);
                 Assert.That(pauseReceipt.State, Is.EqualTo("accepted").Or.EqualTo("reconciled"), pauseReceipt.Message);
 
+                cargoQuantityBeforePickup = ReadInt32EntitySemantic(
+                    provider.CurrentEntityView,
+                    playerId,
+                    "inventory.cargo.quantity");
+
                 var scoop = runtime.SubmitActionIntent(playerId, scoopAction.ActionId);
                 var initialScoopDeadline = Time.realtimeSinceStartup + 12f;
                 while (Time.realtimeSinceStartup < initialScoopDeadline &&
@@ -382,25 +389,47 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 }
                 Assert.That(commandReceipts.TryGetValue(scoop.CommandId, out var initialScoopReceipt), Is.True);
                 Assert.That(initialScoopReceipt.State, Is.EqualTo("accepted").Or.EqualTo("reconciled"), initialScoopReceipt.Message);
-                for (var simulationStep = 0; simulationStep < 300 &&
-                     root.GetComponentsInChildren<EveUnityPlayableWorldEntityMarker>()
-                         .Any(candidate => string.Equals(candidate.EntityId, collectedPickupId, StringComparison.Ordinal));
-                     simulationStep++)
+                var resumeScoop = runtime.SubmitActionIntent(playerId, realtimeAction.ActionId);
+                var resumeScoopDeadline = Time.realtimeSinceStartup + 12f;
+                while (Time.realtimeSinceStartup < resumeScoopDeadline &&
+                       (!commandReceipts.TryGetValue(resumeScoop.CommandId, out var observedResumeScoop) ||
+                        runtime.ActiveVersion < observedResumeScoop.SourceVersion))
                 {
-                    var step = runtime.SubmitActionIntent(playerId, stepAction.ActionId);
-                    var stepDeadline = Time.realtimeSinceStartup + 12f;
-                    while (Time.realtimeSinceStartup < stepDeadline &&
-                           !commandReceipts.TryGetValue(step.CommandId, out _))
-                    {
-                        yield return new WaitForSecondsRealtime(0.05f);
-                        runtime.Refresh();
-                    }
-                    Assert.That(commandReceipts.TryGetValue(step.CommandId, out var stepReceipt), Is.True);
-                    Assert.That(stepReceipt.State, Is.EqualTo("accepted").Or.EqualTo("reconciled"), stepReceipt.Message);
+                    yield return new WaitForSecondsRealtime(0.1f);
+                    runtime.Refresh();
+                }
+                Assert.That(commandReceipts.TryGetValue(resumeScoop.CommandId, out var resumeScoopReceipt), Is.True);
+                Assert.That(resumeScoopReceipt.State, Is.EqualTo("accepted").Or.EqualTo("reconciled"), resumeScoopReceipt.Message);
+                var collectionDeadline = Time.realtimeSinceStartup + 25f;
+                while (Time.realtimeSinceStartup < collectionDeadline &&
+                       root.GetComponentsInChildren<EveUnityPlayableWorldEntityMarker>()
+                           .Any(candidate => string.Equals(candidate.EntityId, collectedPickupId, StringComparison.Ordinal)))
+                {
+                    yield return new WaitForSecondsRealtime(0.1f);
+                    runtime.Refresh();
                 }
                 pickupCollected = !root.GetComponentsInChildren<EveUnityPlayableWorldEntityMarker>()
                     .Any(candidate => string.Equals(candidate.EntityId, collectedPickupId, StringComparison.Ordinal));
-                Assert.That(pickupCollected, Is.True, "The pilot bot did not collect the daemon-authored salvage under explicit simulation steps.");
+                var uncollectedPickup = root.GetComponentsInChildren<EveUnityPlayableWorldEntityMarker>()
+                    .FirstOrDefault(candidate => string.Equals(candidate.EntityId, collectedPickupId, StringComparison.Ordinal));
+                var currentCargoQuantity = ReadInt32EntitySemantic(
+                    provider.CurrentEntityView,
+                    playerId,
+                    "inventory.cargo.quantity");
+                Assert.That(pickupCollected, Is.True,
+                    uncollectedPickup == null
+                        ? "The pilot bot did not collect the daemon-authored salvage."
+                        : $"The pilot bot did not collect the daemon-authored salvage. " +
+                          $"player={FindMarker(root, playerId).transform.position}, " +
+                          $"pickup={uncollectedPickup.transform.position}, " +
+                          $"distance={Vector3.Distance(FindMarker(root, playerId).transform.position, uncollectedPickup.transform.position):0.###}, " +
+                          $"cargo={currentCargoQuantity}.");
+                cargoQuantityAfterPickup = ReadInt32EntitySemantic(
+                    provider.CurrentEntityView,
+                    playerId,
+                    "inventory.cargo.quantity");
+                Assert.That(cargoQuantityAfterPickup, Is.EqualTo(cargoQuantityBeforePickup + 1),
+                    "The pickup left the world without an authoritative cargo-unit delta in the portable Eve SoA view.");
 
                 var combatStartVersion = runtime.ActiveVersion;
                 var visibleMarkers = root.GetComponentsInChildren<EveUnityPlayableWorldEntityMarker>();
@@ -659,6 +688,8 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     combatShot,
                     collectedPickupId,
                     pickupCollected,
+                    cargoQuantityBeforePickup,
+                    cargoQuantityAfterPickup,
                     docked,
                     undocked);
             }
@@ -688,6 +719,8 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             EveUnityShotReceipt combatShot,
             string collectedPickupId,
             bool pickupCollected,
+            int cargoQuantityBeforePickup,
+            int cargoQuantityAfterPickup,
             bool docked,
             bool undocked)
         {
@@ -709,6 +742,8 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 shotHit = combatShot?.Hit ?? false,
                 pickupVisible = !string.IsNullOrWhiteSpace(collectedPickupId),
                 pickupCollected = pickupCollected,
+                cargoQuantityBeforePickup = cargoQuantityBeforePickup,
+                cargoQuantityAfterPickup = cargoQuantityAfterPickup,
                 docked = docked,
                 undocked = undocked,
                 pickupId = collectedPickupId ?? "",
@@ -738,6 +773,8 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             public bool shotHit;
             public bool pickupVisible;
             public bool pickupCollected;
+            public int cargoQuantityBeforePickup;
+            public int cargoQuantityAfterPickup;
             public bool docked;
             public bool undocked;
             public string pickupId;
@@ -745,6 +782,29 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             public long finalVersion;
             public float movementDistance;
             public WitnessReceipt[] receipts;
+        }
+
+        private static int ReadInt32EntitySemantic(
+            EveEntitySoaViewDocument document,
+            string entityId,
+            string semantic)
+        {
+            Assert.That(document, Is.Not.Null, "The provider did not publish an Eve entity SoA view.");
+            var entityIndex = document.Identities
+                .Single(identity => string.Equals(identity.EntityId, entityId, StringComparison.Ordinal))
+                .EntityIndex;
+            using var view = EveUnityEntitySoaView.Open(document);
+            for (var row = 0; row < view.EntityCount; row++)
+            {
+                if (!view.TryReadInt32("entity.index", row, out var rowEntityIndex) || rowEntityIndex != entityIndex)
+                    continue;
+                Assert.That(view.TryReadInt32(semantic, row, out var value), Is.True,
+                    $"The Eve entity SoA view did not expose int32 semantic '{semantic}'.");
+                return value;
+            }
+
+            Assert.Fail($"The Eve entity SoA view did not contain entity '{entityId}' ({entityIndex}).");
+            return 0;
         }
 
         [Serializable]

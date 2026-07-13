@@ -531,6 +531,16 @@ namespace GameCult.Eve.UnityScene
                 })
                 .Where(selection => selection.Variant != null)
                 .ToArray();
+            if (selected.Length == 0)
+            {
+                var advertisedVariants = catalog.Assets
+                    .SelectMany(asset => asset.Variants.Select(variant =>
+                        $"{asset.AssetRef}:{variant.RuntimeId}/{variant.Platform}"))
+                    .ToArray();
+                throw new InvalidOperationException(
+                    $"Provider asset catalog '{catalog.CatalogId}' has no unity-scene/{CurrentBundlePlatform()} variant. " +
+                    $"Advertised variants: {string.Join(", ", advertisedVariants)}");
+            }
             ReadCameraPolicies(selected.Select(selection => selection.Variant!));
             foreach (var group in selected.GroupBy(selection => selection.Variant!.Uri, StringComparer.Ordinal))
             {

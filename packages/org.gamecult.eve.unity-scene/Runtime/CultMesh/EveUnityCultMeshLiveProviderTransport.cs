@@ -552,7 +552,11 @@ namespace GameCult.Eve.UnityScene
                 foreach (var selection in group)
                 {
                     var value = bundle.LoadAsset(selection.Variant!.AssetKey);
-                    if (value == null) continue;
+                    if (value == null)
+                        throw new InvalidOperationException(
+                            $"Provider asset '{selection.Asset.AssetRef}' advertises missing Unity bundle asset " +
+                            $"'{selection.Variant.AssetKey}'. Available assets: " +
+                            string.Join(", ", bundle.GetAllAssetNames()));
                     _nativeAssets[selection.Asset.AssetRef] = value;
                     if (selection.Asset.Metadata.TryGetValue("presentationRole", out var role) &&
                         !string.IsNullOrWhiteSpace(role))

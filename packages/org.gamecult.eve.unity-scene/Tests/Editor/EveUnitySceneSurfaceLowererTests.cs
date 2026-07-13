@@ -38,6 +38,26 @@ namespace GameCult.Eve.UnityScene.Tests
         }
 
         [Test]
+        public void LiveTransportDropsExpiredHistoricalGenerationWithoutReinterpretingLatest()
+        {
+            var view = EntityLeaseDocument();
+            var publication = BodyPublication(view, view.Sequence);
+            publication.LivenessExpiresAtUnixMs = 999;
+            var method = typeof(EveUnityCultMeshLiveProviderTransport)
+                .GetMethod("IsPublicationLive", BindingFlags.NonPublic | BindingFlags.Static)!;
+
+            var live = (bool)method.Invoke(null, new object[]
+            {
+                publication,
+                DateTimeOffset.FromUnixTimeMilliseconds(1000)
+            })!;
+
+            Assert.That(live, Is.False);
+            Assert.That(publication.RecordKey, Is.EqualTo(
+                new CultMeshBodyPublicationHandle(view.Buffers[0].BufferId, view.ProducerEpoch, view.Sequence).RecordKey));
+        }
+
+        [Test]
         public void EntitySoaViewReadsGenericSemanticColumnsFromInjectedLease()
         {
             var bytes = new byte[32];

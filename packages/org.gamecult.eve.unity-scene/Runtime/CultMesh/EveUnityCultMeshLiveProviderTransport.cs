@@ -313,6 +313,9 @@ namespace GameCult.Eve.UnityScene
                 ?? throw new InvalidOperationException(
                     $"Provider did not publish CultMesh body generation '{handle.RecordKey.Value}'.");
             handle.Validate(publication);
+            var now = DateTimeOffset.UtcNow;
+            if (!IsPublicationLive(publication, now))
+                return;
             var lease = _bodyResolver.ResolveReadOnly(publication, new CultMeshBodyValidationRequest
             {
                 BodyId = handle.BodyId,
@@ -322,7 +325,7 @@ namespace GameCult.Eve.UnityScene
                 Sequence = document.Sequence,
                 Capacity = document.Capacity,
                 AccessMode = CultMeshBodyAccessMode.ReadOnly,
-                NowUtc = DateTimeOffset.UtcNow
+                NowUtc = now
             });
             var handler = EntityViewAvailable;
             if (handler == null)
@@ -340,6 +343,11 @@ namespace GameCult.Eve.UnityScene
                 throw;
             }
         }
+
+        private static bool IsPublicationLive(
+            CultMeshBodyPublicationDocument publication,
+            DateTimeOffset now) =>
+            publication.LivenessExpiresAtUnixMs > now.ToUnixTimeMilliseconds();
 
         private void RefreshSurface()
         {

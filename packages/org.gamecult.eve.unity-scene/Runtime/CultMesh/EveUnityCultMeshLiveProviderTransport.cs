@@ -31,6 +31,7 @@ namespace GameCult.Eve.UnityScene
             typeof(EveAssetCatalogDocument),
             typeof(EveEntitySoaViewDocument),
             typeof(CultMeshBodyPublicationDocument),
+            typeof(CultMeshNetworkBodyDocument),
             typeof(CultMeshCdnArtifactManifest),
             typeof(CultMeshCdnArtifactChunk)
         };
@@ -291,10 +292,54 @@ namespace GameCult.Eve.UnityScene
                 {
                     new CultMeshSharedMemoryBodyAdapter(),
                     new CultMeshMappedBodyAdapter(mappedRoot),
-                    new CultMeshNetworkBodyAdapter(_ => throw new NotSupportedException(
-                        "The connected Verse does not expose a CultMesh network body byte reader."))
+                    new CultMeshNetworkBodyAdapter(ReadNetworkBody)
                 },
                 (producerId, _) => string.Equals(producerId, _providerId, StringComparison.Ordinal)));
+        }
+
+        private byte[] ReadNetworkBody(CultMeshBodyDescriptor descriptor)
+        {
+            var binding = _snapshot!
+                .FetchDocumentsAsync<CultMeshNetworkBodyDocument>(
+                    recordKeys: new[] { CultMeshNetworkBodyDocument.CreateRecordKey(descriptor.CapabilityToken).Value },
+                    schemaIds: new[] { CultMeshBodyPublicationSchemaVersions.NetworkBody })
+                .GetAwaiter().GetResult().SingleOrDefault()
+                ?? throw new FileNotFoundException("Provider network body capability is missing.", descriptor.CapabilityToken);
+            var manifest = _snapshot
+                .FetchDocumentsAsync<CultMeshCdnArtifactManifest>(
+                    recordKeys: new[] { binding.ManifestRecordKey },
+                    schemaIds: new[] { CultMeshCdnSchemaVersions.ArtifactManifest })
+                .GetAwaiter().GetResult().SingleOrDefault()
+                ?? throw new FileNotFoundException("Provider network body manifest is missing.", binding.ManifestRecordKey);
+            var chunks = _snapshot
+                .FetchDocumentsAsync<CultMeshCdnArtifactChunk>(
+                    recordKeys: manifest.Chunks.Select(chunk => chunk.RecordKey).ToArray(),
+                    schemaIds: new[] { CultMeshCdnSchemaVersions.ArtifactChunk })
+                .GetAwaiter().GetResult();
+            return ResolveNetworkBody(descriptor, binding, manifest, chunks);
+        }
+
+        private static byte[] ResolveNetworkBody(
+            CultMeshBodyDescriptor descriptor,
+            CultMeshNetworkBodyDocument binding,
+            CultMeshCdnArtifactManifest manifest,
+            IReadOnlyList<CultMeshCdnArtifactChunk> chunks)
+        {
+            var registry = CultMesh.CreateCultCacheDocumentRegistry(
+                typeof(CultMeshNetworkBodyDocument),
+                typeof(CultMeshCdnArtifactManifest),
+                typeof(CultMeshCdnArtifactChunk));
+            var cache = new CultCache(registry);
+            cache.UpsertAsync(binding, new CultRecordHandle<CultMeshNetworkBodyDocument>(binding.RecordKey))
+                .GetAwaiter().GetResult();
+            cache.UpsertAsync(manifest, new CultRecordHandle<CultMeshCdnArtifactManifest>(
+                    CultMeshCdnArtifactManifest.CreateRecordKey(manifest)))
+                .GetAwaiter().GetResult();
+            foreach (var chunk in chunks)
+                cache.UpsertAsync(chunk, new CultRecordHandle<CultMeshCdnArtifactChunk>(
+                        CultMeshCdnArtifactChunk.CreateRecordKey(chunk)))
+                    .GetAwaiter().GetResult();
+            return new CultMeshNetworkBodyResolver(cache).Fetch(descriptor);
         }
 
         private void PublishEntityView(EveEntitySoaViewDocument document)

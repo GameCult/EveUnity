@@ -58,6 +58,38 @@ namespace GameCult.Eve.UnityScene.Tests
         }
 
         [Test]
+        public async System.Threading.Tasks.Task LiveTransportResolvesExactNetworkBodyThroughVerseDocuments()
+        {
+            var view = EntityLeaseDocument();
+            var bytes = Enumerable.Range(0, 32).Select(value => (byte)value).ToArray();
+            var source = new CultCache();
+            var generation = new CultMeshBodyGeneration
+            {
+                BodyId = view.Buffers[0].BufferId,
+                ProducerId = view.ProviderId,
+                SchemaId = view.BodySchemaId,
+                LayoutVersion = view.LayoutVersion,
+                Capacity = view.Capacity,
+                ProducerEpoch = view.ProducerEpoch,
+                Sequence = view.Sequence,
+                Synchronization = CultMeshBodySynchronization.TripleBuffer,
+                LeaseExpiresAtUnixMs = DateTimeOffset.UtcNow.AddMinutes(1).ToUnixTimeMilliseconds()
+            };
+            var descriptor = await new CultMeshNetworkBodyPublisher(source, _ => true).PublishAsync(generation, bytes);
+            var binding = source.Get<CultMeshNetworkBodyDocument>(
+                CultMeshNetworkBodyDocument.CreateRecordKey(descriptor.CapabilityToken))!;
+            var manifest = source.Get<CultMeshCdnArtifactManifest>(new CultRecordKey(binding.ManifestRecordKey))!;
+            var chunks = manifest.Chunks.Select(reference =>
+                source.Get<CultMeshCdnArtifactChunk>(new CultRecordKey(reference.RecordKey))!).ToArray();
+            var method = typeof(EveUnityCultMeshLiveProviderTransport)
+                .GetMethod("ResolveNetworkBody", BindingFlags.NonPublic | BindingFlags.Static)!;
+
+            var resolved = (byte[])method.Invoke(null, new object[] { descriptor, binding, manifest, chunks })!;
+
+            Assert.That(resolved, Is.EqualTo(bytes));
+        }
+
+        [Test]
         public void EntitySoaViewReadsGenericSemanticColumnsFromInjectedLease()
         {
             var bytes = new byte[32];

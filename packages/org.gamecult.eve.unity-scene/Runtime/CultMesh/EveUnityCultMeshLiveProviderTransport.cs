@@ -78,7 +78,7 @@ namespace GameCult.Eve.UnityScene
                 ? throw new ArgumentException("Surface id must be non-empty.", nameof(surfaceId))
                 : surfaceId.Trim();
             _runtimeId = string.IsNullOrWhiteSpace(runtimeId) ? "eve-unity" : runtimeId.Trim();
-            _bodyResolver = bodyResolver ?? CreateBodyResolver();
+            _bodyResolver = bodyResolver;
             CurrentSurfaceDocument = EmptySurfaceDocument();
             CurrentAssetManifestDocument = EmptyAssetManifest();
         }

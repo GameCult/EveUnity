@@ -15,6 +15,19 @@ namespace GameCult.Eve.UnityScene.Tests
     public sealed class EveUnitySceneSurfaceLowererTests
     {
         [Test]
+        public void LiveTransportDefersDefaultBodyAuthorizationUntilAdvertisementResolution()
+        {
+            Assert.DoesNotThrow(() =>
+            {
+                using var transport = new EveUnityCultMeshLiveProviderTransport(
+                    "test-replica.cc",
+                    "cultnet://127.0.0.1:3075",
+                    "aetheria",
+                    "aetheria.pilot");
+            });
+        }
+
+        [Test]
         public async System.Threading.Tasks.Task LiveTransportResolvesViewGenerationWhenNextPublicationAlreadyExists()
         {
             var view = EntityLeaseDocument();

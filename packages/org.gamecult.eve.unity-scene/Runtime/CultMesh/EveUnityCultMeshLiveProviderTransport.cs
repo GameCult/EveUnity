@@ -57,6 +57,9 @@ namespace GameCult.Eve.UnityScene
         private EveAdvertisedSurface? _advertisedSurface;
         private CultMeshBodyPublicationResolver? _bodyResolver;
         private DateTime _nextReceiptPollUtc;
+        private DateTime _nextEntityViewPollUtc;
+        private long _lastQueuedEntityViewEpoch = -1;
+        private long _lastQueuedEntityViewSequence = -1;
 
         public EveUnityCultMeshLiveProviderTransport(
             string replicaPath,
@@ -133,6 +136,7 @@ namespace GameCult.Eve.UnityScene
 
         public void PumpLiveEvents()
         {
+            PollCurrentEntityView();
             while (_liveDocuments.TryDequeue(out var document))
             {
                 if (document is EveEntitySoaViewDocument entityView)
@@ -143,6 +147,36 @@ namespace GameCult.Eve.UnityScene
                     PublishReceipt(receipt);
             }
             PollPendingReceipts();
+        }
+
+        private void PollCurrentEntityView()
+        {
+            if (DateTime.UtcNow < _nextEntityViewPollUtc)
+                return;
+            _nextEntityViewPollUtc = DateTime.UtcNow.AddMilliseconds(250);
+            var lowered = new EveUnitySceneSurfaceLowerer()
+                .Lower(CurrentSurfaceDocument.SurfaceDocument, CurrentSurfaceDocument.AdvertisedSurface);
+            var pointer = lowered.PlayableWorld?.EntityViewPointerId ?? "";
+            if (string.IsNullOrWhiteSpace(pointer))
+                return;
+            var current = _snapshot!
+                .FetchDocumentsAsync<EveEntitySoaViewDocument>(
+                    recordKeys: new[] { pointer },
+                    schemaIds: new[] { EveEntitySoaViewDocument.SchemaId })
+                .GetAwaiter().GetResult().FirstOrDefault();
+            if (current != null)
+                QueueEntityView(current);
+        }
+
+        private void QueueEntityView(EveEntitySoaViewDocument document)
+        {
+            if (document.ProducerEpoch < _lastQueuedEntityViewEpoch ||
+                (document.ProducerEpoch == _lastQueuedEntityViewEpoch &&
+                 document.Sequence <= _lastQueuedEntityViewSequence))
+                return;
+            _lastQueuedEntityViewEpoch = document.ProducerEpoch;
+            _lastQueuedEntityViewSequence = document.Sequence;
+            _liveDocuments.Enqueue(document);
         }
 
         private void PollPendingReceipts()
@@ -509,7 +543,7 @@ namespace GameCult.Eve.UnityScene
                             schemaIds: new[] { EveEntitySoaViewDocument.SchemaId })
                         .GetAwaiter().GetResult().FirstOrDefault();
                 if (current != null)
-                    _liveDocuments.Enqueue(current);
+                    QueueEntityView(current);
             }
             _subscriptions.SubscribeAsync(
                     "eve-unity-surface",
@@ -530,7 +564,9 @@ namespace GameCult.Eve.UnityScene
 
         private void OnReplicatedDocumentChanged(CultNetReplicatedDocumentChange change)
         {
-            if (change.Document is EveEntitySoaViewDocument or EveSurfaceDocument or EveCommandReceiptDocument)
+            if (change.Document is EveEntitySoaViewDocument entityView)
+                QueueEntityView(entityView);
+            else if (change.Document is EveSurfaceDocument or EveCommandReceiptDocument)
                 _liveDocuments.Enqueue(change.Document);
         }
 

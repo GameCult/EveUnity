@@ -4,6 +4,7 @@ using System.Linq;
 using GameCult.Caching;
 using GameCult.Mesh;
 using MessagePack;
+using MessagePack.Formatters;
 
 #nullable enable
 
@@ -11,6 +12,7 @@ namespace GameCult.Eve.Surface
 {
     [CultDocument("gamecult.eve.surface", "gamecult.eve.surface.v1")]
     [MessagePackObject]
+    [MessagePackFormatter(typeof(EveSurfaceDocumentCompatibilityFormatter))]
     public sealed class EveSurfaceDocument
     {
         public const string DefaultType = "surface-state";
@@ -289,6 +291,7 @@ namespace GameCult.Eve.Surface
     }
 
     [MessagePackObject]
+    [MessagePackFormatter(typeof(EveCommandTemplateCompatibilityFormatter))]
     public sealed class EveCommandTemplate
     {
         public EveCommandTemplate(CultMeshOperationBindingDescriptor operation)
@@ -318,7 +321,7 @@ namespace GameCult.Eve.Surface
         public string Transport => Operation.RouteHint.Description ?? "";
     }
 
-    [CultDocument("gamecult.eve.command", SchemaId)]
+    [CultDocument("gamecult.eve.command_invocation", SchemaId)]
     [MessagePackObject]
     public sealed class EveSurfaceCommandRequest
     {
@@ -411,4 +414,125 @@ namespace GameCult.Eve.Surface
         [IgnoreMember]
         public string CommandId => Operation.IdempotencyKey ?? "";
     }
+
+    /// <summary>
+    /// Reads the current Eve surface envelope and the original seven-field v1 envelope.
+    /// </summary>
+    public sealed class EveSurfaceDocumentCompatibilityFormatter : IMessagePackFormatter<EveSurfaceDocument?>
+    {
+        private const int LegacyFieldCount = 7;
+        private const int CurrentFieldCount = 9;
+
+        public void Serialize(ref MessagePackWriter writer, EveSurfaceDocument? value, MessagePackSerializerOptions options)
+        {
+            if (value == null) { writer.WriteNil(); return; }
+            writer.WriteArrayHeader(CurrentFieldCount);
+            writer.Write(value.Type);
+            writer.Write(value.Schema);
+            writer.Write(value.ProviderId);
+            writer.Write(value.ProviderKind);
+            writer.Write(value.Title);
+            writer.Write(value.Version);
+            writer.Write(value.UpdatedAtUtc);
+            Formatter<EveSurfaceTree>(options).Serialize(ref writer, value.Surface, options);
+            Formatter<IReadOnlyList<EveCommandTemplate>>(options).Serialize(ref writer, value.Commands, options);
+        }
+
+        public EveSurfaceDocument? Deserialize(ref MessagePackReader reader, MessagePackSerializerOptions options)
+        {
+            if (reader.TryReadNil()) return null;
+            if (reader.NextMessagePackType != MessagePackType.Array)
+                throw new MessagePackSerializationException("Eve surface document must be an array.");
+
+            options.Security.DepthStep(ref reader);
+            try
+            {
+                var fields = reader.ReadArrayHeader();
+                if (fields == LegacyFieldCount)
+                {
+                    return new EveSurfaceDocument(
+                        ReadString(ref reader), ReadString(ref reader), ReadString(ref reader),
+                        reader.ReadInt64(), ReadString(ref reader),
+                        Formatter<EveSurfaceTree>(options).Deserialize(ref reader, options)!,
+                        Formatter<IReadOnlyList<EveCommandTemplate>>(options).Deserialize(ref reader, options)
+                            ?? Array.Empty<EveCommandTemplate>());
+                }
+
+                var type = ReadString(ref reader, fields, 0);
+                var schema = ReadString(ref reader, fields, 1);
+                var providerId = ReadString(ref reader, fields, 2);
+                var providerKind = ReadString(ref reader, fields, 3);
+                var title = ReadString(ref reader, fields, 4);
+                var version = fields > 5 ? reader.ReadInt64() : 0;
+                var updatedAtUtc = ReadString(ref reader, fields, 6);
+                var surface = fields > 7 ? Formatter<EveSurfaceTree>(options).Deserialize(ref reader, options) : null;
+                var commands = fields > 8 ? Formatter<IReadOnlyList<EveCommandTemplate>>(options).Deserialize(ref reader, options) : null;
+                for (var index = CurrentFieldCount; index < fields; index++) reader.Skip();
+                return new EveSurfaceDocument(
+                    type, schema, providerId, providerKind, title, version, updatedAtUtc,
+                    surface ?? throw new MessagePackSerializationException("Eve surface tree is required."),
+                    commands ?? Array.Empty<EveCommandTemplate>());
+            }
+            finally { reader.Depth--; }
+        }
+
+        private static IMessagePackFormatter<T> Formatter<T>(MessagePackSerializerOptions options) =>
+            options.Resolver.GetFormatter<T>()
+            ?? throw new MessagePackSerializationException($"No formatter is registered for {typeof(T).FullName}.");
+
+        private static string ReadString(ref MessagePackReader reader) => reader.ReadString() ?? "";
+        private static string ReadString(ref MessagePackReader reader, int fields, int index) =>
+            index < fields ? ReadString(ref reader) : "";
+    }
+
+    /// <summary>
+    /// Reads both direct legacy command fields and the current wrapped binding record.
+    /// </summary>
+    public sealed class EveCommandTemplateCompatibilityFormatter : IMessagePackFormatter<EveCommandTemplate?>
+    {
+        public void Serialize(ref MessagePackWriter writer, EveCommandTemplate? value, MessagePackSerializerOptions options)
+        {
+            if (value == null) { writer.WriteNil(); return; }
+            writer.WriteArrayHeader(1);
+            BindingFormatter(options).Serialize(ref writer, value.OperationRecord, options);
+        }
+
+        public EveCommandTemplate? Deserialize(ref MessagePackReader reader, MessagePackSerializerOptions options)
+        {
+            if (reader.TryReadNil()) return null;
+            if (reader.NextMessagePackType != MessagePackType.Array)
+                throw new MessagePackSerializationException("Eve command template must be an array.");
+
+            options.Security.DepthStep(ref reader);
+            try
+            {
+                var fields = reader.ReadArrayHeader();
+                if (fields == 1 && reader.NextMessagePackType == MessagePackType.Array)
+                {
+                    return new EveCommandTemplate(
+                        BindingFormatter(options).Deserialize(ref reader, options)
+                        ?? new CultMeshOperationBindingRecord());
+                }
+
+                var operationId = ReadString(ref reader, fields, 0);
+                var label = ReadString(ref reader, fields, 1);
+                var schemaId = ReadString(ref reader, fields, 2);
+                var routeKind = ReadString(ref reader, fields, 3);
+                var routeDescription = ReadString(ref reader, fields, 4);
+                for (var index = 5; index < fields; index++) reader.Skip();
+                return new EveCommandTemplate(new CultMeshOperationBindingRecord(
+                    operationId, label, schemaId, routeKind, routeDescription));
+            }
+            finally { reader.Depth--; }
+        }
+
+        private static IMessagePackFormatter<CultMeshOperationBindingRecord> BindingFormatter(
+            MessagePackSerializerOptions options) =>
+            options.Resolver.GetFormatter<CultMeshOperationBindingRecord>()
+            ?? throw new MessagePackSerializationException("No CultMesh operation binding formatter is registered.");
+
+        private static string ReadString(ref MessagePackReader reader, int fields, int index) =>
+            index < fields ? reader.ReadString() ?? "" : "";
+    }
+
 }

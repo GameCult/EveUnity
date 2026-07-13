@@ -11,7 +11,8 @@
     "precompiledReferences": [
         "GameCult.Caching.dll",
         "GameCult.Mesh.dll",
-        "MessagePack.Annotations.dll"
+        "MessagePack.Annotations.dll",
+        "MessagePack.dll"
     ],
     "autoReferenced": true,
     "defineConstraints": [],

@@ -90,6 +90,39 @@ namespace GameCult.Eve.UnityScene.Tests
         }
 
         [Test]
+        public void LiveTransportAuthorizesBodiesWithAdvertisedServiceIdentity()
+        {
+            var advertisement = ProviderAdvertisement("aetheria", "aetheria.daemon");
+            var method = typeof(EveUnityCultMeshLiveProviderTransport)
+                .GetMethod("RequireAdvertisedBodyProducerId", BindingFlags.NonPublic | BindingFlags.Static)!;
+
+            var producerId = (string)method.Invoke(null, new object?[] { advertisement })!;
+
+            Assert.That(producerId, Is.EqualTo("aetheria.daemon"));
+            Assert.That(producerId, Is.Not.EqualTo(advertisement.ProviderId));
+
+            var authorizes = typeof(EveUnityCultMeshLiveProviderTransport)
+                .GetMethod("IsAdvertisedBodyProducer", BindingFlags.NonPublic | BindingFlags.Static)!;
+            Assert.That(authorizes.Invoke(null, new object[] { producerId, "aetheria.daemon" }), Is.True);
+            Assert.That(authorizes.Invoke(null, new object[] { producerId, "aetheria" }), Is.False);
+            Assert.That(authorizes.Invoke(null, new object[] { producerId, "impostor" }), Is.False);
+        }
+
+        [Test]
+        public void LiveTransportRejectsAdvertisementWithoutBodyProducerIdentity()
+        {
+            var advertisement = ProviderAdvertisement("aetheria", "");
+            var method = typeof(EveUnityCultMeshLiveProviderTransport)
+                .GetMethod("RequireAdvertisedBodyProducerId", BindingFlags.NonPublic | BindingFlags.Static)!;
+
+            var error = Assert.Throws<TargetInvocationException>(() =>
+                method.Invoke(null, new object?[] { advertisement }));
+
+            Assert.That(error!.InnerException, Is.TypeOf<InvalidOperationException>());
+            StringAssert.Contains("does not advertise a service identity", error.InnerException!.Message);
+        }
+
+        [Test]
         public void EntitySoaViewReadsGenericSemanticColumnsFromInjectedLease()
         {
             var bytes = new byte[32];
@@ -2008,6 +2041,21 @@ namespace GameCult.Eve.UnityScene.Tests
                 }
             }
         };
+
+        private static EveProviderAdvertisementDocument ProviderAdvertisement(string providerId, string serviceId) =>
+            new EveProviderAdvertisementDocument(
+                providerId,
+                serviceId,
+                "test-verse",
+                "Test Provider",
+                "test",
+                "cultmesh://test/provider",
+                DateTimeOffset.UtcNow.ToString("O"),
+                new EveProviderFreshness("fresh", DateTimeOffset.UtcNow.ToString("O"), 5000),
+                Array.Empty<string>(),
+                Array.Empty<EveProviderWitness>(),
+                Array.Empty<EveAdvertisedSurface>(),
+                Array.Empty<EveAdvertisedCommand>());
 
         private static CultMeshBodyPublicationDocument BodyPublication(
             EveEntitySoaViewDocument view,

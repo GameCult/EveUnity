@@ -55,7 +55,7 @@ namespace GameCult.Eve.UnityScene
         private CultNetDatabaseSubscriptionClient? _subscriptions;
         private EveProviderAdvertisementDocument? _advertisement;
         private EveAdvertisedSurface? _advertisedSurface;
-        private readonly CultMeshBodyPublicationResolver _bodyResolver;
+        private CultMeshBodyPublicationResolver? _bodyResolver;
 
         public EveUnityCultMeshLiveProviderTransport(
             string replicaPath,
@@ -286,6 +286,7 @@ namespace GameCult.Eve.UnityScene
 
         private CultMeshBodyPublicationResolver CreateBodyResolver()
         {
+            var producerId = RequireAdvertisedBodyProducerId(_advertisement);
             var mappedRoot = Path.GetDirectoryName(_replicaPath) ?? ".";
             return new CultMeshBodyPublicationResolver(new CultMeshBodyTransportService(
                 new ICultMeshBodyTransportAdapter[]
@@ -294,7 +295,20 @@ namespace GameCult.Eve.UnityScene
                     new CultMeshMappedBodyAdapter(mappedRoot),
                     new CultMeshNetworkBodyAdapter(ReadNetworkBody)
                 },
-                (producerId, _) => string.Equals(producerId, _providerId, StringComparison.Ordinal)));
+                (candidateProducerId, _) => IsAdvertisedBodyProducer(producerId, candidateProducerId)));
+        }
+
+        private static bool IsAdvertisedBodyProducer(string advertisedProducerId, string candidateProducerId) =>
+            string.Equals(candidateProducerId, advertisedProducerId, StringComparison.Ordinal);
+
+        private static string RequireAdvertisedBodyProducerId(EveProviderAdvertisementDocument? advertisement)
+        {
+            if (advertisement == null)
+                throw new InvalidOperationException("The Eve provider advertisement must be resolved before body transport authorization.");
+            if (string.IsNullOrWhiteSpace(advertisement.ServiceId))
+                throw new InvalidOperationException(
+                    $"Eve provider '{advertisement.ProviderId}' does not advertise a service identity for body production.");
+            return advertisement.ServiceId;
         }
 
         private byte[] ReadNetworkBody(CultMeshBodyDescriptor descriptor)
@@ -362,6 +376,7 @@ namespace GameCult.Eve.UnityScene
             var now = DateTimeOffset.UtcNow;
             if (!IsPublicationLive(publication, now))
                 return;
+            _bodyResolver ??= CreateBodyResolver();
             var lease = _bodyResolver.ResolveReadOnly(publication, new CultMeshBodyValidationRequest
             {
                 BodyId = handle.BodyId,

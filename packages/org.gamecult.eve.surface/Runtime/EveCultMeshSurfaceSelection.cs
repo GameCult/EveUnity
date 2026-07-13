@@ -44,26 +44,32 @@ namespace GameCult.Eve.Surface
             this CultMeshClient mesh,
             string endpointId,
             EveSurfaceRequest? request = null,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default,
+            Action<string>? observeStage = null)
         {
             if (mesh == null) throw new ArgumentNullException(nameof(mesh));
             var resolved = request ?? new EveSurfaceRequest();
             IReadOnlyList<EveProviderAdvertisementDocument> providerDocuments;
             if (string.IsNullOrWhiteSpace(resolved.ProviderId))
             {
+                observeStage?.Invoke("provider-collection-opening");
                 var providers = await mesh.CollectionAsync<EveProviderAdvertisementDocument>(endpointId, cancellationToken)
                     .ConfigureAwait(false);
+                observeStage?.Invoke("provider-collection-ready");
                 providerDocuments = await providers.LatestAsync().ConfigureAwait(false);
             }
             else
             {
+                observeStage?.Invoke("provider-document-opening");
                 var provider = await mesh.DocumentAsync<EveProviderAdvertisementDocument>(
                         endpointId,
                         ProviderAdvertisementRecordRef(resolved.ProviderId),
                         cancellationToken)
                     .ConfigureAwait(false);
+                observeStage?.Invoke("provider-document-ready");
                 providerDocuments = new[] { await provider.LatestAsync().ConfigureAwait(false) };
             }
+            observeStage?.Invoke("provider-snapshot-ready");
             var match = Select(providerDocuments, resolved);
             IReadOnlyList<EvePluginAdvertisementDocument> plugins = Array.Empty<EvePluginAdvertisementDocument>();
             if (match.Surface.RequiresPlugins.Count > 0)
@@ -71,12 +77,15 @@ namespace GameCult.Eve.Surface
                 var advertisements = await mesh.CollectionAsync<EvePluginAdvertisementDocument>(endpointId, cancellationToken)
                     .ConfigureAwait(false);
                 plugins = ResolvePlugins(match.Surface, await advertisements.LatestAsync().ConfigureAwait(false));
+                observeStage?.Invoke("plugin-snapshot-ready");
             }
+            observeStage?.Invoke("surface-document-opening");
             var surface = await mesh.DocumentAsync<EveSurfaceDocument>(
                     endpointId,
                     match.Surface.RecordRef,
                     cancellationToken)
                 .ConfigureAwait(false);
+            observeStage?.Invoke("surface-document-ready");
             return new EveSurfaceSelection(match.Provider, match.Surface, surface, plugins);
         }
 

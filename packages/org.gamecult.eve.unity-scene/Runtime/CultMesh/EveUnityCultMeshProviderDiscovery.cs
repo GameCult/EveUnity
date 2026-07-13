@@ -3,6 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using GameCult.Eve.Surface;
 using GameCult.Mesh;
+using UnityEngine;
 
 #nullable enable
 
@@ -60,7 +61,8 @@ namespace GameCult.Eve.UnityScene
                         SurfaceKind = surfaceKind,
                         LoweringTarget = "unity-scene"
                     },
-                    cancellationToken).ConfigureAwait(false);
+                    cancellationToken,
+                    stage => Debug.Log($"EveUnity CultMesh discovery: {stage}")).ConfigureAwait(false);
                 return new EveUnityCultMeshProviderSelection(endpointId, mesh, surface);
             }
             catch

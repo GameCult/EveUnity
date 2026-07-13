@@ -11,6 +11,7 @@ namespace GameCult.Eve.UnityScene
         private readonly EveUnitySceneProviderConnection _connection;
         private readonly EveUnityPlayableWorldPresenter _presenter;
         private readonly IEveUnitySceneCommandReceiptSource? _receiptSource;
+        private readonly Func<long>? _visibleStateVersion;
         private readonly EveUnityFeedbackPresenter _feedback = new EveUnityFeedbackPresenter();
         private readonly EveUnityShotReceiptPresenter _shots = new EveUnityShotReceiptPresenter();
         private readonly List<EveUnitySceneCommandReceipt> _pendingReceipts =
@@ -21,11 +22,13 @@ namespace GameCult.Eve.UnityScene
         public EveUnityPlayableWorldLiveClient(
             EveUnitySceneProviderConnection connection,
             EveUnityPlayableWorldPresenter presenter,
-            IEveUnitySceneCommandReceiptSource? receiptSource = null)
+            IEveUnitySceneCommandReceiptSource? receiptSource = null,
+            Func<long>? visibleStateVersion = null)
         {
             _connection = connection ?? throw new ArgumentNullException(nameof(connection));
             _presenter = presenter ?? throw new ArgumentNullException(nameof(presenter));
             _receiptSource = receiptSource;
+            _visibleStateVersion = visibleStateVersion;
         }
 
         public EveUnitySceneProjection? ActiveProjection => _connection.ActiveProjection;
@@ -36,7 +39,7 @@ namespace GameCult.Eve.UnityScene
 
         public EveUnitySceneCommandReceipt? LastReceipt { get; private set; }
 
-        public long ActiveVersion => _connection.ActiveVersion;
+        public long ActiveVersion => Math.Max(_connection.ActiveVersion, _visibleStateVersion?.Invoke() ?? 0);
 
         public string SourcePointer => _connection.SourcePointer;
 

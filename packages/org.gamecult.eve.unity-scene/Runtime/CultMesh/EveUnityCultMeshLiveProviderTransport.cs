@@ -51,12 +51,15 @@ namespace GameCult.Eve.UnityScene
         private readonly List<AssetBundle> _assetBundles = new List<AssetBundle>();
         private readonly Dictionary<string, int> _cameraCullingMasks = new Dictionary<string, int>(StringComparer.Ordinal);
         private readonly ConcurrentQueue<object> _liveDocuments = new ConcurrentQueue<object>();
+        private readonly CancellationTokenSource _backgroundCancellation = new CancellationTokenSource();
         private CultNetDocumentRegistry? _networkRegistry;
         private readonly List<IDisposable> _liveWatches = new List<IDisposable>();
         private bool _liveSubscriptionsOpen;
         private EveProviderAdvertisementDocument? _advertisement;
         private EveAdvertisedSurface? _advertisedSurface;
         private string _assetCatalogPointer = "";
+        private Task? _assetCatalogTask;
+        private EveEntitySoaViewDocument? _deferredEntityView;
 
         public EveUnityCultMeshLiveProviderTransport(
             string replicaPath,
@@ -117,7 +120,12 @@ namespace GameCult.Eve.UnityScene
             while (_liveDocuments.TryDequeue(out var document))
             {
                 if (document is EveEntitySoaViewDocument entityView)
-                    EntityViewAvailable?.Invoke(entityView);
+                {
+                    if (!string.IsNullOrWhiteSpace(_assetCatalogPointer) && CurrentAssetCatalogVersion < 0)
+                        _deferredEntityView = entityView;
+                    else
+                        EntityViewAvailable?.Invoke(entityView);
+                }
                 else if (document is EveSurfaceDocument surface)
                     PublishSurface(surface);
                 else if (document is EveCommandReceiptDocument receipt)
@@ -126,6 +134,10 @@ namespace GameCult.Eve.UnityScene
                     CurrentInputCapability = inputCapability;
                 else if (document is EveAssetCatalogDocument assetCatalog)
                     ApplyAssetCatalog(assetCatalog);
+                else if (document is PreparedAssetCatalog preparedAssetCatalog)
+                    ApplyPreparedAssetCatalog(preparedAssetCatalog);
+                else if (document is BackgroundFailure failure)
+                    throw new InvalidOperationException(failure.Operation + " failed.", failure.Error);
             }
         }
 
@@ -148,6 +160,12 @@ namespace GameCult.Eve.UnityScene
                 throw new InvalidOperationException("Eve command invocations require an idempotency key.");
 
             var recordKey = ChildRecordKey(interaction.CommandRecordRef, commandId);
+            if (string.IsNullOrWhiteSpace(interaction.ReceiptRecordRef))
+                throw new InvalidOperationException("The provider advertisement does not publish a receipt record reference.");
+            var receiptKey = ChildRecordKey(interaction.ReceiptRecordRef, commandId);
+            var receipt = _mesh.DocumentAsync<EveCommandReceiptDocument>(_endpointId, receiptKey)
+                .GetAwaiter().GetResult();
+            _liveWatches.Add(receipt.Watch(value => _liveDocuments.Enqueue(value)));
             var message = _networkRegistry!.CreateRawDocumentPutMessage(
                 $"eve-unity-{commandId}",
                 new CultRecordHandle<EveSurfaceCommandRequest>(new CultRecordKey(recordKey)),
@@ -161,10 +179,44 @@ namespace GameCult.Eve.UnityScene
             message.ShardEpoch = 1;
             _documentSession!.SendCultNet(message);
             _pendingCommandIds.Add(commandId);
+            _ = AwaitReceiptAsync(receiptKey, commandId, _backgroundCancellation.Token);
+        }
+
+        private async Task AwaitReceiptAsync(string receiptKey, string commandId, CancellationToken cancellationToken)
+        {
+            for (var attempt = 0; attempt < 60 && !cancellationToken.IsCancellationRequested; attempt++)
+            {
+                try
+                {
+                    var receipt = await _mesh.ReadAsync<EveCommandReceiptDocument>(
+                            _endpointId,
+                            receiptKey,
+                            TimeSpan.FromSeconds(2),
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                    if (string.Equals(receipt.CommandId, commandId, StringComparison.Ordinal))
+                    {
+                        _liveDocuments.Enqueue(receipt);
+                        return;
+                    }
+                }
+                catch (InvalidOperationException)
+                {
+                }
+                try
+                {
+                    await Task.Delay(100, cancellationToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    return;
+                }
+            }
         }
 
         public void Dispose()
         {
+            _backgroundCancellation.Cancel();
             foreach (var bundle in _assetBundles) bundle.Unload(unloadAllLoadedObjects: false);
             _assetBundles.Clear();
             _prefabs.Clear();
@@ -176,6 +228,7 @@ namespace GameCult.Eve.UnityScene
             _networkRegistry = null;
             _pendingCommandIds.Clear();
             _publishedReceiptIds.Clear();
+            _backgroundCancellation.Dispose();
         }
 
         public GameObject? ResolvePrefab(EveUnityPlayableWorldAssetBinding asset)
@@ -264,11 +317,6 @@ namespace GameCult.Eve.UnityScene
                 CurrentInputCapability = inputs.LatestAsync().GetAwaiter().GetResult();
                 _liveWatches.Add(inputs.Watch(document => _liveDocuments.Enqueue(document)));
             }
-            var receipts = _mesh.CollectionAsync<EveCommandReceiptDocument>(_endpointId).GetAwaiter().GetResult();
-            _liveWatches.Add(receipts.WatchChanges(change =>
-            {
-                if (change.Document != null) _liveDocuments.Enqueue(change.Document);
-            }));
         }
 
         private void RefreshAssetCatalog()
@@ -281,16 +329,50 @@ namespace GameCult.Eve.UnityScene
                 return;
 
             _assetCatalogPointer = interaction.AssetManifestRecordRef;
-            var document = _mesh.DocumentAsync<EveAssetCatalogDocument>(_endpointId, _assetCatalogPointer)
-                .GetAwaiter().GetResult();
-            ApplyAssetCatalog(document.LatestAsync().GetAwaiter().GetResult());
-            _liveWatches.Add(document.Watch(catalog => _liveDocuments.Enqueue(catalog)));
+            var platform = CurrentBundlePlatform();
+            var cacheRoot = AssetCacheRoot();
+            _assetCatalogTask = ObserveBackgroundAsync(
+                OpenAssetCatalogAsync(_assetCatalogPointer, platform, cacheRoot),
+                "CultMesh asset catalog preparation");
+        }
+
+        private async Task ObserveBackgroundAsync(Task operation, string name)
+        {
+            try
+            {
+                await operation.ConfigureAwait(false);
+            }
+            catch (Exception error)
+            {
+                _liveDocuments.Enqueue(new BackgroundFailure(name, error));
+            }
+        }
+
+        private async Task OpenAssetCatalogAsync(string pointer, string platform, string cacheRoot)
+        {
+            var document = await _mesh.DocumentAsync<EveAssetCatalogDocument>(_endpointId, pointer).ConfigureAwait(false);
+            var catalog = await document.LatestAsync().ConfigureAwait(false);
+            _liveDocuments.Enqueue(await PrepareAssetCatalogAsync(catalog, platform, cacheRoot).ConfigureAwait(false));
+            _liveWatches.Add(document.Watch(next =>
+            {
+                _ = Task.Run(async () =>
+                    _liveDocuments.Enqueue(await PrepareAssetCatalogAsync(next, platform, cacheRoot).ConfigureAwait(false)));
+            }));
         }
 
         private void ApplyAssetCatalog(EveAssetCatalogDocument catalog)
         {
-            if (catalog == null || catalog.Version == CurrentAssetCatalogVersion)
-                return;
+            if (catalog == null || catalog.Version == CurrentAssetCatalogVersion) return;
+            var platform = CurrentBundlePlatform();
+            var cacheRoot = AssetCacheRoot();
+            _assetCatalogTask = Task.Run(async () =>
+                _liveDocuments.Enqueue(await PrepareAssetCatalogAsync(catalog, platform, cacheRoot).ConfigureAwait(false)));
+        }
+
+        private void ApplyPreparedAssetCatalog(PreparedAssetCatalog prepared)
+        {
+            var catalog = prepared.Catalog;
+            if (catalog.Version == CurrentAssetCatalogVersion) return;
 
             foreach (var bundle in _assetBundles) bundle.Unload(unloadAllLoadedObjects: false);
             _assetBundles.Clear();
@@ -303,7 +385,7 @@ namespace GameCult.Eve.UnityScene
                     Asset = asset,
                     Variant = asset.Variants.FirstOrDefault(variant =>
                         string.Equals(variant.RuntimeId, "unity-scene", StringComparison.Ordinal) &&
-                        string.Equals(variant.Platform, CurrentBundlePlatform(), StringComparison.Ordinal))
+                        string.Equals(variant.Platform, prepared.Platform, StringComparison.Ordinal))
                 })
                 .Where(selection => selection.Variant != null)
                 .ToArray();
@@ -311,10 +393,7 @@ namespace GameCult.Eve.UnityScene
             foreach (var group in selected.GroupBy(selection => selection.Variant!.Uri, StringComparer.Ordinal))
             {
                 var variant = group.First().Variant!;
-                var descriptor = _mesh.ReadAsync<CultMeshCdnArtifactManifest>(_endpointId, variant.Uri)
-                    .GetAwaiter().GetResult();
-                var bytes = ReadCachedBundle(descriptor, variant);
-                VerifyBundle(bytes, variant);
+                var bytes = prepared.BundleBytes[variant.Uri];
                 var bundle = AssetBundle.LoadFromMemory(bytes);
                 if (bundle == null)
                     throw new InvalidOperationException($"Unity could not load provider asset bundle '{variant.Uri}'.");
@@ -336,6 +415,34 @@ namespace GameCult.Eve.UnityScene
             }
 
             CurrentAssetCatalogVersion = catalog.Version;
+            if (_deferredEntityView != null)
+            {
+                var deferred = _deferredEntityView;
+                _deferredEntityView = null;
+                EntityViewAvailable?.Invoke(deferred);
+            }
+        }
+
+        private async Task<PreparedAssetCatalog> PrepareAssetCatalogAsync(
+            EveAssetCatalogDocument catalog,
+            string platform,
+            string cacheRoot)
+        {
+            var variants = catalog.Assets
+                .SelectMany(asset => asset.Variants)
+                .Where(variant => string.Equals(variant.RuntimeId, "unity-scene", StringComparison.Ordinal) &&
+                                  string.Equals(variant.Platform, platform, StringComparison.Ordinal))
+                .GroupBy(variant => variant.Uri, StringComparer.Ordinal)
+                .Select(group => group.First())
+                .ToArray();
+            var bundles = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+            foreach (var variant in variants)
+            {
+                var descriptor = await _mesh.ReadAsync<CultMeshCdnArtifactManifest>(_endpointId, variant.Uri)
+                    .ConfigureAwait(false);
+                bundles[variant.Uri] = await ReadCachedBundleAsync(descriptor, variant, cacheRoot).ConfigureAwait(false);
+            }
+            return new PreparedAssetCatalog(catalog, platform, bundles);
         }
 
         private void ReadCameraPolicies(IEnumerable<EveAssetVariant> variants)
@@ -373,6 +480,9 @@ namespace GameCult.Eve.UnityScene
         }
 
         private byte[] ReadBundle(CultMeshCdnArtifactManifest manifest)
+            => ReadBundleAsync(manifest).GetAwaiter().GetResult();
+
+        private async Task<byte[]> ReadBundleAsync(CultMeshCdnArtifactManifest manifest)
         {
             var bytes = new byte[checked((int)manifest.SizeBytes)];
             var references = manifest.Chunks.OrderBy(chunk => chunk.Offset).ToArray();
@@ -406,15 +516,18 @@ namespace GameCult.Eve.UnityScene
                     concurrency.Release();
                 }
             }).ToArray();
-            Task.WhenAll(downloads).GetAwaiter().GetResult();
+            await Task.WhenAll(downloads).ConfigureAwait(false);
             return bytes;
         }
 
         private byte[] ReadCachedBundle(CultMeshCdnArtifactManifest manifest, EveAssetVariant variant)
+            => ReadCachedBundleAsync(manifest, variant, AssetCacheRoot()).GetAwaiter().GetResult();
+
+        private async Task<byte[]> ReadCachedBundleAsync(
+            CultMeshCdnArtifactManifest manifest,
+            EveAssetVariant variant,
+            string cacheRoot)
         {
-            var cacheRoot = Environment.GetEnvironmentVariable("EVEUNITY_ASSET_CACHE_PATH");
-            if (string.IsNullOrWhiteSpace(cacheRoot))
-                cacheRoot = Path.Combine(Application.persistentDataPath, "EveUnity", "assets");
             Directory.CreateDirectory(cacheRoot);
             var hash = variant.ContentHash.StartsWith("sha256:", StringComparison.Ordinal)
                 ? variant.ContentHash.Substring("sha256:".Length)
@@ -427,13 +540,47 @@ namespace GameCult.Eve.UnityScene
                 return cached;
             }
 
-            var bytes = ReadBundle(manifest);
+            var bytes = await ReadBundleAsync(manifest).ConfigureAwait(false);
             VerifyBundle(bytes, variant);
             var temporaryPath = cachePath + ".tmp";
             File.WriteAllBytes(temporaryPath, bytes);
             if (File.Exists(cachePath)) File.Delete(cachePath);
             File.Move(temporaryPath, cachePath);
             return bytes;
+        }
+
+        private static string AssetCacheRoot()
+        {
+            var cacheRoot = Environment.GetEnvironmentVariable("EVEUNITY_ASSET_CACHE_PATH");
+            return string.IsNullOrWhiteSpace(cacheRoot)
+                ? Path.Combine(Application.persistentDataPath, "EveUnity", "assets")
+                : cacheRoot;
+        }
+
+        private sealed class PreparedAssetCatalog
+        {
+            public PreparedAssetCatalog(EveAssetCatalogDocument catalog, string platform, Dictionary<string, byte[]> bundleBytes)
+            {
+                Catalog = catalog;
+                Platform = platform;
+                BundleBytes = bundleBytes;
+            }
+
+            public EveAssetCatalogDocument Catalog { get; }
+            public string Platform { get; }
+            public Dictionary<string, byte[]> BundleBytes { get; }
+        }
+
+        private sealed class BackgroundFailure
+        {
+            public BackgroundFailure(string operation, Exception error)
+            {
+                Operation = operation;
+                Error = error;
+            }
+
+            public string Operation { get; }
+            public Exception Error { get; }
         }
 
         private static void VerifyBundle(byte[] bytes, EveAssetVariant variant)

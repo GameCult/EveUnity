@@ -1,6 +1,7 @@
 using System;
 using GameCult.Caching;
 using MessagePack;
+using GameCult.Mesh;
 
 #nullable enable
 
@@ -25,6 +26,7 @@ namespace GameCult.Eve.Surface
         [Key(10)] public EveEntitySoaDirtyRange[] DirtyRanges { get; set; } = Array.Empty<EveEntitySoaDirtyRange>();
         [Key(11)] public EveEntityRenderGroup[] RenderGroups { get; set; } = Array.Empty<EveEntityRenderGroup>();
         [Key(12)] public EveEntitySoaIdentity[] Identities { get; set; } = Array.Empty<EveEntitySoaIdentity>();
+        [Key(13)] public CultMeshBodyDescriptor? Body { get; set; }
     }
 
     [MessagePackObject]

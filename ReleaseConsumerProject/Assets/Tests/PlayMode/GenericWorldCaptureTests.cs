@@ -230,11 +230,30 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     provider);
                 runtime.ReceiptAvailable += receipt => commandReceipts[receipt.CommandId] = receipt;
                 var initial = runtime.Connect();
+                var entityDeadline = Time.realtimeSinceStartup + 12f;
+                while (initial.ActiveEntities == 0 && Time.realtimeSinceStartup < entityDeadline)
+                {
+                    yield return new WaitForSecondsRealtime(0.1f);
+                    initial = runtime.Refresh();
+                }
                 Assert.That(initial.ActiveEntities, Is.GreaterThan(0));
                 Assert.That(runtime.ActiveWorld.PlayerEntityId, Is.Not.Empty);
 
                 var playerId = runtime.ActiveWorld.PlayerEntityId;
                 var marker = FindMarker(root, playerId);
+                var realtimeAction = provider.CurrentInputCapability?.Actions
+                    .FirstOrDefault(action => string.Equals(action.ActionId, "simulation.rate.realtime", StringComparison.Ordinal));
+                Assert.That(realtimeAction, Is.Not.Null, "Terminus did not advertise its user-controlled simulation clock.");
+                var resume = runtime.SubmitActionIntent(playerId, realtimeAction.ActionId);
+                var resumeDeadline = Time.realtimeSinceStartup + 12f;
+                while (Time.realtimeSinceStartup < resumeDeadline &&
+                       !commandReceipts.TryGetValue(resume.CommandId, out _))
+                {
+                    yield return new WaitForSecondsRealtime(0.1f);
+                    runtime.Refresh();
+                }
+                Assert.That(commandReceipts.TryGetValue(resume.CommandId, out var resumeReceipt), Is.True);
+                Assert.That(resumeReceipt.State, Is.EqualTo("accepted").Or.EqualTo("reconciled"), resumeReceipt.Message);
                 Assert.That(
                     marker.GetComponentsInChildren<Transform>(includeInactive: true).Length,
                     Is.GreaterThan(1),
@@ -264,21 +283,43 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 Assert.That(movementDistance, Is.GreaterThan(0.01f));
                 movementReceipt = WitnessReceipt.From("movement", movementCommandReceipt);
 
-                var movementVersion = runtime.ActiveVersion;
-                var focus = runtime.SubmitFocusIntent(playerId);
-                var focusDeadline = Time.realtimeSinceStartup + 12f;
-                while (Time.realtimeSinceStartup < focusDeadline &&
-                       (!commandReceipts.TryGetValue(focus.CommandId, out var observedFocus) ||
-                        runtime.ActiveVersion < observedFocus.SourceVersion))
+                var stop = runtime.SubmitMoveVectorIntent(playerId, 0f, 0f, 0f);
+                var stopDeadline = Time.realtimeSinceStartup + 12f;
+                while (Time.realtimeSinceStartup < stopDeadline &&
+                       (!commandReceipts.TryGetValue(stop.CommandId, out var observedStop) ||
+                        runtime.ActiveVersion < observedStop.SourceVersion))
                 {
                     yield return new WaitForSecondsRealtime(0.1f);
                     runtime.Refresh();
                 }
-                Assert.That(commandReceipts.TryGetValue(focus.CommandId, out var focusCommandReceipt), Is.True);
-                Assert.That(focusCommandReceipt.State, Is.EqualTo("accepted").Or.EqualTo("reconciled"));
-                Assert.That(focusCommandReceipt.SourceVersion, Is.GreaterThan(movementVersion));
-                focusReceipt = WitnessReceipt.From("targeting", focusCommandReceipt);
+                Assert.That(commandReceipts.TryGetValue(stop.CommandId, out var stopCommandReceipt), Is.True);
+                Assert.That(
+                    stopCommandReceipt.State,
+                    Is.EqualTo("accepted").Or.EqualTo("reconciled"),
+                    stopCommandReceipt.Message);
 
+                var pauseAction = provider.CurrentInputCapability.Actions
+                    .Single(candidate => string.Equals(candidate.ActionId, "simulation.pause", StringComparison.Ordinal));
+                var pause = runtime.SubmitActionIntent(playerId, pauseAction.ActionId);
+                var pauseDeadline = Time.realtimeSinceStartup + 12f;
+                while (Time.realtimeSinceStartup < pauseDeadline &&
+                       (!commandReceipts.TryGetValue(pause.CommandId, out var observedPause) ||
+                        runtime.ActiveVersion < observedPause.SourceVersion))
+                {
+                    yield return new WaitForSecondsRealtime(0.1f);
+                    runtime.Refresh();
+                }
+                Assert.That(commandReceipts.TryGetValue(pause.CommandId, out var pauseReceipt), Is.True);
+                Assert.That(pauseReceipt.State, Is.EqualTo("accepted").Or.EqualTo("reconciled"), pauseReceipt.Message);
+
+                var movementVersion = runtime.ActiveVersion;
+                var targetMarker = root.GetComponentsInChildren<EveUnityPlayableWorldEntityMarker>()
+                    .Where(candidate => candidate.Selectable && !candidate.Controllable &&
+                                        string.Equals(candidate.EntityKind, "ship", StringComparison.OrdinalIgnoreCase) &&
+                                        !string.Equals(candidate.Faction, marker.Faction, StringComparison.Ordinal))
+                    .OrderBy(candidate => Vector3.Distance(candidate.transform.position, marker.transform.position))
+                    .First();
+                var focus = runtime.SubmitTargetIntent(playerId, targetMarker.EntityId);
                 var focusVersion = runtime.ActiveVersion;
                 var trajectoryRenderer = root.AddComponent<EveUnityShotTrajectoryRenderer>();
                 runtime.ShotAvailable += shot =>
@@ -298,14 +339,34 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                                         string.Equals(candidate.Availability, "available", StringComparison.OrdinalIgnoreCase));
                 combatActionId = advertisedAction.ActionId;
                 var action = runtime.SubmitActionIntent(playerId, advertisedAction.ActionId);
+                var resumeCombat = runtime.SubmitActionIntent(playerId, realtimeAction.ActionId);
+                var resumeCombatDeadline = Time.realtimeSinceStartup + 12f;
+                while (Time.realtimeSinceStartup < resumeCombatDeadline &&
+                       (!commandReceipts.TryGetValue(resumeCombat.CommandId, out var observedResumeCombat) ||
+                        runtime.ActiveVersion < observedResumeCombat.SourceVersion))
+                {
+                    yield return new WaitForSecondsRealtime(0.1f);
+                    runtime.Refresh();
+                }
+                Assert.That(commandReceipts.TryGetValue(resumeCombat.CommandId, out var resumeCombatReceipt), Is.True);
+                Assert.That(resumeCombatReceipt.State, Is.EqualTo("accepted").Or.EqualTo("reconciled"), resumeCombatReceipt.Message);
                 var actionDeadline = Time.realtimeSinceStartup + 12f;
                 while (Time.realtimeSinceStartup < actionDeadline &&
-                       (!commandReceipts.TryGetValue(action.CommandId, out var observedAction) ||
+                       (!commandReceipts.TryGetValue(focus.CommandId, out var observedFocus) ||
+                        runtime.ActiveVersion < observedFocus.SourceVersion ||
+                        !commandReceipts.TryGetValue(action.CommandId, out var observedAction) ||
                         runtime.ActiveVersion < observedAction.SourceVersion || combatShot == null))
                 {
                     yield return new WaitForSecondsRealtime(0.1f);
                     runtime.Refresh();
                 }
+                Assert.That(commandReceipts.TryGetValue(focus.CommandId, out var focusCommandReceipt), Is.True);
+                Assert.That(
+                    focusCommandReceipt.State,
+                    Is.EqualTo("accepted").Or.EqualTo("reconciled"),
+                    focusCommandReceipt.Message);
+                Assert.That(focusCommandReceipt.SourceVersion, Is.GreaterThan(movementVersion));
+                focusReceipt = WitnessReceipt.From("targeting", focusCommandReceipt);
                 Assert.That(commandReceipts.TryGetValue(action.CommandId, out var actionCommandReceipt), Is.True);
                 Assert.That(
                     actionCommandReceipt.State,

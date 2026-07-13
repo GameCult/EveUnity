@@ -41,7 +41,8 @@ namespace GameCult.Eve.UnityScene
             _client = new EveUnityPlayableWorldLiveClient(
                 _connection,
                 new EveUnityPlayableWorldPresenter(sceneSink, assetResolver ?? new EveUnityAssetRefResolver()),
-                receiptSource);
+                receiptSource,
+                () => _entityViews?.CurrentEntityView?.FrameId ?? 0);
 
             if (assetManifestDocuments != null)
                 _assetManifestSource = new EveUnityPlayableWorldAssetManifestDocumentSource(assetManifestDocuments);

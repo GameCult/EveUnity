@@ -374,11 +374,12 @@ namespace GameCult.Eve.UnityScene
             if (document.Buffers == null || document.Buffers.Length == 0)
                 throw new InvalidOperationException("Entity layout does not name a primary logical buffer.");
             var handle = BodyPublicationHandle(document);
-            var publication = _snapshot!
-                .FetchDocumentsAsync<CultMeshBodyPublicationDocument>(
-                    recordKeys: new[] { handle.RecordKey.Value },
-                    schemaIds: new[] { CultMeshBodyPublicationSchemaVersions.Publication })
-                .GetAwaiter().GetResult().FirstOrDefault()
+            var publication = _node!.Database.Cache.Get<CultMeshBodyPublicationDocument>(handle.RecordKey)
+                ?? _snapshot!
+                    .FetchDocumentsAsync<CultMeshBodyPublicationDocument>(
+                        recordKeys: new[] { handle.RecordKey.Value },
+                        schemaIds: new[] { CultMeshBodyPublicationSchemaVersions.Publication })
+                    .GetAwaiter().GetResult().FirstOrDefault()
                 ?? throw new InvalidOperationException(
                     $"Provider did not publish CultMesh body generation '{handle.RecordKey.Value}'.");
             handle.Validate(publication);
@@ -488,6 +489,10 @@ namespace GameCult.Eve.UnityScene
                     recordKeys: new[] { _advertisedSurface!.RecordRef },
                     schemaIds: new[] { EveSurfaceDocument.SchemaId },
                     includeSnapshot: false)
+                .GetAwaiter().GetResult();
+            _subscriptions.SubscribeAsync(
+                    "eve-unity-body-publications",
+                    schemaIds: new[] { CultMeshBodyPublicationSchemaVersions.Publication })
                 .GetAwaiter().GetResult();
             _subscriptions.SubscribeAsync(
                     "eve-unity-receipts",

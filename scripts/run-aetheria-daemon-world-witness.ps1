@@ -12,6 +12,8 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$expectedEveUnityCommit = "ed21479e467faea8ff624f2d2f5a7d2fecf913f4"
+$expectedCultLibCommit = "feb5c71513e71d681699f462fe3682b3168c6f73"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $projectRoot = $ClientProject
 $outputRoot = if ([IO.Path]::IsPathRooted($OutputDirectory)) { $OutputDirectory } else { Join-Path $repoRoot $OutputDirectory }
@@ -34,8 +36,16 @@ foreach ($required in @($UnityExe, (Join-Path $repoRoot $projectRoot), $daemonPr
 }
 
 New-Item -ItemType Directory -Force -Path $outputRoot | Out-Null
+foreach ($priorArtifact in @($resultsPath, $capturePath, $mapCapturePath, $factsPath, $witnessPath)) {
+  if (Test-Path -LiteralPath $priorArtifact) { Remove-Item -LiteralPath $priorArtifact -Force }
+}
 if ($CacheState -eq "cold" -and (Test-Path -LiteralPath $assetCachePath)) {
   Remove-Item -LiteralPath $assetCachePath -Recurse -Force
+}
+$initialBodyCount = @(Get-ChildItem -LiteralPath $assetCachePath -Filter *.body -File -Recurse -ErrorAction SilentlyContinue).Count
+$initialPartialCount = @(Get-ChildItem -LiteralPath $assetCachePath -Filter *.partial -File -Recurse -ErrorAction SilentlyContinue).Count
+if ($CacheState -eq "cold" -and ($initialBodyCount -ne 0 -or $initialPartialCount -ne 0)) {
+  throw "Cold witness cache was not empty before Unity launch. bodies=$initialBodyCount partials=$initialPartialCount"
 }
 $cacheWasWarm = @(Get-ChildItem -LiteralPath $assetCachePath -Filter *.body -File -ErrorAction SilentlyContinue).Count -gt 0
 if ($CacheState -eq "warm" -and -not $cacheWasWarm) {
@@ -155,13 +165,45 @@ try {
   if (-not (Test-Path $capturePath) -or (Get-Item $capturePath).Length -lt 1024) { throw "Live world capture is missing: $capturePath" }
   if (-not (Test-Path $mapCapturePath) -or (Get-Item $mapCapturePath).Length -lt 1024) { throw "Live map-channel capture is missing: $mapCapturePath" }
   if (-not (Test-Path $factsPath)) { throw "Live world witness facts are missing: $factsPath" }
+  foreach ($freshArtifact in @($resultsPath, $capturePath, $mapCapturePath, $factsPath)) {
+    if ((Get-Item -LiteralPath $freshArtifact).LastWriteTimeUtc -lt $witnessStartedAt.UtcDateTime) {
+      throw "Live witness artifact predates this run: $freshArtifact"
+    }
+  }
   $facts = Get-Content -LiteralPath $factsPath -Raw | ConvertFrom-Json
   $releaseLock = Get-Content -LiteralPath (Join-Path $repoRoot "ReleaseConsumerProject\Packages\packages-lock.json") -Raw | ConvertFrom-Json
   $releasedPackageClient = $projectRoot -eq "ReleaseConsumerProject"
+  $sceneLock = $releaseLock.dependencies.'org.gamecult.eve.unity-scene'
+  $cultLibLock = $releaseLock.dependencies.'org.gamecult.cultlib'
+  if (-not $releasedPackageClient) { throw "Released witness must run ReleaseConsumerProject, got '$projectRoot'." }
+  if ($sceneLock.source -ne "git" -or $cultLibLock.source -ne "git" -or
+      $sceneLock.version -like "file:*" -or $cultLibLock.version -like "file:*") {
+    throw "Released witness resolved a non-git/local package dependency."
+  }
+  if ($sceneLock.hash -ne $expectedEveUnityCommit -or $cultLibLock.hash -ne $expectedCultLibCommit) {
+    throw "Released package commits do not match the witnessed releases. scene=$($sceneLock.hash) cultlib=$($cultLibLock.hash)"
+  }
+  $finalBodies = @(Get-ChildItem -LiteralPath $assetCachePath -Filter *.body -File -Recurse -ErrorAction SilentlyContinue)
+  $finalPartials = @(Get-ChildItem -LiteralPath $assetCachePath -Filter *.partial -File -Recurse -ErrorAction SilentlyContinue)
+  if ($finalBodies.Count -ne 1 -or $finalPartials.Count -ne 0) {
+    throw "Content promotion is incomplete. bodies=$($finalBodies.Count) partials=$($finalPartials.Count)"
+  }
+  $bodyHash = (Get-FileHash -LiteralPath $finalBodies[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+  if ($finalBodies[0].BaseName -ne $bodyHash) {
+    throw "Promoted content body name does not match its SHA-256. name=$($finalBodies[0].BaseName) hash=$bodyHash"
+  }
   $facts | Add-Member -NotePropertyName releasedPackageClient -NotePropertyValue $releasedPackageClient
   $facts | Add-Member -NotePropertyName clientProject -NotePropertyValue $projectRoot
-  $facts | Add-Member -NotePropertyName eveUnityPackageCommit -NotePropertyValue $releaseLock.dependencies.'org.gamecult.eve.unity-scene'.hash
-  $facts | Add-Member -NotePropertyName cultLibPackageCommit -NotePropertyValue $releaseLock.dependencies.'org.gamecult.cultlib'.hash
+  $facts | Add-Member -NotePropertyName eveUnityPackageCommit -NotePropertyValue $sceneLock.hash
+  $facts | Add-Member -NotePropertyName cultLibPackageCommit -NotePropertyValue $cultLibLock.hash
+  $facts | Add-Member -NotePropertyName contentDelivery -NotePropertyValue ([ordered]@{
+    initialBodyCount = $initialBodyCount
+    initialPartialCount = $initialPartialCount
+    finalBodyCount = $finalBodies.Count
+    finalPartialCount = $finalPartials.Count
+    contentHash = $bodyHash
+    sizeBytes = $finalBodies[0].Length
+  })
   $capture = Get-Item -LiteralPath $capturePath
   $mapCapture = Get-Item -LiteralPath $mapCapturePath
   $resultsArtifact = Get-Item -LiteralPath $resultsPath

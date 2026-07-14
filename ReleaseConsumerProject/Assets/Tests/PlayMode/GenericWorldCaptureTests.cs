@@ -248,6 +248,12 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 var playerId = runtime.ActiveWorld.PlayerEntityId;
                 var playerFact = host.PresentedEntities.CurrentGeneration.Entities
                     .Single(entity => entity.EntityId == playerId);
+                var targetEntityId = host.PresentedEntities.CurrentGeneration.Entities
+                    .Where(entity => entity.EntityId != playerId)
+                    .Select(entity => entity.EntityId)
+                    .FirstOrDefault();
+                Assert.That(targetEntityId, Is.Not.Null.And.Not.Empty,
+                    "The advertised live generation has no explicit targeting candidate.");
                 var playerPrefab = provider.ResolvePrefab(new EveUnityPlayableWorldAssetBinding(
                     playerFact.AssetRef,
                     playerFact.EntityKind,
@@ -285,7 +291,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 movementReceipt = WitnessReceipt.From("movement", runtime.LastReceipt);
 
                 var movementVersion = runtime.ActiveVersion;
-                var focus = runtime.SubmitFocusIntent(playerId);
+                var focus = runtime.SubmitTargetIntent(playerId, targetEntityId);
                 var focusDeadline = Time.realtimeSinceStartup + 12f;
                 while (Time.realtimeSinceStartup < focusDeadline &&
                        (runtime.LastReceipt == null || runtime.LastReceipt.CommandId != focus.CommandId ||

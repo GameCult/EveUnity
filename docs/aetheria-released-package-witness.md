@@ -1,11 +1,11 @@
 # Aetheria released-package witness
 
-The warm-cache witness passes against `org.gamecult.eve.unity-scene` `0.3.17`
-at commit `979eee3f8e327c904d25d2d3091a9a6db977842d` and
-`org.gamecult.cultlib` `1.0.12` at commit
-`26b4d1eadc4d0b1fe7a5ffb29a64373576544447`.
+The warm-cache witness passes against `org.gamecult.eve.unity-scene` `0.3.18`
+at commit `ed21479e467faea8ff624f2d2f5a7d2fecf913f4` and
+`org.gamecult.cultlib` `1.0.13` at commit
+`feb5c71513e71d681699f462fe3682b3168c6f73`.
 
-Evidence is in `artifacts/render-channel-witness-content-warm`:
+Evidence is in `artifacts/render-channel-witness-content-drain-cold-2`:
 
 - `results.xml`: one passing PlayMode witness.
 - `aetheria-daemon-world.png`: provider-authored 3D pilot view.
@@ -13,14 +13,29 @@ Evidence is in `artifacts/render-channel-witness-content-warm`:
 - `witness-facts.json`: movement, targeting, action, receipts, and camera-mask facts.
 - `runtime-witness.warm.json`: released package commits and screenshot hashes.
 
-The warm cache was seeded from the previously hash-verified bundle and renamed
-to CultMesh's content-addressed `.body` cache shape. This proves released-client
-loading and lowering, not cold delivery.
+The warm run reused the body promoted by the preceding cold content transfer.
+It reconciled movement, explicit targeting, and action receipts. The pilot
+camera excluded all seven renderers assigned to the provider's `map` channel;
+the map-only camera rendered 2,664 changed glyph pixels. Visual inspection
+confirms provider-authored ships in the pilot view without map glyphs, and only
+the colored provider-authored glyphs in the map view.
 
-The cold CDN path remains failed. The 2026-07-14 run in
-`artifacts/render-channel-witness-content-cold` used the managed
-`cultmesh.content.v1` session and created the resumable 13,006,384-byte partial
-body, but transferred only about 5.3 MB before the fixed 300-second witness
-deadline. Snapshot chunk batching is no longer involved. The remaining fault is
-the sequential one-chunk request path over RUDP; increasing the witness timeout
-is not an accepted fix.
+Cold content delivery now succeeds through the managed `cultmesh.content.v1`
+session under the unchanged 300-second deadline. The run in
+`artifacts/render-channel-witness-content-drain-cold-3` began with an empty
+asset cache and atomically promoted:
+
+- path: `asset-cache/0d5b575a18ecb2e8f4f1c309a7fa009262bdbb2ff671c14a4bf610d5052685dd.body`
+- bytes: `13,006,384`
+- SHA-256: `0d5b575a18ecb2e8f4f1c309a7fa009262bdbb2ff671c14a4bf610d5052685dd`
+- partial files after completion: zero
+
+The full cold gameplay witness is not yet a pass. During the roughly 19 seconds
+of authoritative simulation needed to deliver and load the body, the witness
+world can advance until its initial non-player targeting candidates are gone.
+The released client then correctly reports a generation containing no explicit
+target and the witness stops before screenshots. The warm run proves the
+generic gameplay and camera contracts; the cold run proves content delivery.
+Closing the combined cold proof requires an explicit readiness/lifecycle
+contract or a stable witness-world scenario. A renderer fallback or a larger
+timeout would conceal the ownership problem and is not accepted.

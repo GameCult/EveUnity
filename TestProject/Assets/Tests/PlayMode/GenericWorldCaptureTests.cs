@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using GameCult.Caching;
 using GameCult.Caching.MessagePack;
 using GameCult.Eve.Surface;
@@ -175,12 +176,16 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                               Path.Combine(Application.temporaryCachePath, $"eve-unity-{Guid.NewGuid():N}.cc");
             var capturePath = Environment.GetEnvironmentVariable("EVEUNITY_AETHERIA_CAPTURE_PATH") ??
                               Path.Combine(Application.temporaryCachePath, "aetheria-daemon-world.png");
+            var mapCapturePath = Environment.GetEnvironmentVariable("EVEUNITY_AETHERIA_MAP_CAPTURE_PATH") ??
+                                 Path.Combine(Application.temporaryCachePath, "aetheria-daemon-map.png");
             var root = new GameObject("Generic Eve World Projection");
             var cameraObject = new GameObject("Generic Eve Capture Camera");
+            var mapCameraObject = new GameObject("Generic Eve Map Camera");
             var lightObject = new GameObject("Generic Eve World Light");
             RenderTexture target = null;
             Texture2D pixels = null;
             EveUnityCultMeshPlayableWorldProvider provider = null;
+            EveUnityPlayableWorldClientHost host = null;
             EveUnityPlayableWorldRuntime runtime = null;
             WitnessReceipt movementReceipt = null;
             WitnessReceipt focusReceipt = null;
@@ -217,18 +222,44 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 Assert.That(provider.Selection.VerseId, Is.Not.Empty);
                 Assert.That(provider.Selection.ProviderId, Is.Not.Empty);
                 Assert.That(provider.Selection.SurfaceId, Is.Not.Empty);
-                runtime = EveUnityPlayableWorldRuntime.CreateForGameObjectScene(
+                host = root.AddComponent<EveUnityPlayableWorldClientHost>();
+                host.Configure(
                     root.transform,
                     provider,
                     provider,
-                    null,
+                    provider,
                     provider,
                     provider);
-                var initial = runtime.Connect();
-                Assert.That(initial.ActiveEntities, Is.GreaterThan(0));
+                host.Connect();
+                runtime = host.Runtime;
+                Assert.That(runtime, Is.Not.Null);
                 Assert.That(runtime.ActiveWorld.PlayerEntityId, Is.Not.Empty);
+                var entityDeadline = Time.realtimeSinceStartup + 12f;
+                while (Time.realtimeSinceStartup < entityDeadline &&
+                       (host.PresentedEntities?.CurrentGeneration == null ||
+                        host.PresentedEntities.CurrentGeneration.Entities.Count == 0))
+                {
+                    yield return new WaitForSecondsRealtime(0.1f);
+                    host.Refresh();
+                }
+                Assert.That(host.PresentedEntities?.CurrentGeneration, Is.Not.Null);
+                Assert.That(host.PresentedEntities.CurrentGeneration.Entities.Count, Is.GreaterThan(0));
 
                 var playerId = runtime.ActiveWorld.PlayerEntityId;
+                var playerFact = host.PresentedEntities.CurrentGeneration.Entities
+                    .Single(entity => entity.EntityId == playerId);
+                var targetEntityId = host.PresentedEntities.CurrentGeneration.Entities
+                    .Where(entity => entity.EntityId != playerId)
+                    .Select(entity => entity.EntityId)
+                    .FirstOrDefault();
+                Assert.That(targetEntityId, Is.Not.Null.And.Not.Empty,
+                    "The advertised live generation has no explicit targeting candidate.");
+                var playerPrefab = provider.ResolvePrefab(new EveUnityPlayableWorldAssetBinding(
+                    playerFact.AssetRef,
+                    playerFact.EntityKind,
+                    "provider-asset-ref"));
+                Assert.That(playerPrefab, Is.Not.Null,
+                    $"Provider asset catalog did not resolve player AssetRef '{playerFact.AssetRef}'.");
                 var marker = FindMarker(root, playerId);
                 Assert.That(
                     marker.GetComponentsInChildren<Transform>(includeInactive: true).Length,
@@ -260,7 +291,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 movementReceipt = WitnessReceipt.From("movement", runtime.LastReceipt);
 
                 var movementVersion = runtime.ActiveVersion;
-                var focus = runtime.SubmitFocusIntent(playerId);
+                var focus = runtime.SubmitTargetIntent(playerId, targetEntityId);
                 var focusDeadline = Time.realtimeSinceStartup + 12f;
                 while (Time.realtimeSinceStartup < focusDeadline &&
                        (runtime.LastReceipt == null || runtime.LastReceipt.CommandId != focus.CommandId ||
@@ -302,6 +333,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 var camera = cameraObject.AddComponent<Camera>();
                 camera.clearFlags = CameraClearFlags.SolidColor;
                 camera.backgroundColor = new Color(0.035f, 0.055f, 0.08f, 1f);
+                camera.cullingMask = -1;
                 foreach (var entityMarker in root.GetComponentsInChildren<EveUnityPlayableWorldEntityMarker>())
                 {
                     foreach (var renderer in entityMarker.GetComponentsInChildren<Renderer>())
@@ -316,15 +348,25 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 var playerMarker = FindMarker(root, playerId);
                 var playerRenderers = playerMarker.GetComponentsInChildren<Renderer>();
                 Assert.That(playerRenderers, Is.Not.Empty, "The provider-authored player prefab has no renderable visual.");
-                var playerBounds = playerRenderers[0].bounds;
-                foreach (var renderer in playerRenderers)
-                    playerBounds.Encapsulate(renderer.bounds);
-                var halfFovRadians = camera.fieldOfView * 0.5f * Mathf.Deg2Rad;
-                var cameraDistance = Mathf.Max(8f, playerBounds.extents.magnitude / Mathf.Tan(halfFovRadians) * 1.35f);
-                camera.nearClipPlane = Mathf.Max(0.01f, cameraDistance * 0.001f);
-                camera.farClipPlane = Mathf.Max(1000f, cameraDistance + playerBounds.size.magnitude * 4f);
-                camera.transform.position = playerBounds.center + new Vector3(1f, 0.65f, -1.2f).normalized * cameraDistance;
-                camera.transform.LookAt(playerBounds.center);
+                Assert.That(provider.TryGetRenderChannelLayer("map", out var mapLayer), Is.True);
+                var mapRenderers = new List<Renderer>();
+                foreach (var renderer in root.GetComponentsInChildren<Renderer>(includeInactive: true))
+                {
+                    if (renderer.gameObject.layer == mapLayer)
+                        mapRenderers.Add(renderer);
+                }
+                Assert.That(mapRenderers, Is.Not.Empty, "The live provider prefab has no renderer assigned to its advertised map channel.");
+
+                var cameraRig = cameraObject.AddComponent<EveUnityPlayableWorldCameraRig>();
+                cameraRig.Host = host;
+                cameraRig.CameraTransform = camera.transform;
+                cameraRig.RenderPolicySource = provider;
+                Assert.That(cameraRig.ApplyRig(0f), Is.True);
+                Assert.That(camera.cullingMask & (1 << mapLayer), Is.Zero);
+
+                var mapCamera = mapCameraObject.AddComponent<Camera>();
+                mapCamera.cullingMask = 1 << mapLayer;
+                Assert.That(mapCamera.cullingMask & (1 << mapLayer), Is.Not.Zero);
                 target = new RenderTexture(640, 360, 24, RenderTextureFormat.ARGB32);
                 camera.targetTexture = target;
                 yield return null;
@@ -336,10 +378,36 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(capturePath)));
                 File.WriteAllBytes(capturePath, pixels.EncodeToPNG());
                 Assert.That(new FileInfo(capturePath).Length, Is.GreaterThan(1024));
+
+                var mapBounds = mapRenderers[0].bounds;
+                foreach (var renderer in mapRenderers)
+                    mapBounds.Encapsulate(renderer.bounds);
+                mapCamera.clearFlags = CameraClearFlags.SolidColor;
+                mapCamera.backgroundColor = camera.backgroundColor;
+                mapCamera.orthographic = true;
+                mapCamera.orthographicSize = Mathf.Max(0.1f, mapBounds.extents.x, mapBounds.extents.z) * 1.25f;
+                mapCamera.nearClipPlane = 0.01f;
+                mapCamera.farClipPlane = Mathf.Max(10f, mapBounds.size.magnitude * 4f);
+                mapCamera.transform.position = mapBounds.center + Vector3.up * (mapCamera.farClipPlane * 0.25f);
+                mapCamera.transform.rotation = Quaternion.Euler(90f, 0f, 0f);
+                mapCamera.targetTexture = target;
+                mapCamera.Render();
+                RenderTexture.active = target;
+                pixels.ReadPixels(new Rect(0, 0, 640, 360), 0, 0);
+                pixels.Apply();
+                var mapChangedPixels = CountChangedPixels(pixels, mapCamera.backgroundColor);
+                Assert.That(mapChangedPixels, Is.GreaterThan(25), "The map-only camera rendered no provider-authored map glyph pixels.");
+                Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(mapCapturePath)));
+                File.WriteAllBytes(mapCapturePath, pixels.EncodeToPNG());
+                Assert.That(new FileInfo(mapCapturePath).Length, Is.GreaterThan(1024));
                 WriteWitnessFacts(
                     initialVersion,
                     runtime.ActiveVersion,
                     movementDistance,
+                    mapRenderers.Count,
+                    mapChangedPixels,
+                    (camera.cullingMask & (1 << mapLayer)) == 0,
+                    (mapCamera.cullingMask & (1 << mapLayer)) != 0,
                     movementReceipt,
                     focusReceipt,
                     actionReceipt);
@@ -349,10 +417,13 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 RenderTexture.active = null;
                 var camera = cameraObject.GetComponent<Camera>();
                 if (camera != null) camera.targetTexture = null;
+                var mapCamera = mapCameraObject.GetComponent<Camera>();
+                if (mapCamera != null) mapCamera.targetTexture = null;
                 if (target != null) UnityEngine.Object.DestroyImmediate(target);
                 if (pixels != null) UnityEngine.Object.DestroyImmediate(pixels);
-                runtime?.Dispose();
+                host?.Disconnect();
                 UnityEngine.Object.DestroyImmediate(lightObject);
+                UnityEngine.Object.DestroyImmediate(mapCameraObject);
                 UnityEngine.Object.DestroyImmediate(cameraObject);
                 UnityEngine.Object.DestroyImmediate(root);
             }
@@ -362,6 +433,10 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             long initialVersion,
             long finalVersion,
             float movementDistance,
+            int mapChannelRendererCount,
+            int mapChangedPixels,
+            bool pilotCameraExcludesMapChannel,
+            bool mapCameraIncludesMapChannel,
             WitnessReceipt movement,
             WitnessReceipt targeting,
             WitnessReceipt action)
@@ -378,6 +453,10 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 initialVersion = initialVersion,
                 finalVersion = finalVersion,
                 movementDistance = movementDistance,
+                mapChannelRendererCount = mapChannelRendererCount,
+                mapChangedPixels = mapChangedPixels,
+                pilotCameraExcludesMapChannel = pilotCameraExcludesMapChannel,
+                mapCameraIncludesMapChannel = mapCameraIncludesMapChannel,
                 receipts = new[] { movement, targeting, action }
             };
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path)));
@@ -395,6 +474,10 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             public long initialVersion;
             public long finalVersion;
             public float movementDistance;
+            public int mapChannelRendererCount;
+            public int mapChangedPixels;
+            public bool pilotCameraExcludesMapChannel;
+            public bool mapCameraIncludesMapChannel;
             public WitnessReceipt[] receipts;
         }
 
@@ -426,6 +509,19 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     return marker;
             }
             throw new InvalidOperationException($"Projected world has no entity marker '{entityId}'.");
+        }
+
+        private static int CountChangedPixels(Texture2D texture, Color background)
+        {
+            var changed = 0;
+            foreach (var pixel in texture.GetPixels())
+            {
+                if (Mathf.Abs(pixel.r - background.r) +
+                    Mathf.Abs(pixel.g - background.g) +
+                    Mathf.Abs(pixel.b - background.b) > 0.08f)
+                    changed++;
+            }
+            return changed;
         }
 
         private static EveUnitySceneProviderSurfaceDocument WorldDocument()

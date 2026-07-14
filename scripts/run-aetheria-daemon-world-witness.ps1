@@ -34,6 +34,12 @@ $importProject = Join-Path $AetheriaRoot "Aetheria.State.Import\Aetheria.State.I
 foreach ($required in @($UnityExe, (Join-Path $repoRoot $projectRoot), $daemonProject, $importProject)) {
   if (-not (Test-Path -LiteralPath $required)) { throw "Required world witness path not found: $required" }
 }
+$canonicalWitnessTest = Join-Path $repoRoot "TestProject\Assets\Tests\PlayMode\GenericWorldCaptureTests.cs"
+$releaseWitnessTest = Join-Path $repoRoot "ReleaseConsumerProject\Assets\Tests\PlayMode\GenericWorldCaptureTests.cs"
+if ((Get-FileHash -LiteralPath $canonicalWitnessTest -Algorithm SHA256).Hash -ne
+    (Get-FileHash -LiteralPath $releaseWitnessTest -Algorithm SHA256).Hash) {
+  throw "Released consumer witness drifted from the canonical generic-client test."
+}
 
 New-Item -ItemType Directory -Force -Path $outputRoot | Out-Null
 foreach ($priorArtifact in @($resultsPath, $capturePath, $mapCapturePath, $factsPath, $witnessPath)) {

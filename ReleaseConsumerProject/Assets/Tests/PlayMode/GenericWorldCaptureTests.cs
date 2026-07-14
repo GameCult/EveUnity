@@ -271,21 +271,23 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
 
                 var deadline = Time.realtimeSinceStartup + 12f;
                 while (Time.realtimeSinceStartup < deadline &&
-                       (runtime.LastReceipt == null || runtime.ActiveVersion <= initialVersion ||
+                       (runtime.LastReceipt == null || runtime.LastReceipt.CommandId != request.CommandId ||
+                        !string.Equals(runtime.LastReceipt.State, "reconciled", StringComparison.OrdinalIgnoreCase) ||
+                        runtime.ActiveVersion <= initialVersion ||
                         Vector3.Distance(FindMarker(root, playerId).transform.position, initialPosition) < 0.01f))
                 {
                     yield return new WaitForSecondsRealtime(0.1f);
                     runtime.Refresh();
                 }
 
-                Assert.That(runtime.LastReceipt, Is.Not.Null);
-                Assert.That(runtime.LastReceipt.CommandId, Is.EqualTo(request.CommandId));
-                Assert.That(
-                    runtime.LastReceipt.State,
-                    Is.EqualTo("accepted").Or.EqualTo("reconciled"),
-                    runtime.LastReceipt.Message);
-                Assert.That(runtime.LastReceipt.SourceVersion, Is.GreaterThan(initialVersion));
+                AssertReconciledProviderReceipt(
+                    runtime.LastReceipt,
+                    request.CommandId,
+                    provider.Selection.ProviderId,
+                    provider.Selection.SurfaceId,
+                    initialVersion);
                 Assert.That(runtime.ActiveVersion, Is.GreaterThan(initialVersion));
+                Assert.That(runtime.ActiveVersion, Is.GreaterThanOrEqualTo(runtime.LastReceipt.SourceVersion));
                 movementDistance = Vector3.Distance(FindMarker(root, playerId).transform.position, initialPosition);
                 Assert.That(movementDistance, Is.GreaterThan(0.01f));
                 movementReceipt = WitnessReceipt.From("movement", runtime.LastReceipt);
@@ -295,15 +297,19 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 var focusDeadline = Time.realtimeSinceStartup + 12f;
                 while (Time.realtimeSinceStartup < focusDeadline &&
                        (runtime.LastReceipt == null || runtime.LastReceipt.CommandId != focus.CommandId ||
+                        !string.Equals(runtime.LastReceipt.State, "reconciled", StringComparison.OrdinalIgnoreCase) ||
                         runtime.ActiveVersion < runtime.LastReceipt.SourceVersion))
                 {
                     yield return new WaitForSecondsRealtime(0.1f);
                     runtime.Refresh();
                 }
-                Assert.That(runtime.LastReceipt, Is.Not.Null);
-                Assert.That(runtime.LastReceipt.CommandId, Is.EqualTo(focus.CommandId));
-                Assert.That(runtime.LastReceipt.State, Is.EqualTo("accepted").Or.EqualTo("reconciled"));
-                Assert.That(runtime.LastReceipt.SourceVersion, Is.GreaterThan(movementVersion));
+                AssertReconciledProviderReceipt(
+                    runtime.LastReceipt,
+                    focus.CommandId,
+                    provider.Selection.ProviderId,
+                    provider.Selection.SurfaceId,
+                    movementVersion);
+                Assert.That(runtime.ActiveVersion, Is.GreaterThanOrEqualTo(runtime.LastReceipt.SourceVersion));
                 focusReceipt = WitnessReceipt.From("targeting", runtime.LastReceipt);
 
                 var focusVersion = runtime.ActiveVersion;
@@ -311,18 +317,18 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 var actionDeadline = Time.realtimeSinceStartup + 12f;
                 while (Time.realtimeSinceStartup < actionDeadline &&
                        (runtime.LastReceipt == null || runtime.LastReceipt.CommandId != action.CommandId ||
+                        !string.Equals(runtime.LastReceipt.State, "reconciled", StringComparison.OrdinalIgnoreCase) ||
                         runtime.ActiveVersion < runtime.LastReceipt.SourceVersion))
                 {
                     yield return new WaitForSecondsRealtime(0.1f);
                     runtime.Refresh();
                 }
-                Assert.That(runtime.LastReceipt, Is.Not.Null);
-                Assert.That(runtime.LastReceipt.CommandId, Is.EqualTo(action.CommandId));
-                Assert.That(
-                    runtime.LastReceipt.State,
-                    Is.EqualTo("accepted").Or.EqualTo("reconciled"),
-                    runtime.LastReceipt.Message);
-                Assert.That(runtime.LastReceipt.SourceVersion, Is.GreaterThan(focusVersion));
+                AssertReconciledProviderReceipt(
+                    runtime.LastReceipt,
+                    action.CommandId,
+                    provider.Selection.ProviderId,
+                    provider.Selection.SurfaceId,
+                    focusVersion);
                 Assert.That(runtime.ActiveVersion, Is.GreaterThanOrEqualTo(runtime.LastReceipt.SourceVersion));
                 actionReceipt = WitnessReceipt.From("action", runtime.LastReceipt);
 
@@ -366,7 +372,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
 
                 var mapCamera = mapCameraObject.AddComponent<Camera>();
                 mapCamera.cullingMask = 1 << mapLayer;
-                Assert.That(mapCamera.cullingMask & (1 << mapLayer), Is.Not.Zero);
+                Assert.That(mapCamera.cullingMask, Is.EqualTo(1 << mapLayer));
                 target = new RenderTexture(640, 360, 24, RenderTextureFormat.ARGB32);
                 camera.targetTexture = target;
                 yield return null;
@@ -375,6 +381,8 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 pixels = new Texture2D(640, 360, TextureFormat.RGB24, false);
                 pixels.ReadPixels(new Rect(0, 0, 640, 360), 0, 0);
                 pixels.Apply();
+                var pilotChangedPixels = CountChangedPixels(pixels, camera.backgroundColor);
+                Assert.That(pilotChangedPixels, Is.GreaterThan(25), "The pilot camera rendered no provider-authored world pixels.");
                 Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(capturePath)));
                 File.WriteAllBytes(capturePath, pixels.EncodeToPNG());
                 Assert.That(new FileInfo(capturePath).Length, Is.GreaterThan(1024));
@@ -404,6 +412,8 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     initialVersion,
                     runtime.ActiveVersion,
                     movementDistance,
+                    playerRenderers.Length,
+                    pilotChangedPixels,
                     mapRenderers.Count,
                     mapChangedPixels,
                     (camera.cullingMask & (1 << mapLayer)) == 0,
@@ -433,6 +443,8 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             long initialVersion,
             long finalVersion,
             float movementDistance,
+            int playerRendererCount,
+            int pilotChangedPixels,
             int mapChannelRendererCount,
             int mapChangedPixels,
             bool pilotCameraExcludesMapChannel,
@@ -453,6 +465,8 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 initialVersion = initialVersion,
                 finalVersion = finalVersion,
                 movementDistance = movementDistance,
+                playerRendererCount = playerRendererCount,
+                pilotChangedPixels = pilotChangedPixels,
                 mapChannelRendererCount = mapChannelRendererCount,
                 mapChangedPixels = mapChangedPixels,
                 pilotCameraExcludesMapChannel = pilotCameraExcludesMapChannel,
@@ -474,6 +488,8 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             public long initialVersion;
             public long finalVersion;
             public float movementDistance;
+            public int playerRendererCount;
+            public int pilotChangedPixels;
             public int mapChannelRendererCount;
             public int mapChangedPixels;
             public bool pilotCameraExcludesMapChannel;
@@ -487,6 +503,12 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             public string commandKind;
             public string commandId;
             public string state;
+            public string receiptId;
+            public string ownerRepo;
+            public string authority;
+            public string providerId;
+            public string surfaceId;
+            public bool isProviderOwned;
             public long sourceVersion;
 
             public static WitnessReceipt From(string commandKind, EveUnitySceneCommandReceipt receipt)
@@ -496,9 +518,34 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     commandKind = commandKind,
                     commandId = receipt.CommandId,
                     state = receipt.State,
+                    receiptId = receipt.ReceiptId,
+                    ownerRepo = receipt.OwnerRepo,
+                    authority = receipt.Authority,
+                    providerId = receipt.ProviderId,
+                    surfaceId = receipt.SurfaceId,
+                    isProviderOwned = receipt.IsProviderOwned,
                     sourceVersion = receipt.SourceVersion
                 };
             }
+        }
+
+        private static void AssertReconciledProviderReceipt(
+            EveUnitySceneCommandReceipt receipt,
+            string commandId,
+            string providerId,
+            string surfaceId,
+            long minimumSourceVersion)
+        {
+            Assert.That(receipt, Is.Not.Null);
+            Assert.That(receipt.CommandId, Is.EqualTo(commandId));
+            Assert.That(receipt.State, Is.EqualTo("reconciled"), receipt.Message);
+            Assert.That(receipt.IsProviderOwned, Is.True);
+            Assert.That(receipt.ProviderId, Is.EqualTo(providerId));
+            Assert.That(receipt.SurfaceId, Is.EqualTo(surfaceId));
+            Assert.That(receipt.ReceiptId, Is.Not.Empty);
+            Assert.That(receipt.OwnerRepo, Is.Not.Empty);
+            Assert.That(receipt.Authority, Is.Not.Empty);
+            Assert.That(receipt.SourceVersion, Is.GreaterThan(minimumSourceVersion));
         }
 
         private static EveUnityPlayableWorldEntityMarker FindMarker(GameObject root, string entityId)

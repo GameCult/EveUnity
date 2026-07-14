@@ -37,7 +37,7 @@ New-Item -ItemType Directory -Force -Path $outputRoot | Out-Null
 if ($CacheState -eq "cold" -and (Test-Path -LiteralPath $assetCachePath)) {
   Remove-Item -LiteralPath $assetCachePath -Recurse -Force
 }
-$cacheWasWarm = @(Get-ChildItem -LiteralPath $assetCachePath -Filter *.bundle -File -ErrorAction SilentlyContinue).Count -gt 0
+$cacheWasWarm = @(Get-ChildItem -LiteralPath $assetCachePath -Filter *.body -File -ErrorAction SilentlyContinue).Count -gt 0
 if ($CacheState -eq "warm" -and -not $cacheWasWarm) {
   throw "Warm witness requested without an existing verified bundle cache at $assetCachePath"
 }

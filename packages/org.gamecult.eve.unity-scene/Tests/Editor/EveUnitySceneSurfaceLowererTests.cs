@@ -71,7 +71,7 @@ namespace GameCult.Eve.UnityScene.Tests
         }
 
         [Test]
-        public async System.Threading.Tasks.Task LiveTransportResolvesExactNetworkBodyThroughVerseDocuments()
+        public async System.Threading.Tasks.Task LiveTransportValidatesNetworkBodyControlDocumentsWithoutSnapshotChunks()
         {
             var view = EntityLeaseDocument();
             var bytes = Enumerable.Range(0, 32).Select(value => (byte)value).ToArray();
@@ -92,14 +92,15 @@ namespace GameCult.Eve.UnityScene.Tests
             var binding = source.Get<CultMeshNetworkBodyDocument>(
                 CultMeshNetworkBodyDocument.CreateRecordKey(descriptor.CapabilityToken))!;
             var manifest = source.Get<CultMeshCdnArtifactManifest>(new CultRecordKey(binding.ManifestRecordKey))!;
-            var chunks = manifest.Chunks.Select(reference =>
-                source.Get<CultMeshCdnArtifactChunk>(new CultRecordKey(reference.RecordKey))!).ToArray();
             var method = typeof(EveUnityCultMeshLiveProviderTransport)
-                .GetMethod("ResolveNetworkBody", BindingFlags.NonPublic | BindingFlags.Static)!;
+                .GetMethod("ValidateNetworkBody", BindingFlags.NonPublic | BindingFlags.Static)!;
 
-            var resolved = (byte[])method.Invoke(null, new object[] { descriptor, binding, manifest, chunks })!;
+            method.Invoke(null, new object[] { descriptor, binding, manifest });
+            var wireTypes = (Type[])typeof(EveUnityCultMeshLiveProviderTransport)
+                .GetField("WireDocumentTypes", BindingFlags.NonPublic | BindingFlags.Static)!
+                .GetValue(null)!;
 
-            Assert.That(resolved, Is.EqualTo(bytes));
+            Assert.That(wireTypes.Any(type => type == typeof(CultMeshCdnArtifactChunk)), Is.False);
         }
 
         [Test]

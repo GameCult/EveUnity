@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Security.Cryptography;
 using System.Collections.Concurrent;
 using GameCult.Caching;
 using GameCult.Caching.MessagePack;
@@ -33,7 +32,7 @@ namespace GameCult.Eve.UnityScene
             typeof(CultMeshBodyPublicationDocument),
             typeof(CultMeshNetworkBodyDocument),
             typeof(CultMeshCdnArtifactManifest),
-            typeof(CultMeshCdnArtifactChunk)
+            typeof(CultMeshContentTransferStateDocument)
         };
 
         private readonly string _replicaPath;
@@ -53,6 +52,8 @@ namespace GameCult.Eve.UnityScene
         private CultNetDocumentRegistry? _networkRegistry;
         private CultNetShardDescriptor? _replicaShard;
         private CultNetDatabaseSubscriptionClient? _subscriptions;
+        private CultMeshClient? _meshClient;
+        private CultMeshContentTransferService? _contentTransfer;
         private EveProviderAdvertisementDocument? _advertisement;
         private EveAdvertisedSurface? _advertisedSurface;
         private CultMeshBodyPublicationResolver? _bodyResolver;
@@ -242,9 +243,12 @@ namespace GameCult.Eve.UnityScene
             _node?.Dispose();
             _snapshot?.Dispose();
             _subscriptions?.Dispose();
+            _meshClient?.Dispose();
             _node = null;
             _snapshot = null;
             _subscriptions = null;
+            _meshClient = null;
+            _contentTransfer = null;
             _networkRegistry = null;
             _replicaShard = null;
             _pendingCommandIds.Clear();
@@ -319,6 +323,10 @@ namespace GameCult.Eve.UnityScene
                     RudpMaxFragmentBytes = 1024
                 },
                 _networkRegistry);
+            _meshClient = new CultMeshClient(new CultMeshClientOptions
+            {
+                RendezvousEndpoints = new[] { _endpoint }
+            });
         }
 
         private void ResolveAdvertisement(bool forceRefresh = false)
@@ -389,35 +397,41 @@ namespace GameCult.Eve.UnityScene
                     schemaIds: new[] { CultMeshCdnSchemaVersions.ArtifactManifest })
                 .GetAwaiter().GetResult().SingleOrDefault()
                 ?? throw new FileNotFoundException("Provider network body manifest is missing.", binding.ManifestRecordKey);
-            var chunks = _snapshot
-                .FetchDocumentsAsync<CultMeshCdnArtifactChunk>(
-                    recordKeys: manifest.Chunks.Select(chunk => chunk.RecordKey).ToArray(),
-                    schemaIds: new[] { CultMeshCdnSchemaVersions.ArtifactChunk })
-                .GetAwaiter().GetResult();
-            return ResolveNetworkBody(descriptor, binding, manifest, chunks);
+            ValidateNetworkBody(descriptor, binding, manifest);
+            var path = ContentTransfer().FetchAsync(manifest).GetAwaiter().GetResult();
+            return File.ReadAllBytes(path);
         }
 
-        private static byte[] ResolveNetworkBody(
+        private static void ValidateNetworkBody(
             CultMeshBodyDescriptor descriptor,
             CultMeshNetworkBodyDocument binding,
-            CultMeshCdnArtifactManifest manifest,
-            IReadOnlyList<CultMeshCdnArtifactChunk> chunks)
+            CultMeshCdnArtifactManifest manifest)
         {
-            var registry = CultMesh.CreateCultCacheDocumentRegistry(
-                typeof(CultMeshNetworkBodyDocument),
-                typeof(CultMeshCdnArtifactManifest),
-                typeof(CultMeshCdnArtifactChunk));
-            var cache = new CultCache(registry);
-            cache.UpsertAsync(binding, new CultRecordHandle<CultMeshNetworkBodyDocument>(binding.RecordKey))
-                .GetAwaiter().GetResult();
-            cache.UpsertAsync(manifest, new CultRecordHandle<CultMeshCdnArtifactManifest>(
-                    CultMeshCdnArtifactManifest.CreateRecordKey(manifest)))
-                .GetAwaiter().GetResult();
-            foreach (var chunk in chunks)
-                cache.UpsertAsync(chunk, new CultRecordHandle<CultMeshCdnArtifactChunk>(
-                        CultMeshCdnArtifactChunk.CreateRecordKey(chunk)))
-                    .GetAwaiter().GetResult();
-            return new CultMeshNetworkBodyResolver(cache).Fetch(descriptor);
+            if (!string.Equals(binding.CapabilityToken, descriptor.CapabilityToken, StringComparison.Ordinal) ||
+                !string.Equals(binding.BodyId, descriptor.BodyId, StringComparison.Ordinal) ||
+                !string.Equals(binding.SchemaId, descriptor.SchemaId, StringComparison.Ordinal) ||
+                binding.LayoutVersion != descriptor.LayoutVersion || binding.ByteSize != descriptor.ByteSize ||
+                binding.Capacity != descriptor.Capacity || binding.ProducerEpoch != descriptor.ProducerEpoch ||
+                binding.Sequence != descriptor.Sequence || binding.Synchronization != descriptor.Synchronization ||
+                binding.LeaseExpiresAtUnixMs != descriptor.LeaseExpiresAtUnixMs ||
+                !string.Equals(binding.SemanticHash, descriptor.SemanticHash, StringComparison.Ordinal))
+                throw new InvalidDataException("CultMesh network body descriptor disagrees with its capability binding.");
+            if (!string.Equals(CultMeshCdnArtifactManifest.CreateRecordKey(manifest).Value,
+                    binding.ManifestRecordKey, StringComparison.Ordinal) ||
+                manifest.SizeBytes != binding.ByteSize ||
+                !string.Equals(NormalizeContentHash(manifest.ContentHash),
+                    binding.SemanticHash, StringComparison.Ordinal))
+                throw new InvalidDataException("CultMesh network body manifest disagrees with its capability binding.");
+        }
+
+        private static string NormalizeContentHash(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                throw new InvalidDataException("CultMesh content hash is missing.");
+            var normalized = value.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase)
+                ? value.Substring("sha256:".Length)
+                : value;
+            return normalized.ToLowerInvariant();
         }
 
         private void PublishEntityView(EveEntitySoaViewDocument document)
@@ -623,9 +637,8 @@ namespace GameCult.Eve.UnityScene
                 var descriptor = manifest.FirstOrDefault();
                 if (descriptor == null)
                     throw new InvalidOperationException($"Provider asset bundle manifest '{variant.Uri}' was not available.");
-                var bytes = ReadCachedBundle(descriptor, variant);
-                VerifyBundle(bytes, variant);
-                var bundle = AssetBundle.LoadFromMemory(bytes);
+                var path = ReadVerifiedBundlePath(descriptor, variant);
+                var bundle = AssetBundle.LoadFromFile(path);
                 if (bundle == null)
                     throw new InvalidOperationException($"Unity could not load provider asset bundle '{variant.Uri}'.");
                 _assetBundles.Add(bundle);
@@ -690,70 +703,38 @@ namespace GameCult.Eve.UnityScene
                 : Application.platform.ToString();
         }
 
-        private byte[] ReadBundle(CultMeshCdnArtifactManifest manifest)
+        private CultMeshContentTransferService ContentTransfer()
         {
-            var bytes = new byte[checked((int)manifest.SizeBytes)];
-            var references = manifest.Chunks.OrderBy(chunk => chunk.Offset).ToArray();
-            const int chunkBatchSize = 32;
-            for (var index = 0; index < references.Length; index += chunkBatchSize)
-            {
-                var batch = references.Skip(index).Take(chunkBatchSize).ToArray();
-                var chunks = _snapshot!
-                    .FetchDocumentsAsync<CultMeshCdnArtifactChunk>(
-                        recordKeys: batch.Select(reference => reference.RecordKey).ToArray(),
-                        schemaIds: new[] { CultMeshCdnSchemaVersions.ArtifactChunk })
-                    .GetAwaiter()
-                    .GetResult();
-                foreach (var reference in batch)
-                {
-                    var chunk = chunks.FirstOrDefault(candidate =>
-                        string.Equals(candidate.ChunkHash, reference.ChunkHash, StringComparison.Ordinal));
-                    if (chunk == null)
-                        throw new InvalidOperationException($"Provider asset chunk '{reference.RecordKey}' was not available.");
-                    if (chunk.SizeBytes != reference.SizeBytes || chunk.Payload.Length != reference.SizeBytes)
-                        throw new InvalidDataException($"Provider asset chunk '{reference.RecordKey}' size did not match its manifest.");
-                    Buffer.BlockCopy(chunk.Payload, 0, bytes, checked((int)reference.Offset), reference.SizeBytes);
-                }
-            }
-            return bytes;
-        }
-
-        private byte[] ReadCachedBundle(CultMeshCdnArtifactManifest manifest, EveAssetVariant variant)
-        {
+            ResolveAdvertisement();
+            if (_contentTransfer != null)
+                return _contentTransfer;
+            if (string.IsNullOrWhiteSpace(_advertisement!.ServiceId))
+                throw new InvalidOperationException($"Eve provider '{_advertisement.ProviderId}' has no service-instance identity for content transport.");
             var cacheRoot = Environment.GetEnvironmentVariable("EVEUNITY_ASSET_CACHE_PATH");
             if (string.IsNullOrWhiteSpace(cacheRoot))
                 cacheRoot = Path.Combine(Application.persistentDataPath, "EveUnity", "assets");
-            Directory.CreateDirectory(cacheRoot);
-            var hash = variant.ContentHash.StartsWith("sha256:", StringComparison.Ordinal)
-                ? variant.ContentHash.Substring("sha256:".Length)
-                : variant.ContentHash;
-            var cachePath = Path.Combine(cacheRoot, hash + ".bundle");
-            if (File.Exists(cachePath))
-            {
-                var cached = File.ReadAllBytes(cachePath);
-                VerifyBundle(cached, variant);
-                return cached;
-            }
-
-            var bytes = ReadBundle(manifest);
-            VerifyBundle(bytes, variant);
-            var temporaryPath = cachePath + ".tmp";
-            File.WriteAllBytes(temporaryPath, bytes);
-            if (File.Exists(cachePath)) File.Delete(cachePath);
-            File.Move(temporaryPath, cachePath);
-            return bytes;
+            _contentTransfer = new CultMeshContentTransferService(
+                _node!.Cache,
+                new[]
+                {
+                    _meshClient!.ContentProvider(
+                        _advertisement.ProviderId,
+                        _advertisement.ServiceId,
+                        new CultMeshSessionContentProviderOptions { ResponseTimeout = TimeSpan.FromSeconds(30) })
+                },
+                new CultMeshContentTransferOptions(cacheRoot));
+            return _contentTransfer;
         }
 
-        private static void VerifyBundle(byte[] bytes, EveAssetVariant variant)
+        private string ReadVerifiedBundlePath(CultMeshCdnArtifactManifest manifest, EveAssetVariant variant)
         {
-            if (bytes.LongLength != variant.SizeBytes)
+            var hash = NormalizeContentHash(variant.ContentHash);
+            if (manifest.SizeBytes != variant.SizeBytes)
                 throw new InvalidOperationException($"Provider asset bundle '{variant.Uri}' size did not match its catalog.");
-            byte[] digest;
-            using (var sha256 = SHA256.Create())
-                digest = sha256.ComputeHash(bytes);
-            var actual = "sha256:" + string.Concat(digest.Select(value => value.ToString("x2")));
-            if (!string.Equals(actual, variant.ContentHash, StringComparison.Ordinal))
+            if (!string.Equals(NormalizeContentHash(manifest.ContentHash),
+                    hash, StringComparison.Ordinal))
                 throw new InvalidOperationException($"Provider asset bundle '{variant.Uri}' hash did not match its catalog.");
+            return ContentTransfer().FetchAsync(manifest).GetAwaiter().GetResult();
         }
 
         private void PublishReceipt(EveCommandReceiptDocument receipt)

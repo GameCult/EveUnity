@@ -29,6 +29,14 @@ namespace GameCult.Eve.Surface
         [Key(5)] public string Availability { get; set; } = "available";
         [Key(6)] public string SourceRef { get; set; } = "";
         [Key(7)] public Dictionary<string, string> Payload { get; set; } = new Dictionary<string, string>(StringComparer.Ordinal);
+        [Key(8)] public EveInputValueDocument? InputValue { get; set; }
+    }
+
+    [MessagePackObject]
+    public sealed class EveInputValueDocument
+    {
+        [Key(0)] public string Model { get; set; } = "";
+        [Key(1)] public string PayloadKey { get; set; } = "";
     }
 
     [MessagePackObject]

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using GameCult.Eve.Surface;
 using UnityEngine;
@@ -32,6 +33,10 @@ namespace GameCult.Eve.UnityScene
         private bool _hasLookYaw;
         private float _pendingLookHorizontal;
         private string _lookOwnerKey = "";
+        private readonly Dictionary<string, HeldBindingState> _heldBindings =
+            new Dictionary<string, HeldBindingState>(StringComparer.Ordinal);
+
+        public Func<string, bool?>? DigitalControlReader { get; set; }
 
         public EveUnityPlayableWorldClientHost? Host
         {
@@ -39,6 +44,7 @@ namespace GameCult.Eve.UnityScene
             set
             {
                 if (ReferenceEquals(host, value)) return;
+                ReleaseHeldActions();
                 host = value;
                 ResetLookState();
             }
@@ -103,6 +109,21 @@ namespace GameCult.Eve.UnityScene
             return resolvedHost.SubmitAdvertisedActionIntent(
                 resolvedHost.ActiveWorld.PlayerEntityId,
                 resolvedActionId);
+        }
+
+        public EveSurfaceCommandRequest? SubmitActionValue(
+            string actionId,
+            float inputValue,
+            DateTimeOffset? issuedAt = null)
+        {
+            var resolvedHost = ResolveHost();
+            if (resolvedHost?.ActiveWorld == null || string.IsNullOrWhiteSpace(actionId))
+                return null;
+            return resolvedHost.SubmitAdvertisedActionValueIntent(
+                resolvedHost.ActiveWorld.PlayerEntityId,
+                actionId,
+                inputValue,
+                issuedAt);
         }
 
         public EveSurfaceCommandRequest? SubmitLookInput(
@@ -178,9 +199,96 @@ namespace GameCult.Eve.UnityScene
             _nextCommandAt = Time.unscaledTime + Math.Max(0.01f, commandIntervalSeconds);
             SubmitMoveVectorInput(Input.GetAxisRaw(horizontalAxis), Input.GetAxisRaw(verticalAxis));
             SubmitPendingLookInput();
+            SubmitChangedHeldActions();
 
             if (!string.IsNullOrWhiteSpace(actionButton) && Input.GetButtonDown(actionButton))
                 SubmitPrimaryAction();
+        }
+
+        private void SubmitChangedHeldActions()
+        {
+            var resolvedHost = ResolveHost();
+            var capability = resolvedHost?.InputCapability;
+            if (resolvedHost?.ActiveWorld == null || capability == null)
+                return;
+
+            var profile = (capability.DefaultProfiles ?? Array.Empty<EveInputProfileDocument>())
+                .FirstOrDefault(value => string.Equals(value.DeviceClass, "keyboard-mouse", StringComparison.Ordinal));
+            var retained = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var binding in profile?.Bindings ?? Array.Empty<EveInputBindingDocument>())
+            {
+                var action = (capability.Actions ?? Array.Empty<EveInputActionDocument>())
+                    .FirstOrDefault(candidate => string.Equals(candidate.ActionId, binding.ActionId, StringComparison.Ordinal));
+                if (action?.InputValue == null ||
+                    !string.Equals(action.InputValue.Model, EveUnityAdvertisedInputAction.ButtonHoldValueModel, StringComparison.Ordinal) ||
+                    !TryReadDigitalGesture(binding.Gesture, out var pressed))
+                    continue;
+
+                var stateKey = string.IsNullOrWhiteSpace(binding.BindingId) ? binding.ActionId : binding.BindingId;
+                retained.Add(stateKey);
+                if (!_heldBindings.TryGetValue(stateKey, out var previous))
+                {
+                    _heldBindings[stateKey] = new HeldBindingState(binding.ActionId, pressed);
+                    if (pressed) SubmitActionValue(binding.ActionId, 1f);
+                    continue;
+                }
+                if (previous.Pressed == pressed) continue;
+                _heldBindings[stateKey] = new HeldBindingState(binding.ActionId, pressed);
+                SubmitActionValue(binding.ActionId, pressed ? 1f : 0f);
+            }
+
+            foreach (var stale in _heldBindings.Keys.Where(key => !retained.Contains(key)).ToArray())
+            {
+                var previous = _heldBindings[stale];
+                if (previous.Pressed) TrySubmitRelease(previous.ActionId);
+                _heldBindings.Remove(stale);
+            }
+        }
+
+        private bool TryReadDigitalGesture(EveInputGestureDocument? gesture, out bool pressed)
+        {
+            pressed = false;
+            if (gesture == null ||
+                !(string.Equals(gesture.Kind, "direct", StringComparison.Ordinal) ||
+                  string.Equals(gesture.Kind, "chord", StringComparison.Ordinal)))
+                return false;
+            var controls = gesture.Controls ?? Array.Empty<string>();
+            if (controls.Length == 0) return false;
+            foreach (var control in controls)
+            {
+                var value = DigitalControlReader?.Invoke(control) ?? ReadStandardDigitalControl(control);
+                if (!value.HasValue) return false;
+                if (!value.Value) return true;
+            }
+            pressed = true;
+            return true;
+        }
+
+        private static bool? ReadStandardDigitalControl(string control)
+        {
+            if (string.Equals(control, "mouse.primary", StringComparison.Ordinal)) return Input.GetMouseButton(0);
+            if (string.Equals(control, "mouse.secondary", StringComparison.Ordinal)) return Input.GetMouseButton(1);
+            if (string.Equals(control, "mouse.middle", StringComparison.Ordinal)) return Input.GetMouseButton(2);
+            const string keyboardPrefix = "keyboard.";
+            if (control != null && control.StartsWith(keyboardPrefix, StringComparison.Ordinal) &&
+                Enum.TryParse(control.Substring(keyboardPrefix.Length), true, out KeyCode key))
+                return Input.GetKey(key);
+            return null;
+        }
+
+        private void OnDisable() => ReleaseHeldActions();
+
+        private void ReleaseHeldActions()
+        {
+            foreach (var state in _heldBindings.Values)
+                if (state.Pressed) TrySubmitRelease(state.ActionId);
+            _heldBindings.Clear();
+        }
+
+        private void TrySubmitRelease(string actionId)
+        {
+            try { SubmitActionValue(actionId, 0f); }
+            catch (InvalidOperationException) { }
         }
 
         private EveUnityPlayableWorldClientHost? ResolveHost()
@@ -206,6 +314,18 @@ namespace GameCult.Eve.UnityScene
             _hasLookYaw = false;
             _pendingLookHorizontal = 0f;
             _lookOwnerKey = "";
+        }
+
+        private readonly struct HeldBindingState
+        {
+            public HeldBindingState(string actionId, bool pressed)
+            {
+                ActionId = actionId ?? "";
+                Pressed = pressed;
+            }
+
+            public string ActionId { get; }
+            public bool Pressed { get; }
         }
     }
 

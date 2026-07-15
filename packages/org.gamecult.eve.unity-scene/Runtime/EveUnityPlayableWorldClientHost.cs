@@ -203,21 +203,21 @@ namespace GameCult.Eve.UnityScene
             string actionId,
             DateTimeOffset? issuedAt = null)
         {
-            var capability = InputCapability ??
-                throw new InvalidOperationException("The provider did not advertise an input capability.");
-            var action = Array.Find(capability.Actions ?? Array.Empty<EveInputActionDocument>(), candidate =>
-                string.Equals(candidate?.ActionId, actionId, StringComparison.Ordinal));
-            if (action == null || string.IsNullOrWhiteSpace(action.Operation))
-                throw new InvalidOperationException($"Input action '{actionId}' is not advertised with an operation.");
-            if (!string.Equals(action.Availability, "available", StringComparison.OrdinalIgnoreCase))
-                throw new InvalidOperationException($"Input action '{actionId}' is not available.");
+            var action = EveUnityAdvertisedInputAction.Resolve(InputCapability, actionId);
+            return RequireRuntime().SubmitCommandIntent(action.Operation, action.BuildPayload(entityId), issuedAt);
+        }
 
-            var payload = action.Payload == null
-                ? new Dictionary<string, string>(StringComparer.Ordinal)
-                : new Dictionary<string, string>(action.Payload, StringComparer.Ordinal);
-            payload["entityId"] = entityId ?? "";
-            payload["actionId"] = action.ActionId;
-            return RequireRuntime().SubmitCommandIntent(action.Operation, payload, issuedAt);
+        public EveSurfaceCommandRequest SubmitAdvertisedActionValueIntent(
+            string entityId,
+            string actionId,
+            float inputValue,
+            DateTimeOffset? issuedAt = null)
+        {
+            var action = EveUnityAdvertisedInputAction.Resolve(InputCapability, actionId);
+            return RequireRuntime().SubmitCommandIntent(
+                action.Operation,
+                action.BuildPayload(entityId, inputValue),
+                issuedAt);
         }
 
         public void Disconnect()

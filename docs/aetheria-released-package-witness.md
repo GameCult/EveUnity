@@ -21,23 +21,31 @@ active camera rig's leased Unity environment.
 The witness supplies no client-authored light. Aetheria advertises the key-light
 direction, color, and intensity; the generic camera rig lowers that contract to
 the only live directional light (`0.75` intensity).
+Aetheria also advertises the original `ARPG.unity` follow-camera composition:
+`70` unit distance, `60` degree vertical field of view, target screen position
+`0.66,0.55`, and position damping `2`. The generic camera rig lowers those
+values without Aetheria-specific camera code.
 
 Camera-channel facts:
 
 - provider-authored player renderers: `12`;
-- pilot changed pixels: `230,359`;
+- pilot changed pixels: `230,248`;
+- pilot average luminance: `0.003696`;
+- pilot bright pixels: `1,319`;
 - map-channel renderers: `11`;
-- map changed pixels: `5,153`;
+- map changed pixels: `4,975`;
 - the pilot camera excludes the advertised map layer;
 - the player prefab's embedded layer-14 map icon contributes exactly `0` pilot
   pixels;
 - the map camera renders exactly the advertised map layer.
 
 Visual inspection confirms that map glyphs are absent from the pilot frame and
-present in the map-only frame. The pilot presentation remains visually sparse
-and dark. Renderer-isolation facts prove that the hull draws under the
-provider-owned light, so the next native-art work is world composition and
-available pre-generated provider textures, not a client-side lighting fallback.
+present in the map-only frame. Restoring the authored ARPG camera in place of
+the copied TestScene tuning increased hull-renderer pixel coverage by roughly
+four times and bright pilot pixels from `502` to `1,319`. The pilot presentation
+remains dark. Renderer-isolation facts prove that the hull draws under the
+provider-owned light, so the next native-art work is available pre-generated
+provider textures, not a client-side lighting fallback.
 Substance is not part of this path; later texture baking belongs in Blender.
 
 Primary artifacts:

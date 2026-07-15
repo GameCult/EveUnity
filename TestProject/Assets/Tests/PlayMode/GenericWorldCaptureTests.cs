@@ -469,9 +469,11 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 aimDotDistance = Vector3.Distance(playerMarker.transform.position, aimRenderer.ViewDotPosition);
                 Assert.That(aimDotDistance, Is.GreaterThanOrEqualTo(49.9f));
                 Assert.That(camera.cullingMask & (1 << mapLayer), Is.Zero);
+                Assert.That(runtime.ActiveWorld.CameraDistance, Is.EqualTo(70f).Within(0.001f));
                 Assert.That(camera.fieldOfView, Is.EqualTo(60f).Within(0.001f));
+                Assert.That(runtime.ActiveWorld.CameraPositionDamping, Is.EqualTo(2f).Within(0.001f));
                 var playerViewport = camera.WorldToViewportPoint(playerMarker.transform.position);
-                Assert.That(playerViewport.x, Is.EqualTo(0.9f).Within(0.01f));
+                Assert.That(playerViewport.x, Is.EqualTo(0.66f).Within(0.01f));
                 Assert.That(playerViewport.y, Is.EqualTo(0.55f).Within(0.01f));
                 MeasureViewportCoverage(camera, playerRenderers, out var playerViewportWidth, out var playerViewportHeight);
                 var playerRendererFacts = playerRenderers

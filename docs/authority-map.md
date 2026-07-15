@@ -51,6 +51,14 @@ temporal pass must also advertise its current-sample, history,
 previous-view-projection, and reset-history ports; partial temporal programs fail
 closed.
 
+The provider selects camera semantics and framing from its authoritative mode.
+`planar.top-down-follow.v1` derives a downward presentation from the advertised
+target and framing values. `perspective.entity-forward-follow.v1` derives its
+view direction from the presented entity rotation and applies the same generic
+distance, screen-position, damping, and lens contract. EveUnity owns only the
+native camera transform. It cannot collapse distinct provider modes into one
+camera opinion or infer a product camera from entity kind.
+
 ## Shared Paths
 
 Initial connect discovers a Verse endpoint and selects a provider surface by

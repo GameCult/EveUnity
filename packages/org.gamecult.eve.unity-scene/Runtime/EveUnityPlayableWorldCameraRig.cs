@@ -80,7 +80,9 @@ namespace GameCult.Eve.UnityScene
                 return false;
             }
 
-            if (activeWorld.CameraRig == "planar.top-down-follow.v1" && !HasValidPlanarContract(activeWorld))
+            if ((activeWorld.CameraRig == "planar.top-down-follow.v1" ||
+                 activeWorld.CameraRig == "perspective.entity-forward-follow.v1") &&
+                !HasValidFramedFollowContract(activeWorld))
             {
                 ReleaseCamera();
                 RestoreAmbientEnvironment();
@@ -88,6 +90,7 @@ namespace GameCult.Eve.UnityScene
             }
             if (!string.IsNullOrWhiteSpace(activeWorld.CameraRig) &&
                 activeWorld.CameraRig != "planar.top-down-follow.v1" &&
+                activeWorld.CameraRig != "perspective.entity-forward-follow.v1" &&
                 activeWorld.CameraRig != "arpg.orbital-follow.v1" &&
                 activeWorld.CameraRig != "third-person-orbit")
             {
@@ -139,6 +142,8 @@ namespace GameCult.Eve.UnityScene
             }
             if (activeWorld.CameraRig == "planar.top-down-follow.v1")
                 return ApplyPlanarTopDown(activeWorld, camera, cameraComponent, player.position, deltaTime);
+            if (activeWorld.CameraRig == "perspective.entity-forward-follow.v1")
+                return ApplyEntityForwardFollow(activeWorld, camera, cameraComponent, player, deltaTime);
 
             var bounds = CalculateVisualBounds(
                 player,
@@ -197,7 +202,50 @@ namespace GameCult.Eve.UnityScene
             return true;
         }
 
-        private static bool HasValidPlanarContract(EveUnityPlayableWorldProjection world) =>
+        private static bool ApplyEntityForwardFollow(
+            EveUnityPlayableWorldProjection world,
+            Transform camera,
+            Camera? cameraComponent,
+            Transform target,
+            float deltaTime)
+        {
+            var resolvedDistance = world.CameraDistance;
+            var verticalFov = world.CameraVerticalFieldOfViewDegrees;
+            if (cameraComponent != null)
+            {
+                cameraComponent.orthographic = false;
+                cameraComponent.lensShift = Vector2.zero;
+                cameraComponent.fieldOfView = verticalFov;
+                cameraComponent.nearClipPlane = world.CameraNearClipPlane;
+                cameraComponent.farClipPlane = world.CameraFarClipPlane;
+            }
+
+            var forward = target.forward;
+            forward.y = 0f;
+            if (forward.sqrMagnitude <= 0.0001f)
+                forward = Vector3.forward;
+            forward.Normalize();
+            var rotation = Quaternion.LookRotation(forward, Vector3.up);
+            var right = rotation * Vector3.right;
+            var aspect = cameraComponent != null ? cameraComponent.aspect : 16f / 9f;
+            var verticalHalfExtent = resolvedDistance * Mathf.Tan(verticalFov * 0.5f * Mathf.Deg2Rad);
+            var horizontalHalfExtent = verticalHalfExtent * Mathf.Max(0.01f, aspect);
+            var horizontalOffset = (Mathf.Clamp01(world.CameraTargetScreenX) - 0.5f) * 2f * horizontalHalfExtent;
+            var verticalOffset = (Mathf.Clamp01(world.CameraTargetScreenY) - 0.5f) * 2f * verticalHalfExtent;
+            var desiredPosition = target.position -
+                                  (forward * resolvedDistance) -
+                                  (right * horizontalOffset) -
+                                  (Vector3.up * verticalOffset);
+            var damping = Mathf.Max(0f, world.CameraPositionDamping);
+            var t = deltaTime <= 0f || damping <= 0f
+                ? 1f
+                : 1f - Mathf.Exp(-damping * deltaTime);
+            camera.position = Vector3.Lerp(camera.position, desiredPosition, t);
+            camera.rotation = rotation;
+            return true;
+        }
+
+        private static bool HasValidFramedFollowContract(EveUnityPlayableWorldProjection world) =>
             world.CameraDistance > 0f &&
             world.CameraVerticalFieldOfViewDegrees > 0f &&
             world.CameraVerticalFieldOfViewDegrees < 180f &&

@@ -1266,6 +1266,65 @@ namespace GameCult.Eve.UnityScene.Tests
         }
 
         [Test]
+        public void PlayableWorldCameraRigFramesEntityForwardPerspectiveWithoutProviderTypes()
+        {
+            var rootObject = new GameObject("generic-forward-world-root");
+            var hostObject = new GameObject("generic-forward-client");
+            var cameraObject = new GameObject("generic-forward-camera");
+            hostObject.SetActive(false);
+            try
+            {
+                var provider = hostObject.AddComponent<FakePlayableWorldProviderComponent>();
+                var nativeAssets = hostObject.AddComponent<FixedNativeAssetProviderComponent>();
+                provider.Set(
+                    new EveUnitySceneProviderSurfaceDocument(
+                        PlayableArpgDocument(
+                            cameraRig: "perspective.entity-forward-follow.v1",
+                            cameraDistance: "30",
+                            cameraTargetScreenX: "0.64",
+                            cameraTargetScreenY: "0.81",
+                            cameraPositionDamping: "0",
+                            cameraNearClipPlane: "1",
+                            cameraFarClipPlane: "4096"),
+                        Advertisement("aetheria.daemon.game"),
+                        "cultmesh://generic/eve/surfaces/forward",
+                        1),
+                    new EveUnityPlayableWorldAssetManifestDocument(
+                        "cultmesh://generic/assets/manifest",
+                        Array.Empty<EveUnityPlayableWorldAssetManifestDocumentEntry>(),
+                        "generic"));
+
+                var host = hostObject.AddComponent<EveUnityPlayableWorldClientHost>();
+                host.Configure(rootObject.transform, provider, provider, provider, provider, nativeAssets);
+                host.Connect();
+                hostObject.SetActive(true);
+                var camera = cameraObject.AddComponent<Camera>();
+                camera.aspect = 16f / 9f;
+                var rig = hostObject.AddComponent<EveUnityPlayableWorldCameraRig>();
+                rig.Host = host;
+                rig.CameraTransform = cameraObject.transform;
+
+                var player = rootObject.GetComponentInChildren<EveUnityPlayableWorldEntityMarker>();
+                Assert.That(player, Is.Not.Null);
+                Assert.That(rig.ApplyRig(0f), Is.True);
+                Assert.That(Vector3.Dot(cameraObject.transform.forward, player!.transform.forward), Is.GreaterThan(0.999f));
+                Assert.That(camera.fieldOfView, Is.EqualTo(60f).Within(0.001f));
+                Assert.That(camera.nearClipPlane, Is.EqualTo(1f).Within(0.001f));
+                Assert.That(camera.farClipPlane, Is.EqualTo(4096f).Within(0.001f));
+                var viewport = camera.WorldToViewportPoint(player.transform.position);
+                Assert.That(viewport.x, Is.EqualTo(0.64f).Within(0.001f));
+                Assert.That(viewport.y, Is.EqualTo(0.81f).Within(0.001f));
+                Assert.That(cameraObject.transform.position.y, Is.LessThan(player.transform.position.y));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(cameraObject);
+                UnityEngine.Object.DestroyImmediate(hostObject);
+                UnityEngine.Object.DestroyImmediate(rootObject);
+            }
+        }
+
+        [Test]
         public void ProviderPrefabKeepsAuthoredScaleWhileFallbackUsesSemanticRadius()
         {
             var root = new GameObject("world");
@@ -1773,7 +1832,14 @@ namespace GameCult.Eve.UnityScene.Tests
             bool includeRaider = true,
             string playerPosition = "0,0,0",
             string skyboxAssetRef = "",
-            string reflectionAssetRef = "")
+            string reflectionAssetRef = "",
+            string cameraRig = "planar.top-down-follow.v1",
+            string cameraDistance = "150",
+            string cameraTargetScreenX = "0.9",
+            string cameraTargetScreenY = "0.55",
+            string cameraPositionDamping = "5",
+            string cameraNearClipPlane = "0.3",
+            string cameraFarClipPlane = "4096")
         {
             var playableChildren = new List<EveSurfaceComponent>
             {
@@ -1910,15 +1976,15 @@ namespace GameCult.Eve.UnityScene.Tests
                                     ["zoneRenderSchema"] = "gamecult.aetheria.zone_render.v1",
                                     ["assetManifest"] = "cultmesh://aetheria/assets/manifest",
                                     ["inputProfile"] = "arpg-third-person",
-                                    ["cameraRig"] = "planar.top-down-follow.v1",
+                                    ["cameraRig"] = cameraRig,
                                     ["cameraTargetEntityId"] = "player-vanguard",
-                                    ["cameraDistance"] = "150",
+                                    ["cameraDistance"] = cameraDistance,
                                     ["cameraVerticalFieldOfViewDegrees"] = "60",
-                                    ["cameraTargetScreenX"] = "0.9",
-                                    ["cameraTargetScreenY"] = "0.55",
-                                    ["cameraPositionDamping"] = "5",
-                                    ["cameraNearClipPlane"] = "0.3",
-                                    ["cameraFarClipPlane"] = "4096",
+                                    ["cameraTargetScreenX"] = cameraTargetScreenX,
+                                    ["cameraTargetScreenY"] = cameraTargetScreenY,
+                                    ["cameraPositionDamping"] = cameraPositionDamping,
+                                    ["cameraNearClipPlane"] = cameraNearClipPlane,
+                                    ["cameraFarClipPlane"] = cameraFarClipPlane,
                                     ["ambientLightColor"] = "0.2,0.2,0.2",
                                     ["ambientLightIntensity"] = "1.46",
                                     ["skyboxAssetRef"] = skyboxAssetRef,

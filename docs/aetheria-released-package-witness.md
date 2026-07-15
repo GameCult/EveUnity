@@ -43,11 +43,11 @@ native cockpit proof is the asserted UI Toolkit visual tree recorded as
 Camera-channel facts:
 
 - provider-authored player renderers: `12`;
-- pilot changed pixels: `230,229`;
-- pilot average luminance: `0.003307`;
-- pilot bright pixels: `1,289`;
+- pilot changed pixels: `230,203`;
+- pilot average luminance: `0.004103`;
+- pilot bright pixels: `1,420`;
 - map-channel renderers: `11`;
-- map changed pixels: `5,396`;
+- map changed pixels: `6,246`;
 - native cockpit progress bars: `6`;
 - the pilot camera excludes the advertised map layer;
 - the player prefab's embedded layer-14 map icon contributes exactly `0` pilot
@@ -63,10 +63,12 @@ provider-owned light, so the next native-art work is available pre-generated
 provider textures, not a client-side lighting fallback.
 Substance is not part of this path; later texture baking belongs in Blender.
 Aetheria currently bundles ambientCG's 1K `Metal012` color, normal, and
-metalness maps for its brushed-aluminium material under CC0. The released
-witness resolves four native textures on that generated URP material. This is
-temporary provider art with recorded provenance, not a replacement texture
-pipeline.
+metalness maps under CC0. The same pre-generated maps now replace dead
+Substance archive sub-assets on the brushed aluminium, tinted car paint,
+cockpit, steel, black-metal, and radiator materials. The released witness
+resolves textured native URP materials in `9` distinct player-material slots,
+up from `3`, without adding another texture payload. This is temporary provider
+art with recorded provenance, not a replacement texture pipeline.
 
 Primary artifacts:
 

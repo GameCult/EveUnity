@@ -181,7 +181,6 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             var root = new GameObject("Generic Eve World Projection");
             var cameraObject = new GameObject("Generic Eve Capture Camera");
             var mapCameraObject = new GameObject("Generic Eve Map Camera");
-            var lightObject = new GameObject("Generic Eve World Light");
             RenderTexture target = null;
             Texture2D pixels = null;
             EveUnityCultMeshPlayableWorldProvider provider = null;
@@ -415,10 +414,6 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 if (observedShot.Hit && (observedShot.AppliedDamage > 0 || observedShot.ShieldAbsorbedDamage > 0))
                     Assert.That(combatRenderer.HitMarkerVisible, Is.True);
 
-                var light = lightObject.AddComponent<Light>();
-                light.type = LightType.Directional;
-                light.intensity = 1.4f;
-                lightObject.transform.rotation = Quaternion.Euler(45f, -35f, 0f);
                 var camera = cameraObject.AddComponent<Camera>();
                 camera.clearFlags = CameraClearFlags.SolidColor;
                 camera.backgroundColor = new Color(0.035f, 0.055f, 0.08f, 1f);
@@ -478,6 +473,21 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 var playerViewport = camera.WorldToViewportPoint(playerMarker.transform.position);
                 Assert.That(playerViewport.x, Is.EqualTo(0.9f).Within(0.01f));
                 Assert.That(playerViewport.y, Is.EqualTo(0.55f).Within(0.01f));
+                MeasureViewportCoverage(camera, playerRenderers, out var playerViewportWidth, out var playerViewportHeight);
+                var playerRendererFacts = playerRenderers
+                    .Select(renderer => RendererFact.From(camera, renderer))
+                    .ToArray();
+                var texturedPlayerMaterialCount = playerRenderers
+                    .SelectMany(renderer => renderer.sharedMaterials)
+                    .Where(material => material != null)
+                    .Distinct()
+                    .Count(HasAnyTexture);
+                var directionalLightIntensity = UnityEngine.Object.FindObjectsOfType<Light>()
+                    .Where(light => light != null && light.enabled && light.type == LightType.Directional)
+                    .Sum(light => light.intensity);
+                Assert.That(directionalLightIntensity,
+                    Is.EqualTo(runtime.ActiveWorld.KeyLightIntensity).Within(0.001f),
+                    "The live witness contains directional lighting not owned by the advertised provider surface.");
 
                 var mapCamera = mapCameraObject.AddComponent<Camera>();
                 mapCamera.cullingMask = 1 << mapLayer;
@@ -489,10 +499,25 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 pixels.ReadPixels(new Rect(0, 0, 640, 360), 0, 0);
                 pixels.Apply();
                 var pilotChangedPixels = CountChangedPixels(pixels, camera.backgroundColor);
+                MeasureLuminance(pixels, out var pilotAverageLuminance, out var pilotBrightPixelCount);
                 Assert.That(pilotChangedPixels, Is.GreaterThan(25), "The pilot camera rendered no provider-authored world pixels.");
                 Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(capturePath)));
                 File.WriteAllBytes(capturePath, pixels.EncodeToPNG());
                 Assert.That(new FileInfo(capturePath).Length, Is.GreaterThan(1024));
+                MeasureRendererOutputs(
+                    camera,
+                    target,
+                    pixels,
+                    root.GetComponentsInChildren<Renderer>(includeInactive: true),
+                    playerRenderers,
+                    playerRendererFacts);
+                var playerMapRendererFacts = playerRendererFacts
+                    .Where(fact => fact.layer == mapLayer)
+                    .ToArray();
+                Assert.That(playerMapRendererFacts, Is.Not.Empty,
+                    "The provider-authored player prefab has no renderer on its advertised map channel.");
+                Assert.That(playerMapRendererFacts.Sum(fact => fact.renderedPixelCount), Is.Zero,
+                    "A provider-prefab map-channel renderer leaked into the pilot camera.");
 
                 mapRenderers = mapRenderers.Where(renderer => renderer != null).ToList();
                 Assert.That(mapRenderers, Is.Not.Empty,
@@ -539,7 +564,14 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     hullRatioBefore,
                     observedCombat?.HullRatio ?? hullRatioBefore,
                     (float)observedShot.LockQuality,
-                    aimDotDistance);
+                    aimDotDistance,
+                    playerViewportWidth,
+                    playerViewportHeight,
+                    texturedPlayerMaterialCount,
+                    directionalLightIntensity,
+                    pilotAverageLuminance,
+                    pilotBrightPixelCount,
+                    playerRendererFacts);
             }
             finally
             {
@@ -551,7 +583,6 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 if (target != null) UnityEngine.Object.DestroyImmediate(target);
                 if (pixels != null) UnityEngine.Object.DestroyImmediate(pixels);
                 host?.Disconnect();
-                UnityEngine.Object.DestroyImmediate(lightObject);
                 UnityEngine.Object.DestroyImmediate(mapCameraObject);
                 UnityEngine.Object.DestroyImmediate(cameraObject);
                 UnityEngine.Object.DestroyImmediate(root);
@@ -579,7 +610,14 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             float hullRatioBefore,
             float hullRatioAfter,
             float lockProgress,
-            float aimDotDistance)
+            float aimDotDistance,
+            float playerViewportWidth,
+            float playerViewportHeight,
+            int texturedPlayerMaterialCount,
+            float directionalLightIntensity,
+            float pilotAverageLuminance,
+            int pilotBrightPixelCount,
+            RendererFact[] playerRendererFacts)
         {
             var path = Environment.GetEnvironmentVariable("EVEUNITY_WITNESS_FACTS_PATH");
             if (string.IsNullOrWhiteSpace(path)) return;
@@ -608,7 +646,14 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 movementDistance = movementDistance,
                 aimDotDistance = aimDotDistance,
                 playerRendererCount = playerRendererCount,
+                playerViewportWidth = playerViewportWidth,
+                playerViewportHeight = playerViewportHeight,
+                texturedPlayerMaterialCount = texturedPlayerMaterialCount,
+                directionalLightIntensity = directionalLightIntensity,
                 pilotChangedPixels = pilotChangedPixels,
+                pilotAverageLuminance = pilotAverageLuminance,
+                pilotBrightPixelCount = pilotBrightPixelCount,
+                playerRenderers = playerRendererFacts,
                 mapChannelRendererCount = mapChannelRendererCount,
                 mapChangedPixels = mapChangedPixels,
                 pilotCameraExcludesMapChannel = pilotCameraExcludesMapChannel,
@@ -645,7 +690,14 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             public float movementDistance;
             public float aimDotDistance;
             public int playerRendererCount;
+            public float playerViewportWidth;
+            public float playerViewportHeight;
+            public int texturedPlayerMaterialCount;
+            public float directionalLightIntensity;
             public int pilotChangedPixels;
+            public float pilotAverageLuminance;
+            public int pilotBrightPixelCount;
+            public RendererFact[] playerRenderers;
             public int mapChannelRendererCount;
             public int mapChangedPixels;
             public bool pilotCameraExcludesMapChannel;
@@ -685,6 +737,68 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             }
         }
 
+        [Serializable]
+        private sealed class RendererFact
+        {
+            public string name;
+            public string rendererType;
+            public bool enabled;
+            public bool activeInHierarchy;
+            public int layer;
+            public string boundsSize;
+            public float viewportWidth;
+            public float viewportHeight;
+            public int renderedPixelCount;
+            public float renderedAverageLuminance;
+            public int renderedBrightPixelCount;
+            public MaterialFact[] materials;
+
+            public static RendererFact From(Camera camera, Renderer renderer)
+            {
+                MeasureViewportCoverage(camera, new[] { renderer }, out var width, out var height);
+                return new RendererFact
+                {
+                    name = renderer.name,
+                    rendererType = renderer.GetType().Name,
+                    enabled = renderer.enabled,
+                    activeInHierarchy = renderer.gameObject.activeInHierarchy,
+                    layer = renderer.gameObject.layer,
+                    boundsSize = FormatVector(renderer.bounds.size),
+                    viewportWidth = width,
+                    viewportHeight = height,
+                    materials = renderer.sharedMaterials
+                        .Where(material => material != null)
+                        .Select(MaterialFact.From)
+                        .ToArray()
+                };
+            }
+        }
+
+        [Serializable]
+        private sealed class MaterialFact
+        {
+            public string name;
+            public string shader;
+            public bool shaderSupported;
+            public string baseColor;
+            public float surface;
+            public int textureCount;
+            public int renderQueue;
+
+            public static MaterialFact From(Material material) => new MaterialFact
+            {
+                name = material.name,
+                shader = material.shader?.name ?? "",
+                shaderSupported = material.shader != null && material.shader.isSupported,
+                baseColor = material.HasProperty("_BaseColor")
+                    ? FormatColor(material.GetColor("_BaseColor"))
+                    : "",
+                surface = material.HasProperty("_Surface") ? material.GetFloat("_Surface") : -1f,
+                textureCount = material.GetTexturePropertyNames().Count(name => material.GetTexture(name) != null),
+                renderQueue = material.renderQueue
+            };
+        }
+
         private static void AssertReconciledProviderReceipt(
             EveUnitySceneCommandReceipt receipt,
             string commandId,
@@ -712,6 +826,108 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     return marker;
             }
             throw new InvalidOperationException($"Projected world has no entity marker '{entityId}'.");
+        }
+
+        private static bool HasAnyTexture(Material material)
+        {
+            foreach (var propertyName in material.GetTexturePropertyNames())
+            {
+                if (material.GetTexture(propertyName) != null)
+                    return true;
+            }
+            return false;
+        }
+
+        private static string FormatVector(Vector3 value) =>
+            $"{value.x:R},{value.y:R},{value.z:R}";
+
+        private static string FormatColor(Color value) =>
+            $"{value.r:R},{value.g:R},{value.b:R},{value.a:R}";
+
+        private static void MeasureViewportCoverage(
+            Camera camera,
+            IReadOnlyList<Renderer> renderers,
+            out float width,
+            out float height)
+        {
+            var min = new Vector2(float.PositiveInfinity, float.PositiveInfinity);
+            var max = new Vector2(float.NegativeInfinity, float.NegativeInfinity);
+            foreach (var renderer in renderers)
+            {
+                var bounds = renderer.bounds;
+                for (var x = -1; x <= 1; x += 2)
+                for (var y = -1; y <= 1; y += 2)
+                for (var z = -1; z <= 1; z += 2)
+                {
+                    var point = bounds.center + Vector3.Scale(bounds.extents, new Vector3(x, y, z));
+                    var viewport = camera.WorldToViewportPoint(point);
+                    if (viewport.z <= 0f) continue;
+                    min = Vector2.Min(min, viewport);
+                    max = Vector2.Max(max, viewport);
+                }
+            }
+            width = float.IsInfinity(min.x) ? 0f : Mathf.Max(0f, max.x - min.x);
+            height = float.IsInfinity(min.y) ? 0f : Mathf.Max(0f, max.y - min.y);
+        }
+
+        private static void MeasureLuminance(
+            Texture2D texture,
+            out float average,
+            out int brightPixelCount)
+        {
+            double total = 0;
+            brightPixelCount = 0;
+            var pixels = texture.GetPixels32();
+            foreach (var pixel in pixels)
+            {
+                var luminance = (0.2126 * pixel.r + 0.7152 * pixel.g + 0.0722 * pixel.b) / 255.0;
+                total += luminance;
+                if (luminance >= 0.2)
+                    brightPixelCount++;
+            }
+            average = pixels.Length == 0 ? 0f : (float)(total / pixels.Length);
+        }
+
+        private static void MeasureRendererOutputs(
+            Camera camera,
+            RenderTexture target,
+            Texture2D pixels,
+            IReadOnlyList<Renderer> allRenderers,
+            IReadOnlyList<Renderer> measuredRenderers,
+            IReadOnlyList<RendererFact> facts)
+        {
+            var enabled = allRenderers.Select(renderer => renderer.enabled).ToArray();
+            var clearFlags = camera.clearFlags;
+            var background = camera.backgroundColor;
+            try
+            {
+                foreach (var renderer in allRenderers)
+                    renderer.enabled = false;
+                camera.clearFlags = CameraClearFlags.SolidColor;
+                camera.backgroundColor = Color.black;
+                for (var index = 0; index < measuredRenderers.Count; index++)
+                {
+                    var fact = facts[index];
+                    measuredRenderers[index].enabled = true;
+                    camera.Render();
+                    RenderTexture.active = target;
+                    pixels.ReadPixels(new Rect(0, 0, target.width, target.height), 0, 0);
+                    pixels.Apply();
+                    fact.renderedPixelCount = CountChangedPixels(pixels, Color.black);
+                    MeasureLuminance(
+                        pixels,
+                        out fact.renderedAverageLuminance,
+                        out fact.renderedBrightPixelCount);
+                    measuredRenderers[index].enabled = false;
+                }
+            }
+            finally
+            {
+                for (var index = 0; index < allRenderers.Count; index++)
+                    allRenderers[index].enabled = enabled[index];
+                camera.clearFlags = clearFlags;
+                camera.backgroundColor = background;
+            }
         }
 
         private static int CountChangedPixels(Texture2D texture, Color background)

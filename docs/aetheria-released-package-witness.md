@@ -4,8 +4,8 @@
 
 The warm-cache released-package witness passes with:
 
-- `org.gamecult.eve.unity-scene` `0.3.26`, commit
-  `7e2c2fa720ca3437aa1b569ffba3a57e6b6f05c5`;
+- `org.gamecult.eve.unity-scene` `0.3.27`, commit
+  `63a41712c5a68ce835bc1820980fc4786c34eb7b`;
 - `org.gamecult.cultlib` `1.0.13`, commit
   `feb5c71513e71d681699f462fe3682b3168c6f73`;
 - the generic `ReleaseConsumerProject` client connected directly to the
@@ -18,19 +18,27 @@ and the generic aim presentation rendered at the advertised 50-unit minimum
 convergence distance. The advertised skybox material and reflection cubemap
 resolved from the provider bundle as their required native types and became the
 active camera rig's leased Unity environment.
+The witness supplies no client-authored light. Aetheria advertises the key-light
+direction, color, and intensity; the generic camera rig lowers that contract to
+the only live directional light (`0.75` intensity).
 
 Camera-channel facts:
 
 - provider-authored player renderers: `12`;
-- pilot changed pixels: `230,332`;
+- pilot changed pixels: `230,359`;
 - map-channel renderers: `11`;
-- map changed pixels: `5,496`;
+- map changed pixels: `5,153`;
 - the pilot camera excludes the advertised map layer;
+- the player prefab's embedded layer-14 map icon contributes exactly `0` pilot
+  pixels;
 - the map camera renders exactly the advertised map layer.
 
 Visual inspection confirms that map glyphs are absent from the pilot frame and
-present in the map-only frame. The pilot presentation remains visually dark;
-the native art and lighting pass is not complete.
+present in the map-only frame. The pilot presentation remains visually sparse
+and dark. Renderer-isolation facts prove that the hull draws under the
+provider-owned light, so the next native-art work is world composition and
+available pre-generated provider textures, not a client-side lighting fallback.
+Substance is not part of this path; later texture baking belongs in Blender.
 
 Primary artifacts:
 

@@ -13,7 +13,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$expectedEveUnityCommit = "7e2c2fa720ca3437aa1b569ffba3a57e6b6f05c5"
+$expectedEveUnityCommit = "63a41712c5a68ce835bc1820980fc4786c34eb7b"
 $expectedCultLibCommit = "feb5c71513e71d681699f462fe3682b3168c6f73"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $projectRoot = $ClientProject
@@ -66,7 +66,10 @@ foreach ($ephemeralPath in @(
   "$replicaPath.cultmesh",
   $statePath,
   "$statePath.records",
-  "$statePath.cultmesh"
+  "$statePath.cultmesh",
+  "$statePath.ymir.cc",
+  "$statePath.ymir.cc.records",
+  "$statePath.ymir.cc.cultmesh"
 )) {
   $resolved = [IO.Path]::GetFullPath($ephemeralPath)
   if (-not $resolved.StartsWith([IO.Path]::GetFullPath($outputRoot), [StringComparison]::OrdinalIgnoreCase)) {

@@ -13,7 +13,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$expectedEveUnityCommit = "ed21479e467faea8ff624f2d2f5a7d2fecf913f4"
+$expectedEveUnityCommit = "d9b762f429056676877d00955dc617e4d423b429"
 $expectedCultLibCommit = "feb5c71513e71d681699f462fe3682b3168c6f73"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $projectRoot = $ClientProject
@@ -196,12 +196,18 @@ try {
   }
   $finalBodies = @(Get-ChildItem -LiteralPath $assetCachePath -Filter *.body -File -Recurse -ErrorAction SilentlyContinue)
   $finalPartials = @(Get-ChildItem -LiteralPath $assetCachePath -Filter *.partial -File -Recurse -ErrorAction SilentlyContinue)
-  if ($finalBodies.Count -ne 1 -or $finalPartials.Count -ne 0) {
-    throw "Content promotion is incomplete. bodies=$($finalBodies.Count) partials=$($finalPartials.Count)"
+  $providerBundlePath = Join-Path $AetheriaRoot "Build\EveAssets\StandaloneWindows64\aetheria-world"
+  if (-not (Test-Path -LiteralPath $providerBundlePath)) {
+    throw "Provider-owned Aetheria bundle is missing: $providerBundlePath"
   }
-  $bodyHash = (Get-FileHash -LiteralPath $finalBodies[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-  if ($finalBodies[0].BaseName -ne $bodyHash) {
-    throw "Promoted content body name does not match its SHA-256. name=$($finalBodies[0].BaseName) hash=$bodyHash"
+  $bodyHash = (Get-FileHash -LiteralPath $providerBundlePath -Algorithm SHA256).Hash.ToLowerInvariant()
+  $promotedBundleBodies = @($finalBodies | Where-Object { $_.BaseName -eq $bodyHash })
+  if ($promotedBundleBodies.Count -ne 1 -or $finalPartials.Count -ne 0) {
+    throw "Provider bundle promotion is incomplete. matchingBodies=$($promotedBundleBodies.Count) bodies=$($finalBodies.Count) partials=$($finalPartials.Count) hash=$bodyHash"
+  }
+  $promotedBodyHash = (Get-FileHash -LiteralPath $promotedBundleBodies[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+  if ($promotedBodyHash -ne $bodyHash -or $promotedBundleBodies[0].Length -ne (Get-Item -LiteralPath $providerBundlePath).Length) {
+    throw "Promoted provider bundle does not match its authoritative body. expected=$bodyHash actual=$promotedBodyHash"
   }
   $facts | Add-Member -NotePropertyName releasedPackageClient -NotePropertyValue $releasedPackageClient
   $facts | Add-Member -NotePropertyName clientProject -NotePropertyValue $projectRoot

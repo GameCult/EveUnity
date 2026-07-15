@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 
 #nullable enable
@@ -20,6 +21,7 @@ namespace GameCult.Eve.UnityScene
         private Material? _material;
 
         public int ActiveTrajectoryCount => _active.Count;
+        public int ActiveFallbackTrajectoryCount => _active.Count(trajectory => trajectory.Line != null);
 
         public void Bind(EveUnityPlayableWorldClientHost host, IEveUnityGameObjectAssetProvider? assetProvider = null)
         {
@@ -43,19 +45,10 @@ namespace GameCult.Eve.UnityScene
             if (receipt == null) throw new ArgumentNullException(nameof(receipt));
             var shot = new GameObject("Eve shot " + receipt.ShotId);
             shot.transform.SetParent(transform, false);
-            var line = shot.AddComponent<LineRenderer>();
-            line.useWorldSpace = true;
-            line.positionCount = 2;
-            var intensityScale = Mathf.Clamp(Mathf.Sqrt((float)receipt.PresentationIntensity), 0.5f, 4f);
-            line.startWidth = Math.Max(0.01f, width * intensityScale);
-            line.endWidth = Math.Max(0.01f, width * 0.5f * intensityScale);
-            line.material = SharedMaterial();
-            line.startColor = line.endColor = receipt.Hit ? hitColor : missColor;
-
             var origin = Vector(receipt.Origin);
-            line.SetPosition(0, origin);
             var endpoint = Vector(receipt.Endpoint);
             var effectPrefab = ResolveEffectPrefab(receipt);
+            LineRenderer? line = null;
             if (effectPrefab != null)
             {
                 var effect = Instantiate(effectPrefab, shot.transform);
@@ -71,10 +64,23 @@ namespace GameCult.Eve.UnityScene
                     lightning.StartAnimation();
                 }
             }
+            else
+            {
+                line = shot.AddComponent<LineRenderer>();
+                line.useWorldSpace = true;
+                line.positionCount = 2;
+                var intensityScale = Mathf.Clamp(Mathf.Sqrt((float)receipt.PresentationIntensity), 0.5f, 4f);
+                line.startWidth = Math.Max(0.01f, width * intensityScale);
+                line.endWidth = Math.Max(0.01f, width * 0.5f * intensityScale);
+                line.material = SharedMaterial();
+                line.startColor = line.endColor = receipt.Hit ? hitColor : missColor;
+                line.SetPosition(0, origin);
+            }
             var impactPrefab = ResolveRolePrefab("effect.impact." + receipt.ImpactKind);
             var travels = string.Equals(receipt.PresentationKind, "bolt", StringComparison.Ordinal) ||
                 string.Equals(receipt.PresentationKind, "guided", StringComparison.Ordinal);
-            line.SetPosition(1, travels ? origin : endpoint);
+            if (line != null)
+                line.SetPosition(1, travels ? origin : endpoint);
             _active.Add(new ActiveTrajectory(
                 shot,
                 line,
@@ -93,7 +99,7 @@ namespace GameCult.Eve.UnityScene
             {
                 var trajectory = _active[index];
                 var progress = Mathf.Clamp01((now - trajectory.StartedAt) / trajectory.Duration);
-                if (trajectory.Travels)
+                if (trajectory.Travels && trajectory.Line != null)
                     trajectory.Line.SetPosition(1, Vector3.Lerp(trajectory.Origin, trajectory.Endpoint, progress));
                 if (progress >= 1 && !trajectory.ImpactPresented)
                 {
@@ -146,7 +152,7 @@ namespace GameCult.Eve.UnityScene
 
         private sealed class ActiveTrajectory
         {
-            public ActiveTrajectory(GameObject root, LineRenderer line, Vector3 origin, Vector3 endpoint, float startedAt, float duration, bool travels, GameObject? impactPrefab)
+            public ActiveTrajectory(GameObject root, LineRenderer? line, Vector3 origin, Vector3 endpoint, float startedAt, float duration, bool travels, GameObject? impactPrefab)
             {
                 Root = root;
                 Line = line;
@@ -159,7 +165,7 @@ namespace GameCult.Eve.UnityScene
             }
 
             public GameObject Root { get; }
-            public LineRenderer Line { get; }
+            public LineRenderer? Line { get; }
             public Vector3 Origin { get; }
             public Vector3 Endpoint { get; }
             public float StartedAt { get; }

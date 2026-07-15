@@ -17,6 +17,13 @@ namespace GameCult.Eve.UnityScene
         UnityEngine.Object? ResolveAsset(EveUnityPlayableWorldAssetBinding asset, Type assetType);
     }
 
+    public interface IEveUnityNativeAssetMetadataProvider
+    {
+        bool TryResolveAssetMetadata(
+            EveUnityPlayableWorldAssetBinding asset,
+            out IReadOnlyDictionary<string, string> metadata);
+    }
+
     public sealed class EveUnityGameObjectPlayableWorldSceneSink :
         IEveUnityPlayableWorldSceneSink,
         IEveUnityEntityGenerationSink,

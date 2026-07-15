@@ -62,3 +62,11 @@ therefore reference the effect without importing Aetheria gameplay code.
 `org.gamecult.eve.plugin-fields` contracts. `EveFieldsSplatRasterizer` owns the
 Unity structured-buffer and RenderTexture lowering without importing provider
 document classes.
+
+`field.volume3d` surfaces name logical texture ports, feature names, quality,
+and authored scalar/vector parameters. Concrete Unity shader properties,
+keywords, and pass indices belong to the selected `unity-scene` asset variant
+under `unity.volume.*` metadata. The lowerer fails closed when that native
+program descriptor is absent or incomplete. This keeps provider shader ABIs
+out of Eve's semantic surface while allowing a provider-owned shader to consume
+portable Eve Fields documents.

@@ -48,6 +48,8 @@ namespace GameCult.Eve.UnityScene
         private readonly HashSet<string> _publishedReceiptIds = new HashSet<string>(StringComparer.Ordinal);
         private readonly Dictionary<string, GameObject> _prefabs = new Dictionary<string, GameObject>(StringComparer.Ordinal);
         private readonly Dictionary<string, UnityEngine.Object> _nativeAssets = new Dictionary<string, UnityEngine.Object>(StringComparer.Ordinal);
+        private readonly Dictionary<string, IReadOnlyDictionary<string, string>> _nativeAssetMetadata =
+            new Dictionary<string, IReadOnlyDictionary<string, string>>(StringComparer.Ordinal);
         private readonly List<AssetBundle> _assetBundles = new List<AssetBundle>();
         private readonly Dictionary<string, int> _renderChannelLayers = new Dictionary<string, int>(StringComparer.Ordinal);
         private readonly ConcurrentQueue<object> _liveDocuments = new ConcurrentQueue<object>();
@@ -314,6 +316,7 @@ namespace GameCult.Eve.UnityScene
             _assetBundles.Clear();
             _prefabs.Clear();
             _nativeAssets.Clear();
+            _nativeAssetMetadata.Clear();
             _node?.Dispose();
             _snapshot?.Dispose();
             _subscriptions?.Dispose();
@@ -342,6 +345,14 @@ namespace GameCult.Eve.UnityScene
             if (assetType == null) throw new ArgumentNullException(nameof(assetType));
             return _nativeAssets.TryGetValue(asset.AssetRef, out var value) && assetType.IsInstanceOfType(value)
                 ? value : null;
+        }
+
+        public bool TryResolveAssetMetadata(
+            EveUnityPlayableWorldAssetBinding asset,
+            out IReadOnlyDictionary<string, string> metadata)
+        {
+            if (asset == null) throw new ArgumentNullException(nameof(asset));
+            return _nativeAssetMetadata.TryGetValue(asset.AssetRef, out metadata!);
         }
 
         public bool TryGetRenderChannelLayer(string channel, out int layer)
@@ -679,6 +690,7 @@ namespace GameCult.Eve.UnityScene
             _assetBundles.Clear();
             _prefabs.Clear();
             _nativeAssets.Clear();
+            _nativeAssetMetadata.Clear();
             _renderChannelLayers.Clear();
             var selected = catalog.Assets
                 .Select(asset => new
@@ -728,9 +740,14 @@ namespace GameCult.Eve.UnityScene
                             $"'{selection.Variant.AssetKey}'. Available assets: " +
                             string.Join(", ", bundleAssetNames));
                     _nativeAssets[selection.Asset.AssetRef] = value;
+                    var metadata = MergeAssetMetadata(selection.Asset.Metadata, selection.Variant.Metadata);
+                    _nativeAssetMetadata[selection.Asset.AssetRef] = metadata;
                     if (selection.Asset.Metadata.TryGetValue("presentationRole", out var role) &&
                         !string.IsNullOrWhiteSpace(role))
+                    {
                         _nativeAssets[role] = value;
+                        _nativeAssetMetadata[role] = metadata;
+                    }
                     if (value is GameObject prefab)
                     {
                         _prefabs[selection.Asset.AssetRef] = prefab;
@@ -746,6 +763,16 @@ namespace GameCult.Eve.UnityScene
         {
             return bundleAssetNames.FirstOrDefault(assetName =>
                 string.Equals(assetName, advertisedAssetKey, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static IReadOnlyDictionary<string, string> MergeAssetMetadata(
+            IReadOnlyDictionary<string, string> assetMetadata,
+            IReadOnlyDictionary<string, string> variantMetadata)
+        {
+            var merged = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var pair in assetMetadata) merged[pair.Key] = pair.Value;
+            foreach (var pair in variantMetadata) merged[pair.Key] = pair.Value;
+            return merged;
         }
 
         private void ReadCameraPolicies(IEnumerable<EveAssetVariant> variants)

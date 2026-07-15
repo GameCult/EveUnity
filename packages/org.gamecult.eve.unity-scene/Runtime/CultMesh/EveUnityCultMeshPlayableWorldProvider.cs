@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using GameCult.Eve.Surface;
 using GameCult.Eve.PluginFields;
 using GameCult.Eve.UnityScene.Fields;
@@ -22,6 +23,7 @@ namespace GameCult.Eve.UnityScene
         IEveUnityFieldsSplatsDocumentSource,
         IEveUnityCameraRenderPolicySource,
         IEveUnityNativeAssetProvider,
+        IEveUnityNativeAssetMetadataProvider,
         IEveUnityInputCapabilitySource
     {
         [SerializeField] private string rendezvousEndpoint = "";
@@ -122,6 +124,14 @@ namespace GameCult.Eve.UnityScene
         {
             EnsureTransport();
             return _transport!.ResolveAsset(asset, assetType);
+        }
+
+        public bool TryResolveAssetMetadata(
+            EveUnityPlayableWorldAssetBinding asset,
+            out IReadOnlyDictionary<string, string> metadata)
+        {
+            EnsureTransport();
+            return _transport!.TryResolveAssetMetadata(asset, out metadata);
         }
 
         public bool TryGetRenderChannelLayer(string channel, out int layer)

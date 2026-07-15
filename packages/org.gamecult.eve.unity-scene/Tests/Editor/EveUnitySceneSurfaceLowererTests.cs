@@ -1880,7 +1880,7 @@ namespace GameCult.Eve.UnityScene.Tests
                     ["renderChannel"] = "world.transparent",
                     ["compositeMode"] = "premultiplied-alpha",
                     ["quality"] = "normal",
-                    ["layerBindings"] = "fog.surface_height=_NebulaSurfaceHeight;fog.tint=_NebulaTint"
+                    ["layerBindings"] = "fog.surface_height=surfaceHeight;fog.tint=tint"
                 },
                 Array.Empty<EveSurfaceComponent>()));
 

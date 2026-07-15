@@ -19,6 +19,7 @@ namespace GameCult.Eve.UnityScene.Fields
         private readonly List<EveFieldsSplatLayerTarget> _targets = new List<EveFieldsSplatLayerTarget>();
         private Material? _material;
         private Shader? _sourceShader;
+        private IReadOnlyDictionary<string, string>? _programMetadata;
         private RenderTexture? _cloudTexture;
         private CommandBuffer? _commands;
         private string _activeNodeId = "";
@@ -87,25 +88,13 @@ namespace GameCult.Eve.UnityScene.Fields
             if (_cloudTexture == null) return;
 
             var gpuProjection = GL.GetGPUProjectionMatrix(camera.projectionMatrix, true);
-            SetMatrix(field, "cameraInverseViewProjectionProperty", (gpuProjection * camera.worldToCameraMatrix).inverse);
-            SetVector(field, "cameraProjectionExtentsProperty", ProjectionExtents(camera));
-            SetFloat(field, "raymarchOffsetProperty", Halton(Time.frameCount & 1023, 3));
-            foreach (var binding in ParseBindings(Prop(field, "screenTextureScaleBindings")))
-            {
-                var texture = _material!.GetTexture(binding.Key);
-                if (texture != null)
-                    _material.SetVector(binding.Value, new Vector4(
-                        (float)Math.Max(1, camera.pixelWidth) / Math.Max(1, texture.width),
-                        (float)Math.Max(1, camera.pixelHeight) / Math.Max(1, texture.height),
-                        0f,
-                        0f));
-            }
+            SetMatrixPort("cameraInverseViewProjection", (gpuProjection * camera.worldToCameraMatrix).inverse);
+            SetVectorPort("cameraProjectionExtents", ProjectionExtents(camera));
+            SetFloatPort("raymarchOffset", Halton(Time.frameCount & 1023, 3));
 
-            var raymarchPass = NonNegativeInt(field, "raymarchPass", 0);
-            var compositePass = NonNegativeInt(field, "compositePass", 2);
-            var cloudTextureProperty = Prop(field, "cloudTextureProperty");
-            if (!string.IsNullOrWhiteSpace(cloudTextureProperty))
-                _material!.SetTexture(cloudTextureProperty, _cloudTexture);
+            var raymarchPass = ProgramPass("raymarch");
+            var compositePass = ProgramPass("composite");
+            SetTexturePort("cloud", _cloudTexture);
 
             _commands ??= new CommandBuffer { name = "Eve Fields Volume" };
             _commands.Clear();
@@ -132,30 +121,49 @@ namespace GameCult.Eve.UnityScene.Fields
                 new EveUnityPlayableWorldAssetBinding(field.MaterialAssetRef, "", "provider-asset-ref"),
                 typeof(Shader)) as Shader;
             if (shader == null || !shader.isSupported) return false;
+            var shaderBinding = new EveUnityPlayableWorldAssetBinding(field.MaterialAssetRef, "", "provider-asset-ref");
+            if (provider is not IEveUnityNativeAssetMetadataProvider metadataProvider ||
+                !metadataProvider.TryResolveAssetMetadata(shaderBinding, out var metadata))
+                return false;
+            _programMetadata = metadata;
+            if (ProgramPass("raymarch") < 0 || ProgramPass("composite") < 0 ||
+                string.IsNullOrWhiteSpace(ProgramPort("texture", "cloud")) ||
+                string.IsNullOrWhiteSpace(ProgramPort("matrix", "cameraInverseViewProjection")) ||
+                string.IsNullOrWhiteSpace(ProgramPort("vector", "cameraProjectionExtents")) ||
+                string.IsNullOrWhiteSpace(ProgramPort("vector", "viewportTransform")) ||
+                string.IsNullOrWhiteSpace(ProgramPort("float", "raymarchOffset")))
+                return false;
             if (_material != null && ReferenceEquals(shader, _sourceShader) &&
                 string.Equals(_activeNodeId, field.NodeId, StringComparison.Ordinal)) return true;
             if (_material != null) Destroy(_material);
             _sourceShader = shader;
             _activeNodeId = field.NodeId;
             _material = new Material(shader) { hideFlags = HideFlags.DontSave };
-            foreach (var prop in field.Props)
+            foreach (var parameter in ParseBindings(Prop(field, "floatParameters")))
             {
-                if (prop.Key.StartsWith("materialFloat.", StringComparison.Ordinal) &&
-                    TryFloat(prop.Value, out var value))
-                    _material.SetFloat(prop.Key.Substring("materialFloat.".Length), value);
-                else if (prop.Key.StartsWith("materialVector.", StringComparison.Ordinal) &&
-                         TryVector(prop.Value, out var vector))
-                    _material.SetVector(prop.Key.Substring("materialVector.".Length), vector);
+                if (TryFloat(parameter.Value, out var value)) SetFloatPort(parameter.Key, value);
             }
+            foreach (var parameter in ParseBindings(Prop(field, "vectorParameters")))
+                if (TryVector(parameter.Value, out var vector)) SetVectorPort(parameter.Key, vector);
             foreach (var binding in ParseBindings(Prop(field, "assetTextureBindings")))
             {
                 var texture = provider.ResolveAsset(
                     new EveUnityPlayableWorldAssetBinding(binding.Key, "", "provider-asset-ref"),
                     typeof(Texture)) as Texture;
-                if (texture != null) _material.SetTexture(binding.Value, texture);
+                if (texture != null) SetTexturePort(binding.Value, texture);
             }
-            foreach (var keyword in Prop(field, "shaderKeywords").Split(';'))
-                if (!string.IsNullOrWhiteSpace(keyword)) _material.EnableKeyword(keyword.Trim());
+            var quality = Prop(field, "quality").Trim().ToLowerInvariant();
+            if (TryProgramValue($"unity.volume.quality.{quality}.keyword", out var keyword) &&
+                !string.IsNullOrWhiteSpace(keyword))
+                _material.EnableKeyword(keyword);
+            foreach (var feature in Prop(field, "features").Split(';'))
+            {
+                var logicalFeature = feature.Trim();
+                if (!string.IsNullOrWhiteSpace(logicalFeature) &&
+                    TryProgramValue($"unity.volume.feature.{logicalFeature}.keyword", out var featureKeyword) &&
+                    !string.IsNullOrWhiteSpace(featureKeyword))
+                    _material.EnableKeyword(featureKeyword);
+            }
             return true;
         }
 
@@ -166,20 +174,16 @@ namespace GameCult.Eve.UnityScene.Fields
             foreach (var binding in bindings)
             {
                 var target = _targets.FirstOrDefault(value => string.Equals(value.LayerKey, binding.Key, StringComparison.Ordinal));
-                if (target?.TargetTexture != null) _material.SetTexture(binding.Value, target.TargetTexture);
+                if (target?.TargetTexture != null) SetTexturePort(binding.Value, target.TargetTexture);
             }
-            var viewportProperty = Prop(field, "viewportTransformProperty");
-            if (!string.IsNullOrWhiteSpace(viewportProperty))
-            {
-                var viewport = document.Viewport;
-                var width = viewport.MaxX - viewport.MinX;
-                var height = viewport.MaxY - viewport.MinY;
-                _material.SetVector(viewportProperty, new Vector4(
-                    (float)((viewport.MinX + viewport.MaxX) * 0.5),
-                    (float)((viewport.MinY + viewport.MaxY) * 0.5),
-                    (float)width,
-                    (float)height));
-            }
+            var viewport = document.Viewport;
+            var width = viewport.MaxX - viewport.MinX;
+            var height = viewport.MaxY - viewport.MinY;
+            SetVectorPort("viewportTransform", new Vector4(
+                (float)((viewport.MinX + viewport.MaxX) * 0.5),
+                (float)((viewport.MinY + viewport.MaxY) * 0.5),
+                (float)width,
+                (float)height));
         }
 
         private void EnsureTargets(EveUnityFieldVolumeProjection field)
@@ -221,27 +225,49 @@ namespace GameCult.Eve.UnityScene.Fields
             if (_cloudTexture != null) { _cloudTexture.Release(); Destroy(_cloudTexture); _cloudTexture = null; }
             if (_material != null) { Destroy(_material); _material = null; }
             _sourceShader = null;
+            _programMetadata = null;
             _activeNodeId = "";
             PresentedFrameId = -1;
             CompositeCount = 0;
         }
 
-        private void SetMatrix(EveUnityFieldVolumeProjection field, string propKey, Matrix4x4 value)
+        private void SetMatrixPort(string port, Matrix4x4 value)
         {
-            var property = Prop(field, propKey);
+            var property = ProgramPort("matrix", port);
             if (!string.IsNullOrWhiteSpace(property)) _material!.SetMatrix(property, value);
         }
 
-        private void SetVector(EveUnityFieldVolumeProjection field, string propKey, Vector4 value)
+        private void SetVectorPort(string port, Vector4 value)
         {
-            var property = Prop(field, propKey);
+            var property = ProgramPort("vector", port);
             if (!string.IsNullOrWhiteSpace(property)) _material!.SetVector(property, value);
         }
 
-        private void SetFloat(EveUnityFieldVolumeProjection field, string propKey, float value)
+        private void SetFloatPort(string port, float value)
         {
-            var property = Prop(field, propKey);
+            var property = ProgramPort("float", port);
             if (!string.IsNullOrWhiteSpace(property)) _material!.SetFloat(property, value);
+        }
+
+        private void SetTexturePort(string port, Texture value)
+        {
+            var property = ProgramPort("texture", port);
+            if (!string.IsNullOrWhiteSpace(property)) _material!.SetTexture(property, value);
+        }
+
+        private string ProgramPort(string kind, string port) =>
+            TryProgramValue($"unity.volume.{kind}Port.{port}", out var value) ? value : "";
+
+        private int ProgramPass(string pass) =>
+            TryProgramValue($"unity.volume.pass.{pass}", out var value) &&
+            int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) && parsed >= 0
+                ? parsed
+                : -1;
+
+        private bool TryProgramValue(string key, out string value)
+        {
+            value = "";
+            return _programMetadata != null && _programMetadata.TryGetValue(key, out value!);
         }
 
         private static Vector4 ProjectionExtents(Camera camera)

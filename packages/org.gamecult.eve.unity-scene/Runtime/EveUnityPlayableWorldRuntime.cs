@@ -234,7 +234,9 @@ namespace GameCult.Eve.UnityScene
             _entityPresenter.Apply(document, lease);
     }
 
-    public sealed class EveUnityLivePlayableWorldAssetProvider : IEveUnityNativeAssetProvider
+    public sealed class EveUnityLivePlayableWorldAssetProvider :
+        IEveUnityNativeAssetProvider,
+        IEveUnityNativeAssetMetadataProvider
     {
         private readonly EveUnityPlayableWorldAssetManifestCache _assetManifests;
         private readonly Func<EveUnityPlayableWorldProjection?> _activeWorld;
@@ -280,6 +282,17 @@ namespace GameCult.Eve.UnityScene
                 if (value != null) return value;
             }
             return (_fallback as IEveUnityNativeAssetProvider)?.ResolveAsset(asset, assetType);
+        }
+
+        public bool TryResolveAssetMetadata(
+            EveUnityPlayableWorldAssetBinding asset,
+            out IReadOnlyDictionary<string, string> metadata)
+        {
+            if (asset == null) throw new ArgumentNullException(nameof(asset));
+            if (_fallback is IEveUnityNativeAssetMetadataProvider provider)
+                return provider.TryResolveAssetMetadata(asset, out metadata);
+            metadata = new Dictionary<string, string>(StringComparer.Ordinal);
+            return false;
         }
     }
 }

@@ -129,11 +129,14 @@ namespace GameCult.Eve.UnityUIToolkit
                 }
                 case "progress":
                 {
-                    var progress = new VisualElement();
+                    var progress = new ProgressBar
+                    {
+                        title = component.GetProp("label"),
+                        lowValue = 0f,
+                        highValue = 1f,
+                        value = ParseRatio(component.GetProp("ratio", component.GetProp("value")))
+                    };
                     progress.AddToClassList("eve-progress");
-                    progress.style.flexDirection = FlexDirection.Column;
-                    progress.Add(MutedLabel(component.GetProp("label")));
-                    progress.Add(ValueLabel(component.GetProp("value")));
                     return progress;
                 }
                 case "options":
@@ -313,6 +316,26 @@ namespace GameCult.Eve.UnityUIToolkit
                 element.style.display = string.Equals(display, "none", StringComparison.OrdinalIgnoreCase)
                     ? DisplayStyle.None
                     : DisplayStyle.Flex;
+            if (TryGet(layout, "position", out var position))
+                element.style.position = string.Equals(position, "absolute", StringComparison.OrdinalIgnoreCase)
+                    ? Position.Absolute
+                    : Position.Relative;
+            if (TryGet(layout, "inset", out var inset))
+            {
+                var value = ParseLength(inset);
+                element.style.top = value;
+                element.style.right = value;
+                element.style.bottom = value;
+                element.style.left = value;
+            }
+            if (TryGet(layout, "top", out var top))
+                element.style.top = ParseLength(top);
+            if (TryGet(layout, "right", out var right))
+                element.style.right = ParseLength(right);
+            if (TryGet(layout, "bottom", out var bottom))
+                element.style.bottom = ParseLength(bottom);
+            if (TryGet(layout, "left", out var left))
+                element.style.left = ParseLength(left);
             if (TryGet(layout, "direction", out var direction))
             {
                 if (string.Equals(direction, "horizontal", StringComparison.OrdinalIgnoreCase) ||
@@ -428,6 +451,13 @@ namespace GameCult.Eve.UnityUIToolkit
             return float.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var pixels)
                 ? pixels
                 : StyleKeyword.Null;
+        }
+
+        private static float ParseRatio(string value)
+        {
+            return float.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var ratio)
+                ? Mathf.Clamp01(ratio)
+                : 0f;
         }
 
         private static void ApplyBoxLength(string value, Action<StyleLength> apply)

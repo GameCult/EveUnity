@@ -112,6 +112,36 @@ namespace GameCult.Eve.UnityUIToolkit.Tests
             Assert.That(embedded.ClassListContains("eve-embedded-kind-inline"), Is.True);
         }
 
+        [Test]
+        public void ProgressAndAbsoluteLayoutLowerToNativeUiToolkitPrimitives()
+        {
+            var progress = new EveSurfaceComponent(
+                "hull",
+                "progress",
+                new Dictionary<string, string>
+                {
+                    ["label"] = "Hull",
+                    ["ratio"] = "0.625"
+                },
+                Array.Empty<EveSurfaceComponent>(),
+                Array.Empty<CultMeshStateBindingDescriptor>(),
+                Array.Empty<EveEmbeddedDocumentSlot>(),
+                new Dictionary<string, string>
+                {
+                    ["position"] = "absolute",
+                    ["right"] = "24",
+                    ["bottom"] = "32"
+                });
+
+            var root = new EveUiToolkitSurfaceLowerer().Lower(Document(progress));
+
+            Assert.That(root, Is.TypeOf<ProgressBar>());
+            Assert.That(((ProgressBar)root).value, Is.EqualTo(0.625f));
+            Assert.That(root.style.position.value, Is.EqualTo(Position.Absolute));
+            Assert.That(root.style.right.value.value, Is.EqualTo(24f));
+            Assert.That(root.style.bottom.value.value, Is.EqualTo(32f));
+        }
+
         private static EveSurfaceDocument Document(EveSurfaceComponent root, string surfaceId = "test-surface")
         {
             return new EveSurfaceDocument(

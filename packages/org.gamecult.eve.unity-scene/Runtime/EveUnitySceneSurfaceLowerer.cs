@@ -126,7 +126,15 @@ namespace GameCult.Eve.UnityScene
                 worldRoot.GetProp("entityViewSchema"),
                 worldRoot.GetProp("zoneRenderPointerId"),
                 worldRoot.GetProp("zoneRenderSchema"),
-                ParseStringList(worldRoot.GetProp("excludedRenderChannels")));
+                ParseStringList(worldRoot.GetProp("excludedRenderChannels")),
+                worldRoot.GetProp("cameraTargetEntityId"),
+                ParseFloat(worldRoot.GetProp("cameraDistance"), 0f),
+                ParseFloat(worldRoot.GetProp("cameraVerticalFieldOfViewDegrees"), 0f),
+                ParseFloat(worldRoot.GetProp("cameraTargetScreenX"), 0.5f),
+                ParseFloat(worldRoot.GetProp("cameraTargetScreenY"), 0.5f),
+                ParseFloat(worldRoot.GetProp("cameraPositionDamping"), 0f),
+                ParseVector3(worldRoot.GetProp("ambientLightColor")),
+                ParseFloat(worldRoot.GetProp("ambientLightIntensity"), 1f));
         }
 
         private static EveUnityPlayableWorldEntity BuildPlayableEntity(EveSurfaceComponent component)
@@ -337,7 +345,15 @@ namespace GameCult.Eve.UnityScene
             string entityViewSchema = "",
             string zoneRenderPointerId = "",
             string zoneRenderSchema = "",
-            IReadOnlyList<string>? excludedRenderChannels = null)
+            IReadOnlyList<string>? excludedRenderChannels = null,
+            string cameraTargetEntityId = "",
+            float cameraDistance = 0f,
+            float cameraVerticalFieldOfViewDegrees = 0f,
+            float cameraTargetScreenX = 0.5f,
+            float cameraTargetScreenY = 0.5f,
+            float cameraPositionDamping = 0f,
+            (float r, float g, float b) ambientLightColor = default,
+            float ambientLightIntensity = 1f)
         {
             WorldRootId = worldRootId ?? "";
             StatePointerId = statePointerId ?? "";
@@ -356,6 +372,16 @@ namespace GameCult.Eve.UnityScene
             ZoneRenderPointerId = zoneRenderPointerId ?? "";
             ZoneRenderSchema = zoneRenderSchema ?? "";
             ExcludedRenderChannels = excludedRenderChannels ?? Array.Empty<string>();
+            CameraTargetEntityId = cameraTargetEntityId ?? "";
+            CameraDistance = cameraDistance;
+            CameraVerticalFieldOfViewDegrees = cameraVerticalFieldOfViewDegrees;
+            CameraTargetScreenX = cameraTargetScreenX;
+            CameraTargetScreenY = cameraTargetScreenY;
+            CameraPositionDamping = cameraPositionDamping;
+            AmbientLightR = ambientLightColor.r;
+            AmbientLightG = ambientLightColor.g;
+            AmbientLightB = ambientLightColor.b;
+            AmbientLightIntensity = ambientLightIntensity;
         }
 
         public string WorldRootId { get; }
@@ -375,6 +401,26 @@ namespace GameCult.Eve.UnityScene
         public string InputProfile { get; }
 
         public string CameraRig { get; }
+
+        public string CameraTargetEntityId { get; }
+
+        public float CameraDistance { get; }
+
+        public float CameraVerticalFieldOfViewDegrees { get; }
+
+        public float CameraTargetScreenX { get; }
+
+        public float CameraTargetScreenY { get; }
+
+        public float CameraPositionDamping { get; }
+
+        public float AmbientLightR { get; }
+
+        public float AmbientLightG { get; }
+
+        public float AmbientLightB { get; }
+
+        public float AmbientLightIntensity { get; }
 
         public string ViewId { get; }
 

@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.Rendering;
 
 #nullable enable
 
@@ -46,6 +47,7 @@ namespace GameCult.Eve.UnityScene
                 return false;
 
             if (!string.IsNullOrWhiteSpace(activeWorld.CameraRig) &&
+                activeWorld.CameraRig != "planar.top-down-follow.v1" &&
                 activeWorld.CameraRig != "arpg.orbital-follow.v1" &&
                 activeWorld.CameraRig != "third-person-orbit")
             {
@@ -53,7 +55,10 @@ namespace GameCult.Eve.UnityScene
             }
 
             var camera = cameraTransform != null ? cameraTransform : transform;
-            var player = FindPlayer(resolvedHost, activeWorld.PlayerEntityId);
+            var targetEntityId = string.IsNullOrWhiteSpace(activeWorld.CameraTargetEntityId)
+                ? activeWorld.PlayerEntityId
+                : activeWorld.CameraTargetEntityId;
+            var player = FindEntity(resolvedHost, targetEntityId);
             if (player == null)
                 return false;
 
@@ -69,10 +74,12 @@ namespace GameCult.Eve.UnityScene
                 }
                 cameraComponent.cullingMask = cullingMask;
             }
+            if (activeWorld.CameraRig == "planar.top-down-follow.v1")
+                return ApplyPlanarTopDown(activeWorld, camera, cameraComponent, player.position, deltaTime);
+
             var bounds = CalculateVisualBounds(
                 player,
-                cameraComponent != null ? cameraComponent.cullingMask : -1,
-                FindSelectedTarget(resolvedHost));
+                cameraComponent != null ? cameraComponent.cullingMask : -1);
             var target = bounds?.center ?? player.position;
             var radius = bounds?.extents.magnitude ?? 0f;
             var verticalFov = cameraComponent != null ? cameraComponent.fieldOfView : 60f;
@@ -92,12 +99,45 @@ namespace GameCult.Eve.UnityScene
             return true;
         }
 
-        private static Bounds? CalculateVisualBounds(Transform player, int cullingMask, Transform? selectedTarget)
+        private static bool ApplyPlanarTopDown(
+            EveUnityPlayableWorldProjection world,
+            Transform camera,
+            Camera? cameraComponent,
+            Vector3 target,
+            float deltaTime)
+        {
+            var resolvedDistance = Mathf.Max(0.1f, world.CameraDistance);
+            var verticalFov = Mathf.Clamp(world.CameraVerticalFieldOfViewDegrees, 1f, 179f);
+            if (cameraComponent != null)
+                cameraComponent.fieldOfView = verticalFov;
+            var aspect = cameraComponent != null ? cameraComponent.aspect : 16f / 9f;
+            var verticalHalfExtent = resolvedDistance * Mathf.Tan(verticalFov * 0.5f * Mathf.Deg2Rad);
+            var horizontalHalfExtent = verticalHalfExtent * Mathf.Max(0.01f, aspect);
+            var screenOffset = new Vector3(
+                (Mathf.Clamp01(world.CameraTargetScreenX) - 0.5f) * 2f * horizontalHalfExtent,
+                0f,
+                (Mathf.Clamp01(world.CameraTargetScreenY) - 0.5f) * 2f * verticalHalfExtent);
+            var desiredPosition = target + (Vector3.up * resolvedDistance) - screenOffset;
+            var damping = Mathf.Max(0f, world.CameraPositionDamping);
+            var t = deltaTime <= 0f || damping <= 0f
+                ? 1f
+                : 1f - Mathf.Exp(-damping * deltaTime);
+            camera.position = Vector3.Lerp(camera.position, desiredPosition, t);
+            camera.rotation = Quaternion.LookRotation(Vector3.down, Vector3.forward);
+
+            RenderSettings.ambientMode = AmbientMode.Flat;
+            RenderSettings.ambientLight = new Color(
+                Mathf.Max(0f, world.AmbientLightR * world.AmbientLightIntensity),
+                Mathf.Max(0f, world.AmbientLightG * world.AmbientLightIntensity),
+                Mathf.Max(0f, world.AmbientLightB * world.AmbientLightIntensity),
+                1f);
+            return true;
+        }
+
+        private static Bounds? CalculateVisualBounds(Transform player, int cullingMask)
         {
             Bounds? bounds = null;
-            foreach (var root in selectedTarget == null
-                         ? new[] { player }
-                         : new[] { player, selectedTarget! })
+            foreach (var root in new[] { player })
             {
                 foreach (var visual in root.GetComponentsInChildren<Renderer>(includeInactive: false))
                 {
@@ -122,17 +162,6 @@ namespace GameCult.Eve.UnityScene
             return bounds;
         }
 
-        private static Transform? FindSelectedTarget(EveUnityPlayableWorldClientHost host)
-        {
-            var combat = EveUnityCombatPresentation.Find(host.ActiveProjection);
-            if (combat == null || string.IsNullOrWhiteSpace(combat.SelectedTargetEntityId))
-                return null;
-            if (host.PresentedEntities?.CurrentGeneration != null &&
-                host.PresentedEntities.TryGetByEntityId(combat.SelectedTargetEntityId, out var presented))
-                return presented.Transform;
-            return null;
-        }
-
         private void LateUpdate()
         {
             if (driveInLateUpdate)
@@ -148,7 +177,7 @@ namespace GameCult.Eve.UnityScene
             return host;
         }
 
-        private static Transform? FindPlayer(
+        private static Transform? FindEntity(
             EveUnityPlayableWorldClientHost host,
             string playerEntityId)
         {

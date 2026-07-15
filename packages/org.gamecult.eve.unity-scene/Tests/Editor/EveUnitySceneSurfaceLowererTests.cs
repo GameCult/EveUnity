@@ -398,7 +398,17 @@ namespace GameCult.Eve.UnityScene.Tests
             Assert.That(projection.PlayableWorld.ZoneRenderPointerId, Is.EqualTo("cultmesh://aetheria/world/zone-render"));
             Assert.That(projection.PlayableWorld.AssetManifest, Is.EqualTo("cultmesh://aetheria/assets/manifest"));
             Assert.That(projection.PlayableWorld.InputProfile, Is.EqualTo("arpg-third-person"));
-            Assert.That(projection.PlayableWorld.CameraRig, Is.EqualTo("third-person-orbit"));
+            Assert.That(projection.PlayableWorld.CameraRig, Is.EqualTo("planar.top-down-follow.v1"));
+            Assert.That(projection.PlayableWorld.CameraTargetEntityId, Is.EqualTo("player-vanguard"));
+            Assert.That(projection.PlayableWorld.CameraDistance, Is.EqualTo(150f));
+            Assert.That(projection.PlayableWorld.CameraVerticalFieldOfViewDegrees, Is.EqualTo(60f));
+            Assert.That(projection.PlayableWorld.CameraTargetScreenX, Is.EqualTo(0.9f));
+            Assert.That(projection.PlayableWorld.CameraTargetScreenY, Is.EqualTo(0.55f));
+            Assert.That(projection.PlayableWorld.CameraPositionDamping, Is.EqualTo(5f));
+            Assert.That(projection.PlayableWorld.AmbientLightR, Is.EqualTo(0.2f));
+            Assert.That(projection.PlayableWorld.AmbientLightG, Is.EqualTo(0.2f));
+            Assert.That(projection.PlayableWorld.AmbientLightB, Is.EqualTo(0.2f));
+            Assert.That(projection.PlayableWorld.AmbientLightIntensity, Is.EqualTo(1f));
             Assert.That(projection.PlayableWorld.ExcludedRenderChannels, Is.EqualTo(new[] { "map" }));
             Assert.That(projection.PlayableWorld.PlayerEntityId, Is.EqualTo("player-vanguard"));
             Assert.That(projection.PlayableWorld.MovementCommand, Is.EqualTo("aetheria.daemon.move_intent"));
@@ -1027,6 +1037,8 @@ namespace GameCult.Eve.UnityScene.Tests
             var hostObject = new GameObject("generic-eve-client");
             var cameraObject = new GameObject("generic-eve-camera");
             hostObject.SetActive(false);
+            var ambientMode = RenderSettings.ambientMode;
+            var ambientLight = RenderSettings.ambientLight;
 
             try
             {
@@ -1051,6 +1063,7 @@ namespace GameCult.Eve.UnityScene.Tests
                 rig.CameraTransform = cameraObject.transform;
                 rig.RenderPolicySource = new FixedRenderChannelPolicy("map", 14);
                 var camera = cameraObject.AddComponent<Camera>();
+                camera.aspect = 16f / 9f;
 
                 var player = rootObject.GetComponentInChildren<EveUnityPlayableWorldEntityMarker>();
                 Assert.That(player, Is.Not.Null);
@@ -1061,14 +1074,25 @@ namespace GameCult.Eve.UnityScene.Tests
 
                 Assert.That(rig.ApplyRig(0f), Is.True);
                 Assert.That(camera.cullingMask & (1 << 14), Is.Zero);
-                Assert.That(cameraObject.transform.position.y, Is.GreaterThan(0f));
+                Assert.That(camera.fieldOfView, Is.EqualTo(60f).Within(0.001f));
+                Assert.That(cameraObject.transform.position.y - player.transform.position.y, Is.EqualTo(150f).Within(0.001f));
+                var viewport = camera.WorldToViewportPoint(player.transform.position);
+                Assert.That(viewport.x, Is.EqualTo(0.9f).Within(0.001f));
+                Assert.That(viewport.y, Is.EqualTo(0.55f).Within(0.001f));
+                Assert.That(RenderSettings.ambientMode, Is.EqualTo(UnityEngine.Rendering.AmbientMode.Flat));
+                Assert.That(RenderSettings.ambientLight.r, Is.EqualTo(0.2f).Within(0.001f));
+
+                var beforeFollow = cameraObject.transform.position;
+                player.transform.position += Vector3.right * 10f;
+                Assert.That(rig.ApplyRig(0.1f), Is.True);
                 Assert.That(
-                    Vector3.Distance(cameraObject.transform.position, player.transform.position),
-                    Is.LessThan(50f),
-                    "An excluded map glyph changed pilot-camera framing.");
+                    cameraObject.transform.position.x - beforeFollow.x,
+                    Is.EqualTo(10f * (1f - Mathf.Exp(-0.5f))).Within(0.001f));
             }
             finally
             {
+                RenderSettings.ambientMode = ambientMode;
+                RenderSettings.ambientLight = ambientLight;
                 UnityEngine.Object.DestroyImmediate(cameraObject);
                 UnityEngine.Object.DestroyImmediate(hostObject);
                 UnityEngine.Object.DestroyImmediate(rootObject);
@@ -1122,7 +1146,7 @@ namespace GameCult.Eve.UnityScene.Tests
             Assert.That(firstPresentation.WorldRootId, Is.EqualTo("aetheria.daemon.game.playable"));
             Assert.That(firstPresentation.PlayerEntityId, Is.EqualTo("player-vanguard"));
             Assert.That(firstPresentation.InputProfile, Is.EqualTo("arpg-third-person"));
-            Assert.That(firstPresentation.CameraRig, Is.EqualTo("third-person-orbit"));
+            Assert.That(firstPresentation.CameraRig, Is.EqualTo("planar.top-down-follow.v1"));
             Assert.That(firstPresentation.UpsertedEntities, Is.EqualTo(3));
             Assert.That(firstPresentation.RemovedEntities, Is.EqualTo(0));
             Assert.That(firstPresentation.ActiveEntities, Is.EqualTo(3));
@@ -1678,7 +1702,15 @@ namespace GameCult.Eve.UnityScene.Tests
                                     ["zoneRenderSchema"] = "gamecult.aetheria.zone_render.v1",
                                     ["assetManifest"] = "cultmesh://aetheria/assets/manifest",
                                     ["inputProfile"] = "arpg-third-person",
-                                    ["cameraRig"] = "third-person-orbit",
+                                    ["cameraRig"] = "planar.top-down-follow.v1",
+                                    ["cameraTargetEntityId"] = "player-vanguard",
+                                    ["cameraDistance"] = "150",
+                                    ["cameraVerticalFieldOfViewDegrees"] = "60",
+                                    ["cameraTargetScreenX"] = "0.9",
+                                    ["cameraTargetScreenY"] = "0.55",
+                                    ["cameraPositionDamping"] = "5",
+                                    ["ambientLightColor"] = "0.2,0.2,0.2",
+                                    ["ambientLightIntensity"] = "1",
                                     ["excludedRenderChannels"] = "map",
                                     ["playerEntityId"] = "player-vanguard",
                                     ["movementCommand"] = "aetheria.daemon.move_intent",

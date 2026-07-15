@@ -28,8 +28,8 @@ Aetheria also advertises the original `ARPG.unity` follow-camera composition:
 `0.66,0.55`, and position damping `2`. The generic camera rig lowers those
 values without Aetheria-specific camera code.
 Aetheria's pilot surface also publishes a transparent cockpit overlay. The
-released generic UI Toolkit lowerer produced six native `ProgressBar` elements
-for hull, shield, capacitor, weapon cooldown, and target state. Daemon frame,
+released generic UI Toolkit lowerer produced seven native `ProgressBar` elements
+for hull, shield, capacitor, weapon cooldown, target lock, and target state. Daemon frame,
 player, and command diagnostics remain available in the document but lower
 with `display: none` in the pilot presentation. The runnable generic-client
 launcher mounts the same advertised document and forwards its typed commands;
@@ -38,17 +38,18 @@ it contains no Aetheria gameplay or client-authored world light.
 The two PNGs below are deliberate camera-channel captures, not a composited
 screen capture, so they prove world/map isolation rather than HUD pixels. The
 native cockpit proof is the asserted UI Toolkit visual tree recorded as
-`cockpitProgressCount: 6` in the witness facts.
+`cockpitProgressCount: 7` in the witness facts. The same run records completed
+daemon lock progress `1.0`; Unity does not manufacture or smooth that value.
 
 Camera-channel facts:
 
 - provider-authored player renderers: `12`;
-- pilot changed pixels: `230,203`;
-- pilot average luminance: `0.004103`;
-- pilot bright pixels: `1,420`;
+- pilot changed pixels: `230,189`;
+- pilot average luminance: `0.003343`;
+- pilot bright pixels: `1,227`;
 - map-channel renderers: `11`;
 - map changed pixels: `6,246`;
-- native cockpit progress bars: `6`;
+- native cockpit progress bars: `7`;
 - the pilot camera excludes the advertised map layer;
 - the player prefab's embedded layer-14 map icon contributes exactly `0` pilot
   pixels;

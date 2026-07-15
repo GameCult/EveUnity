@@ -1159,6 +1159,14 @@ namespace GameCult.Eve.UnityScene.Tests
                 Assert.That(RenderSettings.customReflectionTexture, Is.SameAs(reflectionCubemap));
                 Assert.That(RenderSettings.reflectionIntensity, Is.EqualTo(1f).Within(0.001f));
                 Assert.That(camera.clearFlags, Is.EqualTo(CameraClearFlags.Skybox));
+                var keyLightTransform = hostObject.transform.Find("Eve World Key Light");
+                Assert.That(keyLightTransform, Is.Not.Null);
+                var keyLight = keyLightTransform.GetComponent<Light>();
+                Assert.That(keyLight.type, Is.EqualTo(LightType.Directional));
+                Assert.That(keyLight.intensity, Is.EqualTo(0.75f).Within(0.001f));
+                Assert.That(keyLight.color, Is.EqualTo(new Color(1f, 0.95f, 0.9f, 1f)));
+                Assert.That(Vector3.Dot(keyLightTransform.forward, new Vector3(0.4f, -1f, 0.25f).normalized),
+                    Is.GreaterThan(0.999f));
                 Assert.That(nativeAssets.LastBinding?.AssetRef, Is.EqualTo("texture.environment.reflection"));
                 Assert.That(nativeAssets.LastBinding?.EntityKind, Is.Empty);
 
@@ -1210,6 +1218,7 @@ namespace GameCult.Eve.UnityScene.Tests
                     Is.EqualTo(10f * (1f - Mathf.Exp(-0.5f))).Within(0.001f));
                 rig.CameraTransform = null;
                 Assert.That(host.ActiveCameraTransform, Is.Null);
+                Assert.That(hostObject.transform.Find("Eve World Key Light"), Is.Null);
                 aim.RefreshNow();
                 Assert.That(aim.ViewDotVisible, Is.False);
                 Assert.That(RenderSettings.ambientMode, Is.EqualTo(ambientMode));
@@ -1895,6 +1904,9 @@ namespace GameCult.Eve.UnityScene.Tests
                                     ["skyboxAssetRef"] = skyboxAssetRef,
                                     ["reflectionAssetRef"] = reflectionAssetRef,
                                     ["reflectionIntensity"] = "1",
+                                    ["keyLightDirection"] = "0.4,-1,0.25",
+                                    ["keyLightColor"] = "1,0.95,0.9",
+                                    ["keyLightIntensity"] = "0.75",
                                     ["excludedRenderChannels"] = "map",
                                     ["playerEntityId"] = "player-vanguard",
                                     ["movementCommand"] = "aetheria.daemon.move_intent",

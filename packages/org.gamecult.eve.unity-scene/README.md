@@ -29,6 +29,12 @@ own which semantic content belongs in a view, while EveUnity owns the native
 layer mapping and subtracts only those layers from the camera's configured
 culling mask.
 
+World surfaces may also advertise a presentation-only directional key light
+through `keyLightDirection`, `keyLightColor`, and `keyLightIntensity`.
+EveUnity lowers those generic values into a transient Unity light and removes
+it when the world camera lease ends. The provider owns the lighting design;
+the light never becomes physics, visibility, or gameplay authority.
+
 Retained provider feedback is lowered without becoming Unity authority.
 `EveUnityFeedbackPresenter` emits each new `feedback.event` identity once, and
 `EveUnityShotReceiptPresenter` does the same for `shot.receipt` trajectories.

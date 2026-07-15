@@ -142,7 +142,10 @@ namespace GameCult.Eve.UnityScene
                 worldRoot.GetProp("lookModel"),
                 worldRoot.GetProp("skyboxAssetRef"),
                 worldRoot.GetProp("reflectionAssetRef"),
-                ParseFloat(worldRoot.GetProp("reflectionIntensity"), 1f));
+                ParseFloat(worldRoot.GetProp("reflectionIntensity"), 1f),
+                ParseVector3(worldRoot.GetProp("keyLightDirection")),
+                ParseVector3(worldRoot.GetProp("keyLightColor")),
+                ParseFloat(worldRoot.GetProp("keyLightIntensity"), 0f));
         }
 
         private static EveUnityPlayableWorldEntity BuildPlayableEntity(EveSurfaceComponent component)
@@ -369,7 +372,10 @@ namespace GameCult.Eve.UnityScene
             string lookModel = "",
             string skyboxAssetRef = "",
             string reflectionAssetRef = "",
-            float reflectionIntensity = 1f)
+            float reflectionIntensity = 1f,
+            (float x, float y, float z) keyLightDirection = default,
+            (float r, float g, float b) keyLightColor = default,
+            float keyLightIntensity = 0f)
         {
             WorldRootId = worldRootId ?? "";
             StatePointerId = statePointerId ?? "";
@@ -406,6 +412,13 @@ namespace GameCult.Eve.UnityScene
             SkyboxAssetRef = skyboxAssetRef ?? "";
             ReflectionAssetRef = reflectionAssetRef ?? "";
             ReflectionIntensity = reflectionIntensity;
+            KeyLightDirectionX = keyLightDirection.x;
+            KeyLightDirectionY = keyLightDirection.y;
+            KeyLightDirectionZ = keyLightDirection.z;
+            KeyLightColorR = keyLightColor.r;
+            KeyLightColorG = keyLightColor.g;
+            KeyLightColorB = keyLightColor.b;
+            KeyLightIntensity = keyLightIntensity;
         }
 
         public string WorldRootId { get; }
@@ -467,6 +480,20 @@ namespace GameCult.Eve.UnityScene
         public string ReflectionAssetRef { get; }
 
         public float ReflectionIntensity { get; }
+
+        public float KeyLightDirectionX { get; }
+
+        public float KeyLightDirectionY { get; }
+
+        public float KeyLightDirectionZ { get; }
+
+        public float KeyLightColorR { get; }
+
+        public float KeyLightColorG { get; }
+
+        public float KeyLightColorB { get; }
+
+        public float KeyLightIntensity { get; }
 
         public string FocusCommand { get; }
 

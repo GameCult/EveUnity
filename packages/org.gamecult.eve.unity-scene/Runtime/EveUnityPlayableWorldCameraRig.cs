@@ -33,6 +33,7 @@ namespace GameCult.Eve.UnityScene
         private float _previousReflectionIntensity;
         private Camera? _environmentCamera;
         private CameraClearFlags _previousCameraClearFlags;
+        private GameObject? _keyLightObject;
 
         public EveUnityPlayableWorldClientHost? Host
         {
@@ -124,6 +125,7 @@ namespace GameCult.Eve.UnityScene
 
             var cameraComponent = camera.GetComponent<Camera>();
             ApplyAmbientEnvironment(activeWorld, cameraComponent, skybox, reflection);
+            ApplyKeyLight(activeWorld);
             if (cameraComponent != null && _renderPolicySource != null)
             {
                 var cullingMask = cameraComponent.cullingMask;
@@ -217,7 +219,14 @@ namespace GameCult.Eve.UnityScene
                 !IsFinite(world.AmbientLightG) ||
                 !IsFinite(world.AmbientLightB) ||
                 !IsFinite(world.AmbientLightIntensity) ||
-                !IsFinite(world.ReflectionIntensity))
+                !IsFinite(world.ReflectionIntensity) ||
+                !IsFinite(world.KeyLightDirectionX) ||
+                !IsFinite(world.KeyLightDirectionY) ||
+                !IsFinite(world.KeyLightDirectionZ) ||
+                !IsFinite(world.KeyLightColorR) ||
+                !IsFinite(world.KeyLightColorG) ||
+                !IsFinite(world.KeyLightColorB) ||
+                !IsFinite(world.KeyLightIntensity))
                 return false;
             var assets = host.NativeAssetProvider;
             if (!string.IsNullOrWhiteSpace(world.SkyboxAssetRef))
@@ -243,6 +252,54 @@ namespace GameCult.Eve.UnityScene
                     return false;
             }
             return true;
+        }
+
+        private void ApplyKeyLight(EveUnityPlayableWorldProjection world)
+        {
+            var direction = new Vector3(
+                world.KeyLightDirectionX,
+                world.KeyLightDirectionY,
+                world.KeyLightDirectionZ);
+            if (world.KeyLightIntensity <= 0f || direction.sqrMagnitude <= 0.000001f)
+            {
+                ReleaseKeyLight();
+                return;
+            }
+
+            if (_keyLightObject == null)
+            {
+                _keyLightObject = new GameObject("Eve World Key Light");
+                _keyLightObject.transform.SetParent(transform, worldPositionStays: false);
+                var created = _keyLightObject.AddComponent<Light>();
+                created.type = LightType.Directional;
+                created.shadows = LightShadows.None;
+            }
+
+            var light = _keyLightObject.GetComponent<Light>();
+            light.color = new Color(
+                Mathf.Max(0f, world.KeyLightColorR),
+                Mathf.Max(0f, world.KeyLightColorG),
+                Mathf.Max(0f, world.KeyLightColorB),
+                1f);
+            light.intensity = Mathf.Max(0f, world.KeyLightIntensity);
+            var normalized = direction.normalized;
+            var up = Mathf.Abs(Vector3.Dot(normalized, Vector3.up)) > 0.999f
+                ? Vector3.forward
+                : Vector3.up;
+            _keyLightObject.transform.rotation = Quaternion.LookRotation(normalized, up);
+            _keyLightObject.SetActive(true);
+        }
+
+        private void ReleaseKeyLight()
+        {
+            if (_keyLightObject == null)
+                return;
+            _keyLightObject.SetActive(false);
+            if (Application.isPlaying)
+                Destroy(_keyLightObject);
+            else
+                DestroyImmediate(_keyLightObject);
+            _keyLightObject = null;
         }
 
         private static bool IsFinite(float value) => !float.IsNaN(value) && !float.IsInfinity(value);
@@ -307,6 +364,7 @@ namespace GameCult.Eve.UnityScene
 
         private void RestoreAmbientEnvironment()
         {
+            ReleaseKeyLight();
             if (!_ownsAmbientEnvironment) return;
             var environmentChanged = !ReferenceEquals(RenderSettings.skybox, _previousSkybox);
             RenderSettings.ambientMode = _previousAmbientMode;

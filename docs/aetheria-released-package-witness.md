@@ -44,14 +44,15 @@ daemon lock progress `1.0`; Unity does not manufacture or smooth that value.
 
 Camera-channel facts:
 
-- provider-authored player renderers: `14`, including the lowered tractor effect;
-- pilot changed pixels: `230,173`;
-- pilot average luminance: `0.002677`;
-- pilot bright pixels: `1,024`;
-- map-channel renderers: `10`;
-- map changed pixels: `4,626`;
+- provider-authored player renderers: `13`, including the lowered tractor effect;
+- pilot changed pixels: `230,105`;
+- pilot average luminance: `0.004590`;
+- pilot bright pixels: `1,620`;
+- map-channel renderers: `11`;
+- map changed pixels: `5,187`;
 - native cockpit progress bars: `7`;
-- daemon tractor power at capture: `0.16`;
+- daemon tractor power at capture: `1.0` after the held input completed its
+  authored ramp;
 - daemon tractor power after the advertised release: `0`;
 - provider tractor particle systems: `1`;
 - the pilot camera excludes the advertised map layer;
@@ -80,9 +81,11 @@ publishes `beam.presentation` and advertises `pilot.scoop` as a
 `button-hold.v1` value action. The generic client routes scalar `1` on press and
 scalar `0` on release through the advertised `SetTractorPower` operation. Both
 commands receive provider-owned reconciled receipts, and the daemon ramps the
-published power from `0.16` at capture to exactly `0` after release. The
-provider-owned prefab is attached to the SoA-presented ship, but its particle
-renderer contributes zero measured pilot pixels in this capture.
+published power from `1.0` at capture to exactly `0` after release. The provider
+build removes the fossil's embedded tractor object from player/ship prefabs, so
+the standalone `beam.presentation` prefab is the only tractor renderer. Its
+cyan/yellow dotted band is visible in the pilot capture and absent from the map
+capture.
 Effect tuning remains provider art work; the runtime must not compensate with
 an Aetheria-specific beam.
 
@@ -96,8 +99,8 @@ Primary artifacts:
 
 ## Cold delivery is not currently proven
 
-The current `46,133,487` byte Unity bundle (SHA-256
-`ff07aa7f71aa2da0e8e6fe2f4ed68900931d6e67c153b586777467316d4fb80f`)
+The current `46,131,569` byte Unity bundle (SHA-256
+`a4b26fb234ae7d82eda26fb342d7f77a236e3bc1107420175eb1c626785db212`)
 times out from an empty cache. Its bytes are
 still transported through batched snapshot records rather than the intended
 mapped/network body transport. Increasing the Unity timeout would hide the

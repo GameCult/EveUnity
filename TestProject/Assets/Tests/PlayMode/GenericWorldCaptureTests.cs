@@ -393,8 +393,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                        (runtime.LastReceipt == null || runtime.LastReceipt.CommandId != tractor.CommandId ||
                         !string.Equals(runtime.LastReceipt.State, "reconciled", StringComparison.OrdinalIgnoreCase) ||
                         runtime.ActiveVersion < runtime.LastReceipt.SourceVersion ||
-                        EveUnityBeamPresentation.FindAll(runtime.ActiveProjection).Single().Power <=
-                            beamPresentation.ActivationThreshold))
+                        EveUnityBeamPresentation.FindAll(runtime.ActiveProjection).Single().Power < 0.99f))
                 {
                     yield return new WaitForSecondsRealtime(0.1f);
                     runtime.Refresh();
@@ -414,7 +413,8 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 beamRenderer.RefreshNow();
                 Assert.That(beamRenderer.ActiveBeamCount, Is.EqualTo(1));
                 Assert.That(beamRenderer.TryGetPower(beamPresentation.Id, out tractorBeamPower), Is.True);
-                Assert.That(tractorBeamPower, Is.GreaterThan(beamPresentation.ActivationThreshold));
+                Assert.That(tractorBeamPower, Is.GreaterThanOrEqualTo(0.99f),
+                    "Held input did not reach full daemon-authored tractor power before capture.");
                 tractorBeamParticleSystemCount = beamRenderer.ActiveParticleSystemCount;
                 Assert.That(tractorBeamParticleSystemCount, Is.GreaterThan(0),
                     "The generic beam lowerer did not instantiate the provider-owned effect prefab.");

@@ -242,11 +242,51 @@ namespace GameCult.Eve.UnityScene.Fields
         private void EnsureTargets(EveUnityFieldVolumeProjection field)
         {
             var bindings = ParseBindings(Prop(field, "layerBindings"));
+            var descriptors = ParseBindings(Prop(field, "layerTargetDescriptors"));
             if (string.Equals(_activeNodeId, field.NodeId, StringComparison.Ordinal) &&
-                _targets.Count == bindings.Count) return;
+                _targets.Count == bindings.Count &&
+                _targets.All(target => bindings.ContainsKey(target.LayerKey)))
+            {
+                foreach (var target in _targets)
+                    ApplyLayerTargetDescriptor(target, descriptors);
+                return;
+            }
             _targets.Clear();
             foreach (var binding in bindings)
-                _targets.Add(new EveFieldsSplatLayerTarget { LayerKey = binding.Key, UseMipMaps = true });
+            {
+                var target = new EveFieldsSplatLayerTarget { LayerKey = binding.Key };
+                ApplyLayerTargetDescriptor(target, descriptors);
+                _targets.Add(target);
+            }
+        }
+
+        private static void ApplyLayerTargetDescriptor(
+            EveFieldsSplatLayerTarget target,
+            IReadOnlyDictionary<string, string> descriptors)
+        {
+            target.WidthScale = 1f;
+            target.HeightScale = 1f;
+            target.UseMipMaps = false;
+            target.FilterMode = FilterMode.Bilinear;
+            if (descriptors.TryGetValue(target.LayerKey, out var descriptor))
+                TryApplyLayerTargetDescriptor(target, descriptor);
+        }
+
+        public static bool TryApplyLayerTargetDescriptor(EveFieldsSplatLayerTarget? target, string descriptor)
+        {
+            if (target == null) return false;
+            var values = (descriptor ?? "").Split(',');
+            if (values.Length != 4 ||
+                !TryFloat(values[0].Trim(), out var widthScale) || widthScale <= 0 ||
+                !TryFloat(values[1].Trim(), out var heightScale) || heightScale <= 0 ||
+                !bool.TryParse(values[2].Trim(), out var useMipMaps) ||
+                !Enum.TryParse(values[3].Trim(), true, out FilterMode filterMode))
+                return false;
+            target.WidthScale = widthScale;
+            target.HeightScale = heightScale;
+            target.UseMipMaps = useMipMaps;
+            target.FilterMode = filterMode;
+            return true;
         }
 
         private void EnsureLayerRenderer()

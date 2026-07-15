@@ -102,6 +102,42 @@ namespace GameCult.Eve.UnityScene.Tests
         }
 
         [Test]
+        public void VolumeRendererAppliesProviderAdvertisedLayerTargetShape()
+        {
+            var target = new EveFieldsSplatLayerTarget { LayerKey = "fog.tint" };
+
+            Assert.That(
+                EveUnityFieldsVolumeRenderer.TryApplyLayerTargetDescriptor(
+                    target,
+                    "0.5,0.25,true,trilinear"),
+                Is.True);
+            Assert.That(target.WidthScale, Is.EqualTo(0.5f));
+            Assert.That(target.HeightScale, Is.EqualTo(0.25f));
+            Assert.That(target.UseMipMaps, Is.True);
+            Assert.That(target.FilterMode, Is.EqualTo(FilterMode.Trilinear));
+        }
+
+        [Test]
+        public void VolumeRendererRejectsMalformedLayerTargetShape()
+        {
+            var target = new EveFieldsSplatLayerTarget
+            {
+                WidthScale = 2f,
+                HeightScale = 2f,
+                UseMipMaps = true,
+                FilterMode = FilterMode.Trilinear
+            };
+
+            Assert.That(
+                EveUnityFieldsVolumeRenderer.TryApplyLayerTargetDescriptor(target, "0,1,true,bilinear"),
+                Is.False);
+            Assert.That(target.WidthScale, Is.EqualTo(2f));
+            Assert.That(target.HeightScale, Is.EqualTo(2f));
+            Assert.That(target.UseMipMaps, Is.True);
+            Assert.That(target.FilterMode, Is.EqualTo(FilterMode.Trilinear));
+        }
+
+        [Test]
         public void PackageContainsGenericFieldsShader()
         {
             Assert.That(Shader.Find("Eve/Fields/Splats"), Is.Not.Null);

@@ -1,9 +1,9 @@
 param(
   [string] $UnityExe = "C:\Program Files\Unity\Hub\Editor\6000.4.2f1\Editor\Unity.exe",
   [string] $AetheriaRoot = "E:\Projects\Aetheria",
-  [string] $CultLibRoot = "E:\Projects\CultLib",
+  [string] $CultLibRoot = "E:\Projects\CultLib-codex-cultmesh-reliability",
   [string] $EveUnityRoot = "E:\Projects\EveUnity",
-  [string] $YmirRoot = "E:\Projects\Ymir",
+  [string] $YmirRoot = "E:\Projects\Ymir-aetheria-integration",
   [string] $ClientProject = "ReleaseConsumerProject",
   [int] $Port = 3076,
   [string] $OutputDirectory = "artifacts\aetheria-daemon",
@@ -13,7 +13,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$expectedEveUnityCommit = "f979cd425a9f8f951736c56051e8368b6d6ac2f3"
+$expectedEveUnityCommit = "140e1bd963a0033e66777a3b2c5fe6e9c97dfe32"
 $expectedEveUnityUiToolkitCommit = "4d0cbe0185bdc4fc65eb63503a7c5cb578539669"
 $expectedCultLibCommit = "feb5c71513e71d681699f462fe3682b3168c6f73"
 $repoRoot = Split-Path -Parent $PSScriptRoot

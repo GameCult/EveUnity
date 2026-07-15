@@ -4,8 +4,9 @@
 
 The warm-cache released-package witness passes with:
 
-- `org.gamecult.eve.unity-scene` `0.3.30`, commit
-  `f979cd425a9f8f951736c56051e8368b6d6ac2f3`;
+- `org.gamecult.eve.unity-scene` `0.3.31`, commit
+  `140e1bd963a0033e66777a3b2c5fe6e9c97dfe32`;
+- `org.gamecult.eve.surface` `0.2.2`, from the same commit;
 - `org.gamecult.eve.unity-uitoolkit` `0.1.1`, commit
   `4d0cbe0185bdc4fc65eb63503a7c5cb578539669`;
 - `org.gamecult.cultlib` `1.0.13`, commit
@@ -15,7 +16,7 @@ The warm-cache released-package witness passes with:
 
 Evidence is in `artifacts/aetheria-daemon-native-0326-warm`. The PlayMode test
 passed and recorded provider-owned reconciled movement, look, targeting,
-tractor, and action receipts. The daemon-owned look direction reached the SoA body rotation,
+tractor press, tractor release, and action receipts. The daemon-owned look direction reached the SoA body rotation,
 and the generic aim presentation rendered at the advertised 50-unit minimum
 convergence distance. The advertised skybox material and reflection cubemap
 resolved from the provider bundle as their required native types and became the
@@ -44,13 +45,14 @@ daemon lock progress `1.0`; Unity does not manufacture or smooth that value.
 Camera-channel facts:
 
 - provider-authored player renderers: `14`, including the lowered tractor effect;
-- pilot changed pixels: `230,255`;
-- pilot average luminance: `0.004634`;
-- pilot bright pixels: `1,542`;
-- map-channel renderers: `11`;
-- map changed pixels: `8,510`;
+- pilot changed pixels: `230,173`;
+- pilot average luminance: `0.002677`;
+- pilot bright pixels: `1,024`;
+- map-channel renderers: `10`;
+- map changed pixels: `4,626`;
 - native cockpit progress bars: `7`;
-- daemon tractor power at capture: `0.24`;
+- daemon tractor power at capture: `0.16`;
+- daemon tractor power after the advertised release: `0`;
 - provider tractor particle systems: `1`;
 - the pilot camera excludes the advertised map layer;
 - the player prefab's embedded layer-14 map icon contributes exactly `0` pilot
@@ -69,15 +71,18 @@ Aetheria currently bundles ambientCG's 1K `Metal012` color, normal, and
 metalness maps under CC0. The same pre-generated maps now replace dead
 Substance archive sub-assets on the brushed aluminium, tinted car paint,
 cockpit, steel, black-metal, and radiator materials. The released witness
-resolves textured native URP materials in `9` distinct player-material slots,
+resolves textured native URP materials in `10` distinct player-material slots,
 up from `3`, without adding another texture payload. This is temporary provider
 art with recorded provenance, not a replacement texture pipeline.
 
 The tractor proof is structural, not yet a native-look victory lap. The daemon
-publishes `beam.presentation`, the generic client routes `pilot.scoop` through
-the advertised `SetTractorPower` operation and payload, and the provider-owned
-prefab is attached to the SoA-presented ship with nonzero daemon power. Its
-particle renderer contributes only one measured pilot pixel in this capture.
+publishes `beam.presentation` and advertises `pilot.scoop` as a
+`button-hold.v1` value action. The generic client routes scalar `1` on press and
+scalar `0` on release through the advertised `SetTractorPower` operation. Both
+commands receive provider-owned reconciled receipts, and the daemon ramps the
+published power from `0.16` at capture to exactly `0` after release. The
+provider-owned prefab is attached to the SoA-presented ship, but its particle
+renderer contributes zero measured pilot pixels in this capture.
 Effect tuning remains provider art work; the runtime must not compensate with
 an Aetheria-specific beam.
 

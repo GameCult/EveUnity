@@ -69,4 +69,6 @@ keywords, and pass indices belong to the selected `unity-scene` asset variant
 under `unity.volume.*` metadata. The lowerer fails closed when that native
 program descriptor is absent or incomplete. This keeps provider shader ABIs
 out of Eve's semantic surface while allowing a provider-owned shader to consume
-portable Eve Fields documents.
+portable Eve Fields documents. Volume composition runs as a generic URP render
+pass before post-processing so the provider-advertised profile grades both the
+native scene and the provider volume through the same camera pipeline.

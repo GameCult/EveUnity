@@ -6,6 +6,7 @@ using GameCult.Eve.PluginFields;
 using GameCult.Eve.UnityScene.Fields;
 using NUnit.Framework;
 using UnityEngine;
+using UnityEngine.Rendering.Universal;
 
 namespace GameCult.Eve.UnityScene.Tests
 {
@@ -39,6 +40,14 @@ namespace GameCult.Eve.UnityScene.Tests
             Assert.That(typeof(EveUnityFieldsVolumeRenderer).Assembly.GetReferencedAssemblies()
                 .Any(assembly => assembly.Name?.Contains("Aetheria", StringComparison.OrdinalIgnoreCase) == true), Is.False);
             Assert.That(typeof(IEveUnityFieldsSplatsDocumentSource).GetEvent("FieldsSplatsAvailable"), Is.Not.Null);
+        }
+
+        [Test]
+        public void VolumeRendererCompositesBeforeProviderPostProcessing()
+        {
+            Assert.That(
+                EveUnityFieldsVolumeRenderer.CompositionRenderPassEvent,
+                Is.EqualTo(RenderPassEvent.BeforeRenderingPostProcessing));
         }
 
         [Test]

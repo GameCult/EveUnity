@@ -5,6 +5,8 @@ using System.Linq;
 using GameCult.Eve.PluginFields;
 using UnityEngine;
 using UnityEngine.Rendering;
+using UnityEngine.Rendering.RenderGraphModule;
+using UnityEngine.Rendering.Universal;
 
 #nullable enable
 
@@ -26,13 +28,14 @@ namespace GameCult.Eve.UnityScene.Fields
         private readonly RenderTexture?[] _historyTextures = new RenderTexture?[2];
         private int _historyTextureIndex = -1;
         private Matrix4x4 _previousViewProjection;
-        private CommandBuffer? _commands;
+        private EveUnityFieldsVolumePass? _renderPass;
         private string _activeNodeId = "";
 
         public long PresentedFrameId { get; private set; } = -1;
         public int PresentedLayerCount => _targets.Count(target => target.TargetTexture != null);
         public long CompositeCount { get; private set; }
         public bool UsesTemporalHistory => HasTemporalProgram();
+        public static RenderPassEvent CompositionRenderPassEvent => RenderPassEvent.BeforeRenderingPostProcessing;
 
         public void Bind(EveUnityPlayableWorldClientHost host, IEveUnityFieldsSplatsDocumentSource? source)
         {
@@ -44,11 +47,11 @@ namespace GameCult.Eve.UnityScene.Fields
             enabled = _source != null;
         }
 
-        private void OnEnable() => RenderPipelineManager.endCameraRendering += OnEndCameraRendering;
+        private void OnEnable() => RenderPipelineManager.beginCameraRendering += OnBeginCameraRendering;
 
         private void OnDisable()
         {
-            RenderPipelineManager.endCameraRendering -= OnEndCameraRendering;
+            RenderPipelineManager.beginCameraRendering -= OnBeginCameraRendering;
             ReleaseRenderState();
         }
 
@@ -80,7 +83,20 @@ namespace GameCult.Eve.UnityScene.Fields
             ApplyFieldBindings(field, document);
         }
 
-        private void OnEndCameraRendering(ScriptableRenderContext context, Camera camera)
+        private void OnBeginCameraRendering(ScriptableRenderContext context, Camera camera)
+        {
+            if (_host == null || _document == null || camera == null ||
+                _host.ActiveCameraTransform != camera.transform)
+                return;
+            _renderPass ??= new EveUnityFieldsVolumePass(this);
+            camera.GetUniversalAdditionalCameraData().scriptableRenderer.EnqueuePass(_renderPass);
+        }
+
+        private void RenderVolume(
+            UnsafeCommandBuffer commands,
+            Camera camera,
+            TextureHandle colorTarget,
+            TextureHandle depthTarget)
         {
             if (_host == null || _document == null || camera == null ||
                 _host.ActiveCameraTransform != camera.transform)
@@ -120,23 +136,23 @@ namespace GameCult.Eve.UnityScene.Fields
             }
             SetTexturePort("cloud", finalCloudTexture);
 
-            _commands ??= new CommandBuffer { name = "Eve Fields Volume" };
-            _commands.Clear();
-            _commands.SetRenderTarget(_raymarchTexture);
-            _commands.SetViewport(new Rect(0f, 0f, _raymarchTexture.width, _raymarchTexture.height));
-            _commands.ClearRenderTarget(false, true, Color.clear);
-            _commands.DrawProcedural(Matrix4x4.identity, _material!, raymarchPass, MeshTopology.Triangles, 3, 1);
+            commands.SetRenderTarget(_raymarchTexture);
+            commands.SetViewport(new Rect(0f, 0f, _raymarchTexture.width, _raymarchTexture.height));
+            commands.ClearRenderTarget(false, true, Color.clear);
+            commands.DrawProcedural(Matrix4x4.identity, _material!, raymarchPass, MeshTopology.Triangles, 3, 1);
             if (useTemporalHistory)
             {
-                _commands.SetRenderTarget(finalCloudTexture);
-                _commands.SetViewport(new Rect(0f, 0f, finalCloudTexture.width, finalCloudTexture.height));
-                _commands.ClearRenderTarget(false, true, Color.clear);
-                _commands.DrawProcedural(Matrix4x4.identity, _material!, temporalPass, MeshTopology.Triangles, 3, 1);
+                commands.SetRenderTarget(finalCloudTexture);
+                commands.SetViewport(new Rect(0f, 0f, finalCloudTexture.width, finalCloudTexture.height));
+                commands.ClearRenderTarget(false, true, Color.clear);
+                commands.DrawProcedural(Matrix4x4.identity, _material!, temporalPass, MeshTopology.Triangles, 3, 1);
             }
-            _commands.SetRenderTarget(BuiltinRenderTextureType.CameraTarget);
-            _commands.SetViewport(camera.pixelRect);
-            _commands.DrawProcedural(Matrix4x4.identity, _material!, compositePass, MeshTopology.Triangles, 3, 1);
-            Graphics.ExecuteCommandBuffer(_commands);
+            if (depthTarget.IsValid())
+                commands.SetRenderTarget(colorTarget, depthTarget);
+            else
+                commands.SetRenderTarget(colorTarget);
+            commands.SetViewport(camera.pixelRect);
+            commands.DrawProcedural(Matrix4x4.identity, _material!, compositePass, MeshTopology.Triangles, 3, 1);
             if (useTemporalHistory)
             {
                 _historyTextureIndex = historyWriteIndex;
@@ -262,7 +278,6 @@ namespace GameCult.Eve.UnityScene.Fields
 
         private void ReleaseRenderState()
         {
-            if (_commands != null) { _commands.Release(); _commands = null; }
             ReleaseRenderTexture(ref _raymarchTexture);
             ReleaseRenderTexture(ref _historyTextures[0]);
             ReleaseRenderTexture(ref _historyTextures[1]);
@@ -274,6 +289,51 @@ namespace GameCult.Eve.UnityScene.Fields
             PresentedFrameId = -1;
             CompositeCount = 0;
             ResetTemporalHistory();
+        }
+
+        private sealed class EveUnityFieldsVolumePass : ScriptableRenderPass
+        {
+            private readonly EveUnityFieldsVolumeRenderer _owner;
+
+            private sealed class PassData
+            {
+                internal Camera Camera = null!;
+                internal EveUnityFieldsVolumeRenderer Owner = null!;
+                internal TextureHandle ColorTarget;
+                internal TextureHandle DepthTarget;
+            }
+
+            internal EveUnityFieldsVolumePass(EveUnityFieldsVolumeRenderer owner)
+            {
+                _owner = owner;
+                renderPassEvent = CompositionRenderPassEvent;
+                ConfigureInput(ScriptableRenderPassInput.Depth);
+            }
+
+            public override void RecordRenderGraph(RenderGraph renderGraph, ContextContainer frameData)
+            {
+                var cameraData = frameData.Get<UniversalCameraData>();
+                if (cameraData.camera == null || _owner._host == null ||
+                    _owner._host.ActiveCameraTransform != cameraData.camera.transform)
+                    return;
+
+                var resourceData = frameData.Get<UniversalResourceData>();
+                var colorTarget = resourceData.activeColorTexture;
+                if (!colorTarget.IsValid()) return;
+
+                using var builder = renderGraph.AddUnsafePass<PassData>("Eve Fields Volume", out var passData);
+                passData.Camera = cameraData.camera;
+                passData.Owner = _owner;
+                passData.ColorTarget = colorTarget;
+                passData.DepthTarget = resourceData.activeDepthTexture;
+
+                builder.UseTexture(passData.ColorTarget, AccessFlags.ReadWrite);
+                if (passData.DepthTarget.IsValid())
+                    builder.UseTexture(passData.DepthTarget, AccessFlags.Read);
+                builder.AllowPassCulling(false);
+                builder.SetRenderFunc(static (PassData data, UnsafeGraphContext context) =>
+                    data.Owner.RenderVolume(context.cmd, data.Camera, data.ColorTarget, data.DepthTarget));
+            }
         }
 
         private void ResetTemporalHistory()

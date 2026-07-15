@@ -441,18 +441,22 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 }
                 Assert.That(mapRenderers, Is.Not.Empty, "The live provider prefab has no renderer assigned to its advertised map channel.");
 
+                target = new RenderTexture(640, 360, 24, RenderTextureFormat.ARGB32);
+                camera.targetTexture = target;
                 var cameraRig = cameraObject.AddComponent<EveUnityPlayableWorldCameraRig>();
                 cameraRig.Host = host;
                 cameraRig.CameraTransform = camera.transform;
                 cameraRig.RenderPolicySource = provider;
                 Assert.That(cameraRig.ApplyRig(0f), Is.True);
                 Assert.That(camera.cullingMask & (1 << mapLayer), Is.Zero);
+                Assert.That(camera.fieldOfView, Is.EqualTo(60f).Within(0.001f));
+                var playerViewport = camera.WorldToViewportPoint(playerMarker.transform.position);
+                Assert.That(playerViewport.x, Is.EqualTo(0.9f).Within(0.01f));
+                Assert.That(playerViewport.y, Is.EqualTo(0.55f).Within(0.01f));
 
                 var mapCamera = mapCameraObject.AddComponent<Camera>();
                 mapCamera.cullingMask = 1 << mapLayer;
                 Assert.That(mapCamera.cullingMask, Is.EqualTo(1 << mapLayer));
-                target = new RenderTexture(640, 360, 24, RenderTextureFormat.ARGB32);
-                camera.targetTexture = target;
                 yield return null;
                 camera.Render();
                 RenderTexture.active = target;

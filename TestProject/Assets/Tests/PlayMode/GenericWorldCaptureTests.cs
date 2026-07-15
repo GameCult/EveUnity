@@ -418,6 +418,20 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 var playerMarker = FindMarker(root, playerId);
                 var playerRenderers = playerMarker.GetComponentsInChildren<Renderer>();
                 Assert.That(playerRenderers, Is.Not.Empty, "The provider-authored player prefab has no renderable visual.");
+                Assert.That(playerMarker.GetComponentsInChildren<Collider>(), Is.Empty,
+                    "The provider-authored player presentation retained gameplay colliders.");
+                Assert.That(playerMarker.GetComponentsInChildren<Rigidbody>(), Is.Empty,
+                    "The provider-authored player presentation retained gameplay rigid bodies.");
+                foreach (var renderer in playerRenderers)
+                foreach (var material in renderer.sharedMaterials)
+                {
+                    Assert.That(material, Is.Not.Null, $"Provider renderer {renderer.name} has a null material.");
+                    Assert.That(material.shader, Is.Not.Null, $"Provider material {material.name} has no shader.");
+                    Assert.That(material.shader.isSupported, Is.True,
+                        $"Provider material {material.name} uses unsupported shader {material.shader.name}.");
+                    Assert.That(material.shader.name, Does.Not.Contain("FallbackError"),
+                        $"Provider material {material.name} resolved to Unity's error shader.");
+                }
                 Assert.That(provider.TryGetRenderChannelLayer("map", out var mapLayer), Is.True);
                 var mapRenderers = new List<Renderer>();
                 foreach (var renderer in root.GetComponentsInChildren<Renderer>(includeInactive: true))

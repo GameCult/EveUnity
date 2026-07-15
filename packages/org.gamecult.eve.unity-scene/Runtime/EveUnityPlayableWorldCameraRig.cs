@@ -12,6 +12,8 @@ namespace GameCult.Eve.UnityScene
 
     public sealed class EveUnityPlayableWorldCameraRig : MonoBehaviour
     {
+        private static EveUnityPlayableWorldCameraRig? _environmentOwner;
+
         [SerializeField] private EveUnityPlayableWorldClientHost? host;
         [SerializeField] private Transform? cameraTransform;
         [SerializeField] private bool driveInLateUpdate = true;
@@ -113,6 +115,12 @@ namespace GameCult.Eve.UnityScene
                 return false;
             }
             _cameraHost = resolvedHost;
+            if (_environmentOwner != null && !ReferenceEquals(_environmentOwner, this))
+            {
+                ReleaseCamera();
+                return false;
+            }
+            _environmentOwner = this;
 
             var cameraComponent = camera.GetComponent<Camera>();
             ApplyAmbientEnvironment(activeWorld, cameraComponent, skybox, reflection);
@@ -205,13 +213,19 @@ namespace GameCult.Eve.UnityScene
         {
             skybox = null;
             reflection = null;
+            if (!IsFinite(world.AmbientLightR) ||
+                !IsFinite(world.AmbientLightG) ||
+                !IsFinite(world.AmbientLightB) ||
+                !IsFinite(world.AmbientLightIntensity) ||
+                !IsFinite(world.ReflectionIntensity))
+                return false;
             var assets = host.NativeAssetProvider;
             if (!string.IsNullOrWhiteSpace(world.SkyboxAssetRef))
             {
                 skybox = assets?.ResolveAsset(
                     new EveUnityPlayableWorldAssetBinding(
                         world.SkyboxAssetRef,
-                        "environment.skybox",
+                        "",
                         "provider-asset-ref"),
                     typeof(Material)) as Material;
                 if (skybox == null || skybox.shader == null || !skybox.shader.isSupported)
@@ -222,7 +236,7 @@ namespace GameCult.Eve.UnityScene
                 reflection = assets?.ResolveAsset(
                     new EveUnityPlayableWorldAssetBinding(
                         world.ReflectionAssetRef,
-                        "environment.reflection",
+                        "",
                         "provider-asset-ref"),
                     typeof(Cubemap)) as Cubemap;
                 if (reflection == null)
@@ -231,12 +245,15 @@ namespace GameCult.Eve.UnityScene
             return true;
         }
 
+        private static bool IsFinite(float value) => !float.IsNaN(value) && !float.IsInfinity(value);
+
         private void ApplyAmbientEnvironment(
             EveUnityPlayableWorldProjection world,
             Camera? camera,
             Material? skybox,
             Cubemap? reflection)
         {
+            var environmentChanged = !ReferenceEquals(RenderSettings.skybox, skybox);
             if (!_ownsAmbientEnvironment)
             {
                 _previousAmbientMode = RenderSettings.ambientMode;
@@ -284,11 +301,14 @@ namespace GameCult.Eve.UnityScene
                 RenderSettings.customReflectionTexture = _previousCustomReflection;
                 RenderSettings.reflectionIntensity = _previousReflectionIntensity;
             }
+            if (environmentChanged)
+                DynamicGI.UpdateEnvironment();
         }
 
         private void RestoreAmbientEnvironment()
         {
             if (!_ownsAmbientEnvironment) return;
+            var environmentChanged = !ReferenceEquals(RenderSettings.skybox, _previousSkybox);
             RenderSettings.ambientMode = _previousAmbientMode;
             RenderSettings.ambientLight = _previousAmbientLight;
             RenderSettings.ambientIntensity = _previousAmbientIntensity;
@@ -302,6 +322,10 @@ namespace GameCult.Eve.UnityScene
             _previousSkybox = null;
             _previousCustomReflection = null;
             _ownsAmbientEnvironment = false;
+            if (ReferenceEquals(_environmentOwner, this))
+                _environmentOwner = null;
+            if (environmentChanged)
+                DynamicGI.UpdateEnvironment();
         }
 
         private void ReleaseCamera()

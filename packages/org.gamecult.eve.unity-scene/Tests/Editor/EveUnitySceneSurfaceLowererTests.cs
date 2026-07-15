@@ -1080,7 +1080,11 @@ namespace GameCult.Eve.UnityScene.Tests
             var hostObject = new GameObject("generic-eve-client");
             var cameraObject = new GameObject("generic-eve-camera");
             var competingCameraObject = new GameObject("competing-eve-camera");
+            var secondaryRootObject = new GameObject("secondary-eve-world-root");
+            var secondaryHostObject = new GameObject("secondary-eve-client");
+            var secondaryCameraObject = new GameObject("secondary-eve-camera");
             hostObject.SetActive(false);
+            secondaryHostObject.SetActive(false);
             var ambientMode = RenderSettings.ambientMode;
             var ambientLight = RenderSettings.ambientLight;
             var ambientIntensity = RenderSettings.ambientIntensity;
@@ -1124,6 +1128,7 @@ namespace GameCult.Eve.UnityScene.Tests
                 rig.CameraTransform = cameraObject.transform;
                 rig.RenderPolicySource = new FixedRenderChannelPolicy("map", 14);
                 var camera = cameraObject.AddComponent<Camera>();
+                camera.clearFlags = CameraClearFlags.SolidColor;
                 camera.aspect = 16f / 9f;
                 camera.orthographic = true;
                 camera.lensShift = new Vector2(0.25f, -0.2f);
@@ -1154,6 +1159,20 @@ namespace GameCult.Eve.UnityScene.Tests
                 Assert.That(RenderSettings.customReflectionTexture, Is.SameAs(reflectionCubemap));
                 Assert.That(RenderSettings.reflectionIntensity, Is.EqualTo(1f).Within(0.001f));
                 Assert.That(camera.clearFlags, Is.EqualTo(CameraClearFlags.Skybox));
+                Assert.That(nativeAssets.LastBinding?.AssetRef, Is.EqualTo("texture.environment.reflection"));
+                Assert.That(nativeAssets.LastBinding?.EntityKind, Is.Empty);
+
+                var secondaryHost = secondaryHostObject.AddComponent<EveUnityPlayableWorldClientHost>();
+                secondaryHost.Configure(secondaryRootObject.transform, provider, provider, provider, provider, nativeAssets);
+                secondaryHost.Connect();
+                secondaryHostObject.SetActive(true);
+                secondaryCameraObject.AddComponent<Camera>();
+                var secondaryRig = secondaryCameraObject.AddComponent<EveUnityPlayableWorldCameraRig>();
+                secondaryRig.Host = secondaryHost;
+                secondaryRig.CameraTransform = secondaryCameraObject.transform;
+                Assert.That(secondaryRig.ApplyRig(0f), Is.False);
+                Assert.That(secondaryHost.ActiveCameraTransform, Is.Null);
+                Assert.That(RenderSettings.skybox, Is.SameAs(skyboxMaterial));
 
                 var competingRig = competingCameraObject.AddComponent<EveUnityPlayableWorldCameraRig>();
                 competingRig.Host = host;
@@ -1200,8 +1219,14 @@ namespace GameCult.Eve.UnityScene.Tests
                 Assert.That(RenderSettings.defaultReflectionMode, Is.EqualTo(previousReflectionMode));
                 Assert.That(RenderSettings.customReflectionTexture, Is.SameAs(previousCustomReflection));
                 Assert.That(RenderSettings.reflectionIntensity, Is.EqualTo(previousReflectionIntensity));
+                Assert.That(camera.clearFlags, Is.EqualTo(CameraClearFlags.SolidColor));
+                rig.CameraTransform = cameraObject.transform;
                 nativeAssets.Clear();
                 nativeAssets.Set("some.other.asset", skyboxMaterial);
+                Assert.That(rig.ApplyRig(0f), Is.False);
+                Assert.That(host.ActiveCameraTransform, Is.Null);
+                nativeAssets.Set("material.environment.skybox", reflectionCubemap);
+                nativeAssets.Set("texture.environment.reflection", skyboxMaterial);
                 Assert.That(rig.ApplyRig(0f), Is.False);
                 Assert.That(host.ActiveCameraTransform, Is.Null);
             }
@@ -1216,6 +1241,9 @@ namespace GameCult.Eve.UnityScene.Tests
                 RenderSettings.reflectionIntensity = previousReflectionIntensity;
                 if (skyboxMaterial != null) UnityEngine.Object.DestroyImmediate(skyboxMaterial);
                 if (reflectionCubemap != null) UnityEngine.Object.DestroyImmediate(reflectionCubemap);
+                UnityEngine.Object.DestroyImmediate(secondaryCameraObject);
+                UnityEngine.Object.DestroyImmediate(secondaryHostObject);
+                UnityEngine.Object.DestroyImmediate(secondaryRootObject);
                 UnityEngine.Object.DestroyImmediate(competingCameraObject);
                 UnityEngine.Object.DestroyImmediate(cameraObject);
                 UnityEngine.Object.DestroyImmediate(hostObject);
@@ -2437,6 +2465,8 @@ namespace GameCult.Eve.UnityScene.Tests
             private readonly Dictionary<string, UnityEngine.Object> _assets =
                 new Dictionary<string, UnityEngine.Object>(StringComparer.Ordinal);
 
+            public EveUnityPlayableWorldAssetBinding? LastBinding { get; private set; }
+
             public void Set(string assetRef, UnityEngine.Object asset)
             {
                 _assets[assetRef ?? ""] = asset;
@@ -2446,10 +2476,13 @@ namespace GameCult.Eve.UnityScene.Tests
 
             public GameObject? ResolvePrefab(EveUnityPlayableWorldAssetBinding asset) => null;
 
-            public UnityEngine.Object? ResolveAsset(EveUnityPlayableWorldAssetBinding asset, Type assetType) =>
-                _assets.TryGetValue(asset?.AssetRef ?? "", out var value) && assetType.IsInstanceOfType(value)
+            public UnityEngine.Object? ResolveAsset(EveUnityPlayableWorldAssetBinding asset, Type assetType)
+            {
+                LastBinding = asset;
+                return _assets.TryGetValue(asset?.AssetRef ?? "", out var value) && assetType.IsInstanceOfType(value)
                     ? value
                     : null;
+            }
         }
 
         private sealed class ObservingGameObjectAssetProvider : IEveUnityGameObjectAssetProvider

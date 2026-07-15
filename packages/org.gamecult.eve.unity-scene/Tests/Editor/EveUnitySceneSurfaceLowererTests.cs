@@ -389,7 +389,7 @@ namespace GameCult.Eve.UnityScene.Tests
 
             Assert.That(projection.Root.Children[0].SceneObjectKind, Is.EqualTo("playable-world-root"));
             Assert.That(projection.Root.Children[0].Children[0].SceneObjectKind, Is.EqualTo("playable-world-entity"));
-            Assert.That(projection.Root.Children[0].Children[3].SceneObjectKind, Is.EqualTo("world-field-3d"));
+            Assert.That(projection.Root.Children[0].Children.Any(child => child.SceneObjectKind == "world-field-3d"), Is.True);
             Assert.That(projection.PlayableWorld, Is.Not.Null);
             Assert.That(projection.PlayableWorld!.WorldRootId, Is.EqualTo("aetheria.daemon.game.playable"));
             Assert.That(projection.PlayableWorld.StatePointerId, Is.EqualTo("cultmesh://aetheria/run/current"));
@@ -405,6 +405,8 @@ namespace GameCult.Eve.UnityScene.Tests
             Assert.That(projection.PlayableWorld.CameraTargetScreenX, Is.EqualTo(0.9f));
             Assert.That(projection.PlayableWorld.CameraTargetScreenY, Is.EqualTo(0.55f));
             Assert.That(projection.PlayableWorld.CameraPositionDamping, Is.EqualTo(5f));
+            Assert.That(projection.PlayableWorld.CameraNearClipPlane, Is.EqualTo(0.3f));
+            Assert.That(projection.PlayableWorld.CameraFarClipPlane, Is.EqualTo(4096f));
             Assert.That(projection.PlayableWorld.AmbientLightR, Is.EqualTo(0.2f));
             Assert.That(projection.PlayableWorld.AmbientLightG, Is.EqualTo(0.2f));
             Assert.That(projection.PlayableWorld.AmbientLightB, Is.EqualTo(0.2f));
@@ -1057,6 +1059,7 @@ namespace GameCult.Eve.UnityScene.Tests
                 var host = hostObject.AddComponent<EveUnityPlayableWorldClientHost>();
                 host.Configure(rootObject.transform, provider, provider, provider, provider);
                 host.Connect();
+                hostObject.SetActive(true);
 
                 var rig = hostObject.AddComponent<EveUnityPlayableWorldCameraRig>();
                 rig.Host = host;
@@ -1064,6 +1067,8 @@ namespace GameCult.Eve.UnityScene.Tests
                 rig.RenderPolicySource = new FixedRenderChannelPolicy("map", 14);
                 var camera = cameraObject.AddComponent<Camera>();
                 camera.aspect = 16f / 9f;
+                camera.orthographic = true;
+                camera.lensShift = new Vector2(0.25f, -0.2f);
 
                 var player = rootObject.GetComponentInChildren<EveUnityPlayableWorldEntityMarker>();
                 Assert.That(player, Is.Not.Null);
@@ -1075,6 +1080,10 @@ namespace GameCult.Eve.UnityScene.Tests
                 Assert.That(rig.ApplyRig(0f), Is.True);
                 Assert.That(camera.cullingMask & (1 << 14), Is.Zero);
                 Assert.That(camera.fieldOfView, Is.EqualTo(60f).Within(0.001f));
+                Assert.That(camera.orthographic, Is.False);
+                Assert.That(camera.lensShift, Is.EqualTo(Vector2.zero));
+                Assert.That(camera.nearClipPlane, Is.EqualTo(0.3f).Within(0.001f));
+                Assert.That(camera.farClipPlane, Is.EqualTo(4096f).Within(0.001f));
                 Assert.That(cameraObject.transform.position.y - player.transform.position.y, Is.EqualTo(150f).Within(0.001f));
                 var viewport = camera.WorldToViewportPoint(player.transform.position);
                 Assert.That(viewport.x, Is.EqualTo(0.9f).Within(0.001f));
@@ -1082,12 +1091,27 @@ namespace GameCult.Eve.UnityScene.Tests
                 Assert.That(RenderSettings.ambientMode, Is.EqualTo(UnityEngine.Rendering.AmbientMode.Flat));
                 Assert.That(RenderSettings.ambientLight.r, Is.EqualTo(0.2f).Within(0.001f));
 
+                var selectedTarget = rootObject.GetComponentsInChildren<EveUnityPlayableWorldEntityMarker>()
+                    .Single(marker => marker.EntityId == "raider-scout");
+                Assert.That(EveUnityCombatPresentation.Find(host.ActiveProjection)?.SelectedTargetEntityId,
+                    Is.EqualTo("raider-scout"));
+                var poseWithoutSelectedTarget = cameraObject.transform.position;
+                selectedTarget.transform.position = new Vector3(10000f, 0f, -10000f);
+                Assert.That(rig.ApplyRig(0f), Is.True);
+                Assert.That(cameraObject.transform.position, Is.EqualTo(poseWithoutSelectedTarget));
+                viewport = camera.WorldToViewportPoint(player.transform.position);
+                Assert.That(viewport.x, Is.EqualTo(0.9f).Within(0.001f));
+                Assert.That(viewport.y, Is.EqualTo(0.55f).Within(0.001f));
+
                 var beforeFollow = cameraObject.transform.position;
                 player.transform.position += Vector3.right * 10f;
                 Assert.That(rig.ApplyRig(0.1f), Is.True);
                 Assert.That(
                     cameraObject.transform.position.x - beforeFollow.x,
                     Is.EqualTo(10f * (1f - Mathf.Exp(-0.5f))).Within(0.001f));
+                rig.ReleaseRig();
+                Assert.That(RenderSettings.ambientMode, Is.EqualTo(ambientMode));
+                Assert.That(RenderSettings.ambientLight, Is.EqualTo(ambientLight));
             }
             finally
             {
@@ -1665,6 +1689,18 @@ namespace GameCult.Eve.UnityScene.Tests
                 ""));
 
             playableChildren.Add(new EveSurfaceComponent(
+                "aetheria.daemon.game.combat",
+                "combat.presentation",
+                new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["controlledEntityId"] = "player-vanguard",
+                    ["selectedTargetEntityId"] = "raider-scout",
+                    ["targetVisible"] = "true",
+                    ["targetHostile"] = "true"
+                },
+                Array.Empty<EveSurfaceComponent>()));
+
+            playableChildren.Add(new EveSurfaceComponent(
                 "aetheria.daemon.game.flow",
                 "field.vector3d",
                 new Dictionary<string, string>(StringComparer.Ordinal)
@@ -1709,6 +1745,8 @@ namespace GameCult.Eve.UnityScene.Tests
                                     ["cameraTargetScreenX"] = "0.9",
                                     ["cameraTargetScreenY"] = "0.55",
                                     ["cameraPositionDamping"] = "5",
+                                    ["cameraNearClipPlane"] = "0.3",
+                                    ["cameraFarClipPlane"] = "4096",
                                     ["ambientLightColor"] = "0.2,0.2,0.2",
                                     ["ambientLightIntensity"] = "1",
                                     ["excludedRenderChannels"] = "map",

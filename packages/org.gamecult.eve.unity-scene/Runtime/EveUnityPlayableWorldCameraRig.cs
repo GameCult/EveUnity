@@ -20,6 +20,9 @@ namespace GameCult.Eve.UnityScene
         [SerializeField] private float yawDegrees = 35f;
         [SerializeField] private float followDamping = 12f;
         private IEveUnityCameraRenderPolicySource? _renderPolicySource;
+        private bool _ownsAmbientEnvironment;
+        private AmbientMode _previousAmbientMode;
+        private Color _previousAmbientLight;
 
         public EveUnityPlayableWorldClientHost? Host
         {
@@ -39,12 +42,27 @@ namespace GameCult.Eve.UnityScene
             set => _renderPolicySource = value;
         }
 
+        public void ReleaseRig() => RestoreAmbientEnvironment();
+
         public bool ApplyRig(float deltaTime)
         {
             var resolvedHost = ResolveHost();
             var activeWorld = resolvedHost?.ActiveWorld;
             if (resolvedHost == null || activeWorld == null)
+            {
+                RestoreAmbientEnvironment();
                 return false;
+            }
+
+            if (activeWorld.CameraRig == "planar.top-down-follow.v1" && !HasValidPlanarContract(activeWorld))
+            {
+                RestoreAmbientEnvironment();
+                return false;
+            }
+            if (activeWorld.CameraRig == "planar.top-down-follow.v1")
+                ApplyAmbientEnvironment(activeWorld);
+            else
+                RestoreAmbientEnvironment();
 
             if (!string.IsNullOrWhiteSpace(activeWorld.CameraRig) &&
                 activeWorld.CameraRig != "planar.top-down-follow.v1" &&
@@ -106,10 +124,16 @@ namespace GameCult.Eve.UnityScene
             Vector3 target,
             float deltaTime)
         {
-            var resolvedDistance = Mathf.Max(0.1f, world.CameraDistance);
-            var verticalFov = Mathf.Clamp(world.CameraVerticalFieldOfViewDegrees, 1f, 179f);
+            var resolvedDistance = world.CameraDistance;
+            var verticalFov = world.CameraVerticalFieldOfViewDegrees;
             if (cameraComponent != null)
+            {
+                cameraComponent.orthographic = false;
+                cameraComponent.lensShift = Vector2.zero;
                 cameraComponent.fieldOfView = verticalFov;
+                cameraComponent.nearClipPlane = world.CameraNearClipPlane;
+                cameraComponent.farClipPlane = world.CameraFarClipPlane;
+            }
             var aspect = cameraComponent != null ? cameraComponent.aspect : 16f / 9f;
             var verticalHalfExtent = resolvedDistance * Mathf.Tan(verticalFov * 0.5f * Mathf.Deg2Rad);
             var horizontalHalfExtent = verticalHalfExtent * Mathf.Max(0.01f, aspect);
@@ -125,13 +149,41 @@ namespace GameCult.Eve.UnityScene
             camera.position = Vector3.Lerp(camera.position, desiredPosition, t);
             camera.rotation = Quaternion.LookRotation(Vector3.down, Vector3.forward);
 
+            return true;
+        }
+
+        private static bool HasValidPlanarContract(EveUnityPlayableWorldProjection world) =>
+            world.CameraDistance > 0f &&
+            world.CameraVerticalFieldOfViewDegrees > 0f &&
+            world.CameraVerticalFieldOfViewDegrees < 180f &&
+            world.CameraTargetScreenX >= 0f && world.CameraTargetScreenX <= 1f &&
+            world.CameraTargetScreenY >= 0f && world.CameraTargetScreenY <= 1f &&
+            world.CameraPositionDamping >= 0f &&
+            world.CameraNearClipPlane > 0f &&
+            world.CameraFarClipPlane > world.CameraNearClipPlane;
+
+        private void ApplyAmbientEnvironment(EveUnityPlayableWorldProjection world)
+        {
+            if (!_ownsAmbientEnvironment)
+            {
+                _previousAmbientMode = RenderSettings.ambientMode;
+                _previousAmbientLight = RenderSettings.ambientLight;
+                _ownsAmbientEnvironment = true;
+            }
             RenderSettings.ambientMode = AmbientMode.Flat;
             RenderSettings.ambientLight = new Color(
                 Mathf.Max(0f, world.AmbientLightR * world.AmbientLightIntensity),
                 Mathf.Max(0f, world.AmbientLightG * world.AmbientLightIntensity),
                 Mathf.Max(0f, world.AmbientLightB * world.AmbientLightIntensity),
                 1f);
-            return true;
+        }
+
+        private void RestoreAmbientEnvironment()
+        {
+            if (!_ownsAmbientEnvironment) return;
+            RenderSettings.ambientMode = _previousAmbientMode;
+            RenderSettings.ambientLight = _previousAmbientLight;
+            _ownsAmbientEnvironment = false;
         }
 
         private static Bounds? CalculateVisualBounds(Transform player, int cullingMask)
@@ -167,6 +219,10 @@ namespace GameCult.Eve.UnityScene
             if (driveInLateUpdate)
                 ApplyRig(Time.deltaTime);
         }
+
+        private void OnDisable() => ReleaseRig();
+
+        private void OnDestroy() => ReleaseRig();
 
         private EveUnityPlayableWorldClientHost? ResolveHost()
         {

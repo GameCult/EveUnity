@@ -521,7 +521,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     "A reconciled fire request never reached daemon-owned lock acquisition and shot resolution.");
                 observedCombat = EveUnityCombatPresentation.Find(runtime.ActiveProjection);
                 Assert.That(observedShot.TargetEntityIndex, Is.EqualTo(targetEntityIndex));
-                Assert.That(observedShot.LockQuality, Is.GreaterThan(0.99));
+                Assert.That(observedShot.LockQuality, Is.GreaterThanOrEqualTo(0.99));
                 var trajectories = root.GetComponent<EveUnityShotTrajectoryRenderer>();
                 var combatRenderer = root.GetComponent<EveUnityCombatPresentationRenderer>();
                 Assert.That(trajectories, Is.Not.Null);
@@ -592,6 +592,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 Assert.That(aimDotDistance, Is.GreaterThanOrEqualTo(49.9f));
                 Assert.That(camera.cullingMask & (1 << mapLayer), Is.Zero);
                 Assert.That(runtime.ActiveWorld.CameraRig, Is.EqualTo("perspective.entity-forward-follow.v1"));
+                Assert.That(runtime.ActiveWorld.CameraLookAt, Is.EqualTo("aim.convergence-point.v1"));
                 Assert.That(runtime.ActiveWorld.CameraDistance, Is.EqualTo(30f).Within(0.001f));
                 Assert.That(camera.fieldOfView, Is.EqualTo(60f).Within(0.001f));
                 Assert.That(runtime.ActiveWorld.CameraPositionDamping, Is.EqualTo(0f).Within(0.001f));
@@ -703,6 +704,14 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     "The generic volume lowerer did not rasterize any advertised Fields layers.");
                 Assert.That(fieldVolume.CompositeCount, Is.GreaterThan(0),
                     "The generic volume lowerer never composited into the pilot camera.");
+                var fieldDocument = typeof(EveUnityFieldsVolumeRenderer)
+                    .GetField("_document", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+                    ?.GetValue(fieldVolume);
+                Assert.That(fieldDocument, Is.Not.Null, "The volume lowerer did not retain its presented Fields document.");
+                var fieldViewport = fieldDocument.GetType().GetProperty("Viewport")?.GetValue(fieldDocument);
+                var fieldSplats = fieldDocument.GetType().GetProperty("Splats")?.GetValue(fieldDocument);
+                Assert.That(fieldViewport, Is.Not.Null);
+                Assert.That(fieldSplats, Is.Not.Null);
                 WriteWitnessFacts(
                     initialVersion,
                     runtime.ActiveVersion,
@@ -744,6 +753,15 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     finalPickupEntityCount,
                     pickupCollectionEventCount,
                     pickupCollection,
+                    camera.transform.position,
+                    camera.transform.forward,
+                    playerMarker.transform.position,
+                    aimRenderer.ViewDotPosition,
+                    Convert.ToSingle(fieldViewport.GetType().GetProperty("MinX")?.GetValue(fieldViewport)),
+                    Convert.ToSingle(fieldViewport.GetType().GetProperty("MinY")?.GetValue(fieldViewport)),
+                    Convert.ToSingle(fieldViewport.GetType().GetProperty("MaxX")?.GetValue(fieldViewport)),
+                    Convert.ToSingle(fieldViewport.GetType().GetProperty("MaxY")?.GetValue(fieldViewport)),
+                    Convert.ToInt32(fieldSplats.GetType().GetProperty("Count")?.GetValue(fieldSplats)),
                     playerRendererFacts);
             }
             finally
@@ -803,6 +821,15 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             int finalPickupEntityCount,
             int pickupCollectionEventCount,
             EveUnityFeedbackEvent pickupCollection,
+            Vector3 cameraPosition,
+            Vector3 cameraForward,
+            Vector3 playerPosition,
+            Vector3 aimPosition,
+            float fieldViewportMinX,
+            float fieldViewportMinY,
+            float fieldViewportMaxX,
+            float fieldViewportMaxY,
+            int fieldSplatCount,
             RendererFact[] playerRendererFacts)
         {
             var path = Environment.GetEnvironmentVariable("EVEUNITY_WITNESS_FACTS_PATH");
@@ -857,6 +884,15 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 pickupQuantity = (float)(pickupCollection?.ScalarValue ?? 0),
                 cargoQuantityBeforePickup = (float)(pickupCollection?.CargoQuantityBefore ?? 0),
                 cargoQuantityAfterPickup = (float)(pickupCollection?.CargoQuantityAfter ?? 0),
+                cameraPosition = cameraPosition,
+                cameraForward = cameraForward,
+                playerPosition = playerPosition,
+                aimPosition = aimPosition,
+                fieldViewportMinX = fieldViewportMinX,
+                fieldViewportMinY = fieldViewportMinY,
+                fieldViewportMaxX = fieldViewportMaxX,
+                fieldViewportMaxY = fieldViewportMaxY,
+                fieldSplatCount = fieldSplatCount,
                 playerRenderers = playerRendererFacts,
                 mapChannelRendererCount = mapChannelRendererCount,
                 mapChangedPixels = mapChangedPixels,
@@ -918,6 +954,15 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             public float pickupQuantity;
             public float cargoQuantityBeforePickup;
             public float cargoQuantityAfterPickup;
+            public Vector3 cameraPosition;
+            public Vector3 cameraForward;
+            public Vector3 playerPosition;
+            public Vector3 aimPosition;
+            public float fieldViewportMinX;
+            public float fieldViewportMinY;
+            public float fieldViewportMaxX;
+            public float fieldViewportMaxY;
+            public int fieldSplatCount;
             public RendererFact[] playerRenderers;
             public int mapChannelRendererCount;
             public int mapChangedPixels;

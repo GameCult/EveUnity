@@ -4,8 +4,8 @@
 
 The warm-cache released-package witness passes with:
 
-- `org.gamecult.eve.unity-scene` `0.3.40`, commit
-  `3c8d127ef8d0d8e6c9a45f92a8bbd553d87e6a07`;
+- `org.gamecult.eve.unity-scene` `0.3.41`, commit
+  `f0883e9644674849e03127d4d7a231905092f1de`;
 - `org.gamecult.eve.plugin-fields` `0.2.0`, commit
   `382a23d8f8a07e4b5eef5f81f84655861a858367`;
 - `org.gamecult.eve.surface` `0.2.2`, commit
@@ -17,7 +17,7 @@ The warm-cache released-package witness passes with:
 - the generic `ReleaseConsumerProject` client connected directly to the
   Aetheria daemon.
 
-Evidence is in `artifacts/aetheria-daemon-gravity-fog-dither`. The PlayMode test
+Evidence is in `artifacts/aetheria-daemon-gravity-fog-convergence-facts`. The PlayMode test
 passed and recorded provider-owned reconciled movement, look, targeting,
 tractor press, tractor release, contact-gated cargo collection, and action
 receipts. The daemon-owned look direction reached the SoA body rotation,
@@ -31,7 +31,9 @@ the only live directional light (`0.75` intensity).
 Aetheria also advertises the original undocked `ARPG.unity` Third Person Rig:
 entity-forward perspective follow, `30` unit distance, `60` degree vertical
 field of view, target screen position `0.64,0.81`, zero position damping, and
-`1`-`4096` clip planes. The generic camera rig lowers those values without
+`1`-`4096` clip planes. Its generic `aim.convergence-point.v1` relation makes
+the optical axis reach the daemon-published aim point while preserving that
+entity framing. The generic camera rig lowers both constraints without
 Aetheria-specific camera code. The distinct `70` unit Docked Rig no longer
 incorrectly owns the flight view.
 Aetheria's pilot surface also publishes a transparent cockpit overlay. The
@@ -48,7 +50,7 @@ Fields splat layers. Its surface contract contains logical ports such as
 names or pass indices. The selected `unity-scene` provider asset variant owns
 that concrete shader ABI through `unity.volume.*` metadata. The released
 generic lowerer resolved the provider shader and dither texture, rasterized all
-four layers, and composited `22` pilot-camera frames from daemon frame `232`.
+four layers, and composited `21` pilot-camera frames from daemon frame `220`.
 The provider variant advertises the fossil shader's raymarch, temporal-history,
 and composite passes plus their logical ports. EveUnity allocates and resets the
 history targets generically; a partial temporal ABI fails closed.
@@ -63,10 +65,10 @@ Camera-channel facts:
 
 - provider-authored player renderers: `13`, including the lowered tractor effect;
 - pilot changed pixels: `230,400`;
-- pilot average luminance: `0.1893132`;
-- pilot bright pixels: `13,948`;
+- pilot average luminance: `0.1912306`;
+- pilot bright pixels: `13,715`;
 - map-channel renderers: `11`;
-- map changed pixels: `4,365`;
+- map changed pixels: `4,867`;
 - native cockpit progress bars: `7`;
 - daemon tractor power at capture: `1.0` after the held input completed its
   authored ramp;
@@ -85,14 +87,18 @@ Visual inspection confirms that map glyphs are absent from the pilot frame and
 present in the map-only frame. Correcting the fossil camera mode removed the
 false top-down dark disk, but the active volume now resolves as a nearly uniform
 saturated orange horizon rather than the fossil's blue gravity-shaped fog sea.
-This is transport and lowering proof, not visual parity. Release `0.3.40` now
+This is transport and lowering proof, not visual parity. Release `0.3.41` now
 derives dither sampling coordinates from the active viewport and provider
-texture dimensions through a generic logical-port relation. The resulting
-raymarch remains nearly flat orange (`R 0.8896-0.8960`, `G 0.5493-0.5532`,
-`B 0.3096-0.3118`, alpha `0`), so that real ABI correction is not the missing
-visual mechanism. The next diagnosis must compare camera/world sampling and
-field viewport placement before changing authored tuning. EveUnity must not
-compensate with Aetheria-specific lighting or fog rules.
+texture dimensions through a generic logical-port relation and solves the
+advertised finite aim look-at exactly. The camera (`6.57,-13.83,1.44`), player
+(`-3.20,0,38.77`), and aim (`-46.55,0,119.19`) all lie inside the advertised
+field viewport, but the resulting raymarch remains nearly flat orange
+(`R 0.8896-0.8960`, `G 0.5493-0.5532`, `B 0.3096-0.3118`, alpha `0`). The
+remaining cause is now isolated to the daemon's field document: it flattened
+the fossil radial gravity terrain into a full-viewport solid height splat, so
+the first ray sample saturates floor density. EveUnity must not compensate with
+Aetheria-specific lighting or fog rules; the document must publish the actual
+portable radial falloff.
 Substance is not part of this path; later texture baking belongs in Blender.
 Aetheria currently bundles ambientCG's 1K `Metal012` color, normal, and
 metalness maps under CC0. The same pre-generated maps now replace dead

@@ -64,7 +64,7 @@ namespace GameCult.Eve.UnityScene
                 {
                     Remove(presentation.Id);
                     var prefab = assetProvider?.ResolvePrefab(new EveUnityPlayableWorldAssetBinding(
-                        "", presentation.AssetRole, "provider-asset-ref"));
+                        presentation.AssetRole, presentation.AssetRole, "provider-asset-ref"));
                     if (prefab == null) continue;
                     var root = Instantiate(prefab, source.Transform, false);
                     root.name = "Eve beam " + presentation.Id;

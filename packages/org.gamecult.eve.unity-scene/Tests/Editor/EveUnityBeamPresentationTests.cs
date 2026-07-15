@@ -50,6 +50,7 @@ namespace GameCult.Eve.UnityScene.Tests
             {
                 renderer.Apply(new[] { Presentation(0.5f) }, registry, provider);
 
+                Assert.That(provider.LastAssetRef, Is.EqualTo("effect.beam.tractor"));
                 Assert.That(provider.LastRole, Is.EqualTo("effect.beam.tractor"));
                 Assert.That(renderer.ActiveBeamCount, Is.EqualTo(1));
                 Assert.That(renderer.TryGetPower("tractor", out var power), Is.True);
@@ -127,9 +128,11 @@ namespace GameCult.Eve.UnityScene.Tests
         {
             private readonly GameObject _prefab;
             public Provider(GameObject prefab) { _prefab = prefab; }
+            public string LastAssetRef { get; private set; } = "";
             public string LastRole { get; private set; } = "";
             public GameObject? ResolvePrefab(EveUnityPlayableWorldAssetBinding asset)
             {
+                LastAssetRef = asset.AssetRef;
                 LastRole = asset.EntityKind;
                 return _prefab;
             }

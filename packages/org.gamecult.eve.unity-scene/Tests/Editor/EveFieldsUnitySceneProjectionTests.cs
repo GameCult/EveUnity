@@ -174,6 +174,94 @@ namespace GameCult.Eve.UnityScene.Tests
             UnityEngine.Object.DestroyImmediate(host);
         }
 
+        [Test]
+        public void RasterizerAnchorsAnimatedSimplexToFieldWorldAndPublishedSimulationTime()
+        {
+            var first = ProceduralDocument(
+                0, 100, 50, EveFieldsSplatSourceKinds.AnimatedSimplexNoise, 2);
+            var shifted = ProceduralDocument(
+                25, 125, 75, EveFieldsSplatSourceKinds.AnimatedSimplexNoise, 2);
+            var later = ProceduralDocument(
+                0, 100, 50, EveFieldsSplatSourceKinds.AnimatedSimplexNoise, 7);
+
+            var firstValue = RenderFieldPixel(first, 64, 64);
+            var shiftedValue = RenderFieldPixel(shifted, 32, 64);
+            var laterValue = RenderFieldPixel(later, 64, 64);
+
+            Assert.That(shiftedValue, Is.EqualTo(firstValue).Within(0.015f),
+                "the same field-world coordinate must not swim when the viewport moves");
+            Assert.That(Mathf.Abs(laterValue - firstValue), Is.GreaterThan(0.02f),
+                "animation must use the document's simulation time rather than Unity wall time");
+        }
+
+        [Test]
+        public void RasterizerLowersPortableAnimatedCellNoiseB()
+        {
+            var first = ProceduralDocument(
+                0, 100, 50, EveFieldsSplatSourceKinds.AnimatedCellNoiseB, 2);
+            var later = ProceduralDocument(
+                0, 100, 50, EveFieldsSplatSourceKinds.AnimatedCellNoiseB, 11);
+
+            var firstValue = RenderFieldPixel(first, 57, 71);
+            var laterValue = RenderFieldPixel(later, 57, 71);
+
+            Assert.That(firstValue, Is.GreaterThanOrEqualTo(0));
+            Assert.That(Mathf.Abs(laterValue - firstValue), Is.GreaterThan(0.005f));
+        }
+
+        private static EveFieldsSplatsDocument ProceduralDocument(
+            double min,
+            double max,
+            double center,
+            int sourceKind,
+            double simulationTime)
+        {
+            return new EveFieldsSplatsDocument
+            {
+                SimulationTimeSeconds = simulationTime,
+                Viewport = new EveFieldsViewport { MinX = min, MinY = 0, MaxX = max, MaxY = 100 },
+                Splats = new EveFieldsSplatSoa
+                {
+                    Count = 1,
+                    CenterX = new[] { center },
+                    CenterY = new[] { 50d },
+                    HalfExtentX = new[] { 50d },
+                    HalfExtentY = new[] { 50d },
+                    RotationCos = new[] { 1d },
+                    RotationSin = new[] { 0d },
+                    Channel = new[] { 0 },
+                    Falloff = new[] { EveFieldsSplatFalloffs.Solid },
+                    ValueR = new[] { 1d },
+                    ValueA = new[] { 1d },
+                    LayerIndex = new[] { 0 },
+                    SourceKind = new[] { sourceKind },
+                    FrequencyX = new[] { 0.037d },
+                    FrequencyY = new[] { 0.041d },
+                    PhaseX = new[] { 0.17d },
+                    PhaseY = new[] { -0.23d },
+                    AnimationSpeed = new[] { 0.31d },
+                    SourceFlags = new[] { (double)EveFieldsSplatSourceFlags.AbsoluteValue }
+                }
+            };
+        }
+
+        private static float RenderFieldPixel(EveFieldsSplatsDocument document, int x, int y)
+        {
+            var host = new GameObject("eve-fields-procedural-capture");
+            var rasterizer = host.AddComponent<EveFieldsSplatRasterizer>();
+            var output = rasterizer.Render(document, 128, 128);
+            var previous = RenderTexture.active;
+            RenderTexture.active = output;
+            var readback = new Texture2D(128, 128, TextureFormat.RGBAFloat, false, true);
+            readback.ReadPixels(new Rect(0, 0, 128, 128), 0, 0);
+            readback.Apply();
+            RenderTexture.active = previous;
+            var value = readback.GetPixel(x, y).r;
+            UnityEngine.Object.DestroyImmediate(readback);
+            UnityEngine.Object.DestroyImmediate(host);
+            return value;
+        }
+
         private sealed class CaptureDocument : IEveFieldsSplatsDocument
         {
             public string Schema => EveFieldsSchemas.Splats;

@@ -11,6 +11,7 @@ namespace GameCult.Eve.UnityScene.Fields
         public const string SplatCountPropertyName = "_EveFieldsSplatCount";
         public const string ViewportToClipPropertyName = "_EveFieldsViewportToClip";
         public const string ChannelFilterPropertyName = "_EveFieldsChannelFilter";
+        public const string SimulationTimePropertyName = "_EveFieldsSimulationTimeSeconds";
 
         private const int SplatStrideBytes = 96;
         private EveFieldsGpuSplat[] splats = Array.Empty<EveFieldsGpuSplat>();

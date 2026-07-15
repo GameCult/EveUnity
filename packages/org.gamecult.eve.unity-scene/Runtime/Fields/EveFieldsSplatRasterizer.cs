@@ -26,6 +26,7 @@ namespace GameCult.Eve.UnityScene.Fields
         private static readonly int SplatCountId = Shader.PropertyToID(EveFieldsSplatBuffer.SplatCountPropertyName);
         private static readonly int ViewportToClipId = Shader.PropertyToID(EveFieldsSplatBuffer.ViewportToClipPropertyName);
         private static readonly int ChannelFilterId = Shader.PropertyToID(EveFieldsSplatBuffer.ChannelFilterPropertyName);
+        private static readonly int SimulationTimeId = Shader.PropertyToID(EveFieldsSplatBuffer.SimulationTimePropertyName);
 
         public RenderTexture TargetTexture => targetTexture != null ? targetTexture : ownedTargetTexture;
         public int LastDrawnCount { get; private set; }
@@ -48,6 +49,7 @@ namespace GameCult.Eve.UnityScene.Fields
             commandBuffer.SetGlobalBuffer(SplatBufferId, splatBuffer.Buffer);
             commandBuffer.SetGlobalInt(SplatCountId, splatBuffer.Count);
             commandBuffer.SetGlobalInt(ChannelFilterId, channelFilter);
+            commandBuffer.SetGlobalFloat(SimulationTimeId, (float)document.SimulationTimeSeconds);
             commandBuffer.SetGlobalMatrix(ViewportToClipId, BuildViewportToClip(document.Viewport));
             commandBuffer.DrawProcedural(Matrix4x4.identity, material, Mathf.Max(0, materialPass), MeshTopology.Triangles, 6, splatBuffer.Count);
             Graphics.ExecuteCommandBuffer(commandBuffer);

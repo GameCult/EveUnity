@@ -147,6 +147,7 @@ namespace GameCult.Eve.UnityScene
                 worldRoot.GetProp("skyboxAssetRef"),
                 worldRoot.GetProp("reflectionAssetRef"),
                 ParseFloat(worldRoot.GetProp("reflectionIntensity"), 1f),
+                worldRoot.GetProp("postProcessProfileAssetRef"),
                 ParseVector3(worldRoot.GetProp("keyLightDirection")),
                 ParseVector3(worldRoot.GetProp("keyLightColor")),
                 ParseFloat(worldRoot.GetProp("keyLightIntensity"), 0f),
@@ -390,6 +391,7 @@ namespace GameCult.Eve.UnityScene
             string skyboxAssetRef = "",
             string reflectionAssetRef = "",
             float reflectionIntensity = 1f,
+            string postProcessProfileAssetRef = "",
             (float x, float y, float z) keyLightDirection = default,
             (float r, float g, float b) keyLightColor = default,
             float keyLightIntensity = 0f,
@@ -431,6 +433,7 @@ namespace GameCult.Eve.UnityScene
             SkyboxAssetRef = skyboxAssetRef ?? "";
             ReflectionAssetRef = reflectionAssetRef ?? "";
             ReflectionIntensity = reflectionIntensity;
+            PostProcessProfileAssetRef = postProcessProfileAssetRef ?? "";
             KeyLightDirectionX = keyLightDirection.x;
             KeyLightDirectionY = keyLightDirection.y;
             KeyLightDirectionZ = keyLightDirection.z;
@@ -503,6 +506,8 @@ namespace GameCult.Eve.UnityScene
         public string ReflectionAssetRef { get; }
 
         public float ReflectionIntensity { get; }
+
+        public string PostProcessProfileAssetRef { get; }
 
         public float KeyLightDirectionX { get; }
 

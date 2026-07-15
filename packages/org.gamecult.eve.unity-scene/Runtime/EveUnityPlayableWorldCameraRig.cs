@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityEngine.Rendering;
+using UnityEngine.Rendering.Universal;
 
 #nullable enable
 
@@ -34,6 +35,11 @@ namespace GameCult.Eve.UnityScene
         private Camera? _environmentCamera;
         private CameraClearFlags _previousCameraClearFlags;
         private GameObject? _keyLightObject;
+        private GameObject? _postProcessVolumeObject;
+        private Volume? _postProcessVolume;
+        private UniversalAdditionalCameraData? _postProcessCameraData;
+        private bool _createdPostProcessCameraData;
+        private bool _previousRenderPostProcessing;
 
         public EveUnityPlayableWorldClientHost? Host
         {
@@ -108,7 +114,7 @@ namespace GameCult.Eve.UnityScene
                 ReleaseCamera();
                 return false;
             }
-            if (!TryResolveEnvironment(resolvedHost, activeWorld, out var skybox, out var reflection))
+            if (!TryResolveEnvironment(resolvedHost, activeWorld, out var skybox, out var reflection, out var postProcessProfile))
             {
                 ReleaseRig();
                 return false;
@@ -127,7 +133,12 @@ namespace GameCult.Eve.UnityScene
             _environmentOwner = this;
 
             var cameraComponent = camera.GetComponent<Camera>();
-            ApplyAmbientEnvironment(activeWorld, cameraComponent, skybox, reflection);
+            if (postProcessProfile != null && cameraComponent == null)
+            {
+                ReleaseRig();
+                return false;
+            }
+            ApplyAmbientEnvironment(activeWorld, cameraComponent, skybox, reflection, postProcessProfile);
             ApplyKeyLight(activeWorld);
             if (cameraComponent != null && _renderPolicySource != null)
             {
@@ -279,10 +290,12 @@ namespace GameCult.Eve.UnityScene
             EveUnityPlayableWorldClientHost host,
             EveUnityPlayableWorldProjection world,
             out Material? skybox,
-            out Cubemap? reflection)
+            out Cubemap? reflection,
+            out VolumeProfile? postProcessProfile)
         {
             skybox = null;
             reflection = null;
+            postProcessProfile = null;
             if (!IsFinite(world.AmbientLightR) ||
                 !IsFinite(world.AmbientLightG) ||
                 !IsFinite(world.AmbientLightB) ||
@@ -317,6 +330,17 @@ namespace GameCult.Eve.UnityScene
                         "provider-asset-ref"),
                     typeof(Cubemap)) as Cubemap;
                 if (reflection == null)
+                    return false;
+            }
+            if (!string.IsNullOrWhiteSpace(world.PostProcessProfileAssetRef))
+            {
+                postProcessProfile = assets?.ResolveAsset(
+                    new EveUnityPlayableWorldAssetBinding(
+                        world.PostProcessProfileAssetRef,
+                        "",
+                        "provider-asset-ref"),
+                    typeof(VolumeProfile)) as VolumeProfile;
+                if (postProcessProfile == null)
                     return false;
             }
             return true;
@@ -376,7 +400,8 @@ namespace GameCult.Eve.UnityScene
             EveUnityPlayableWorldProjection world,
             Camera? camera,
             Material? skybox,
-            Cubemap? reflection)
+            Cubemap? reflection,
+            VolumeProfile? postProcessProfile)
         {
             var environmentChanged = !ReferenceEquals(RenderSettings.skybox, skybox);
             if (!_ownsAmbientEnvironment)
@@ -428,11 +453,75 @@ namespace GameCult.Eve.UnityScene
             }
             if (environmentChanged)
                 DynamicGI.UpdateEnvironment();
+            ApplyPostProcess(camera, postProcessProfile);
+        }
+
+        private void ApplyPostProcess(Camera? camera, VolumeProfile? profile)
+        {
+            if (profile == null)
+            {
+                RestorePostProcess();
+                return;
+            }
+            if (camera == null)
+                return;
+            if (_postProcessCameraData != null && !ReferenceEquals(_postProcessCameraData.gameObject, camera.gameObject))
+                RestorePostProcess();
+            if (_postProcessCameraData == null)
+            {
+                _postProcessCameraData = camera.GetComponent<UniversalAdditionalCameraData>();
+                _createdPostProcessCameraData = _postProcessCameraData == null;
+                if (_postProcessCameraData == null)
+                    _postProcessCameraData = camera.gameObject.AddComponent<UniversalAdditionalCameraData>();
+                _previousRenderPostProcessing = _postProcessCameraData.renderPostProcessing;
+            }
+            _postProcessCameraData.renderPostProcessing = true;
+            if (_postProcessVolumeObject == null)
+            {
+                _postProcessVolumeObject = new GameObject("Eve World Post Process");
+                _postProcessVolumeObject.transform.SetParent(transform, worldPositionStays: false);
+                _postProcessVolume = _postProcessVolumeObject.AddComponent<Volume>();
+                _postProcessVolume.isGlobal = true;
+                _postProcessVolume.priority = 1000f;
+                _postProcessVolume.weight = 1f;
+            }
+            _postProcessVolume!.sharedProfile = profile;
+            _postProcessVolumeObject.SetActive(true);
+        }
+
+        private void RestorePostProcess()
+        {
+            if (_postProcessCameraData != null)
+            {
+                if (_createdPostProcessCameraData)
+                {
+                    if (Application.isPlaying)
+                        Destroy(_postProcessCameraData);
+                    else
+                        DestroyImmediate(_postProcessCameraData);
+                }
+                else
+                {
+                    _postProcessCameraData.renderPostProcessing = _previousRenderPostProcessing;
+                }
+            }
+            _postProcessCameraData = null;
+            _createdPostProcessCameraData = false;
+            if (_postProcessVolumeObject != null)
+            {
+                if (Application.isPlaying)
+                    Destroy(_postProcessVolumeObject);
+                else
+                    DestroyImmediate(_postProcessVolumeObject);
+            }
+            _postProcessVolumeObject = null;
+            _postProcessVolume = null;
         }
 
         private void RestoreAmbientEnvironment()
         {
             ReleaseKeyLight();
+            RestorePostProcess();
             if (!_ownsAmbientEnvironment) return;
             var environmentChanged = !ReferenceEquals(RenderSettings.skybox, _previousSkybox);
             RenderSettings.ambientMode = _previousAmbientMode;

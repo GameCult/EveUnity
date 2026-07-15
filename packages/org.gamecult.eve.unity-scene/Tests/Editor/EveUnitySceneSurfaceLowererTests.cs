@@ -9,6 +9,7 @@ using GameCult.Mesh;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.Rendering;
+using UnityEngine.Rendering.Universal;
 
 #nullable enable
 
@@ -416,6 +417,7 @@ namespace GameCult.Eve.UnityScene.Tests
             Assert.That(projection.PlayableWorld.AmbientLightIntensity, Is.EqualTo(1.46f));
             Assert.That(projection.PlayableWorld.SkyboxAssetRef, Is.Empty);
             Assert.That(projection.PlayableWorld.ReflectionAssetRef, Is.Empty);
+            Assert.That(projection.PlayableWorld.PostProcessProfileAssetRef, Is.Empty);
             Assert.That(projection.PlayableWorld.ReflectionIntensity, Is.EqualTo(1f));
             Assert.That(projection.PlayableWorld.ExcludedRenderChannels, Is.EqualTo(new[] { "map" }));
             Assert.That(projection.PlayableWorld.PlayerEntityId, Is.EqualTo("player-vanguard"));
@@ -1100,6 +1102,7 @@ namespace GameCult.Eve.UnityScene.Tests
             var previousReflectionIntensity = RenderSettings.reflectionIntensity;
             Material? skyboxMaterial = null;
             Cubemap? reflectionCubemap = null;
+            VolumeProfile? postProcessProfile = null;
 
             try
             {
@@ -1109,13 +1112,16 @@ namespace GameCult.Eve.UnityScene.Tests
                 Assert.That(skyboxShader, Is.Not.Null);
                 skyboxMaterial = new Material(skyboxShader!);
                 reflectionCubemap = new Cubemap(4, TextureFormat.RGBA32, false);
+                postProcessProfile = ScriptableObject.CreateInstance<VolumeProfile>();
                 nativeAssets.Set("material.environment.skybox", skyboxMaterial);
                 nativeAssets.Set("texture.environment.reflection", reflectionCubemap);
+                nativeAssets.Set("profile.environment.flight", postProcessProfile);
                 provider.Set(
                     new EveUnitySceneProviderSurfaceDocument(
                         PlayableArpgDocument(
                             skyboxAssetRef: "material.environment.skybox",
-                            reflectionAssetRef: "texture.environment.reflection"),
+                            reflectionAssetRef: "texture.environment.reflection",
+                            postProcessProfileAssetRef: "profile.environment.flight"),
                         Advertisement("aetheria.daemon.game"),
                         "cultmesh://aetheria/eve/surfaces/aetheria.daemon.game",
                         1),
@@ -1165,6 +1171,11 @@ namespace GameCult.Eve.UnityScene.Tests
                 Assert.That(RenderSettings.customReflectionTexture, Is.SameAs(reflectionCubemap));
                 Assert.That(RenderSettings.reflectionIntensity, Is.EqualTo(1f).Within(0.001f));
                 Assert.That(camera.clearFlags, Is.EqualTo(CameraClearFlags.Skybox));
+                Assert.That(camera.GetComponent<UniversalAdditionalCameraData>(), Is.Not.Null);
+                Assert.That(camera.GetComponent<UniversalAdditionalCameraData>().renderPostProcessing, Is.True);
+                var postProcessTransform = hostObject.transform.Find("Eve World Post Process");
+                Assert.That(postProcessTransform, Is.Not.Null);
+                Assert.That(postProcessTransform.GetComponent<Volume>().sharedProfile, Is.SameAs(postProcessProfile));
                 var keyLightTransform = hostObject.transform.Find("Eve World Key Light");
                 Assert.That(keyLightTransform, Is.Not.Null);
                 var keyLight = keyLightTransform.GetComponent<Light>();
@@ -1173,7 +1184,7 @@ namespace GameCult.Eve.UnityScene.Tests
                 Assert.That(keyLight.color, Is.EqualTo(new Color(1f, 0.95f, 0.9f, 1f)));
                 Assert.That(Vector3.Dot(keyLightTransform.forward, new Vector3(0.4f, -1f, 0.25f).normalized),
                     Is.GreaterThan(0.999f));
-                Assert.That(nativeAssets.LastBinding?.AssetRef, Is.EqualTo("texture.environment.reflection"));
+                Assert.That(nativeAssets.LastBinding?.AssetRef, Is.EqualTo("profile.environment.flight"));
                 Assert.That(nativeAssets.LastBinding?.EntityKind, Is.Empty);
 
                 var secondaryHost = secondaryHostObject.AddComponent<EveUnityPlayableWorldClientHost>();
@@ -1225,6 +1236,8 @@ namespace GameCult.Eve.UnityScene.Tests
                 rig.CameraTransform = null;
                 Assert.That(host.ActiveCameraTransform, Is.Null);
                 Assert.That(hostObject.transform.Find("Eve World Key Light"), Is.Null);
+                Assert.That(hostObject.transform.Find("Eve World Post Process"), Is.Null);
+                Assert.That(camera.GetComponent<UniversalAdditionalCameraData>(), Is.Null);
                 aim.RefreshNow();
                 Assert.That(aim.ViewDotVisible, Is.False);
                 Assert.That(RenderSettings.ambientMode, Is.EqualTo(ambientMode));
@@ -1242,6 +1255,7 @@ namespace GameCult.Eve.UnityScene.Tests
                 Assert.That(host.ActiveCameraTransform, Is.Null);
                 nativeAssets.Set("material.environment.skybox", reflectionCubemap);
                 nativeAssets.Set("texture.environment.reflection", skyboxMaterial);
+                nativeAssets.Set("profile.environment.flight", skyboxMaterial);
                 Assert.That(rig.ApplyRig(0f), Is.False);
                 Assert.That(host.ActiveCameraTransform, Is.Null);
             }
@@ -1256,6 +1270,7 @@ namespace GameCult.Eve.UnityScene.Tests
                 RenderSettings.reflectionIntensity = previousReflectionIntensity;
                 if (skyboxMaterial != null) UnityEngine.Object.DestroyImmediate(skyboxMaterial);
                 if (reflectionCubemap != null) UnityEngine.Object.DestroyImmediate(reflectionCubemap);
+                if (postProcessProfile != null) UnityEngine.Object.DestroyImmediate(postProcessProfile);
                 UnityEngine.Object.DestroyImmediate(secondaryCameraObject);
                 UnityEngine.Object.DestroyImmediate(secondaryHostObject);
                 UnityEngine.Object.DestroyImmediate(secondaryRootObject);
@@ -1838,6 +1853,7 @@ namespace GameCult.Eve.UnityScene.Tests
             string playerPosition = "0,0,0",
             string skyboxAssetRef = "",
             string reflectionAssetRef = "",
+            string postProcessProfileAssetRef = "",
             string cameraRig = "planar.top-down-follow.v1",
             string cameraDistance = "150",
             string cameraTargetScreenX = "0.9",
@@ -1997,6 +2013,7 @@ namespace GameCult.Eve.UnityScene.Tests
                                     ["skyboxAssetRef"] = skyboxAssetRef,
                                     ["reflectionAssetRef"] = reflectionAssetRef,
                                     ["reflectionIntensity"] = "1",
+                                    ["postProcessProfileAssetRef"] = postProcessProfileAssetRef,
                                     ["keyLightDirection"] = "0.4,-1,0.25",
                                     ["keyLightColor"] = "1,0.95,0.9",
                                     ["keyLightIntensity"] = "0.75",

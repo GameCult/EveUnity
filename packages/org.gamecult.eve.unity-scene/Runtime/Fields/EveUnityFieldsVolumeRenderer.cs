@@ -110,9 +110,11 @@ namespace GameCult.Eve.UnityScene.Fields
             _commands ??= new CommandBuffer { name = "Eve Fields Volume" };
             _commands.Clear();
             _commands.SetRenderTarget(_cloudTexture);
+            _commands.SetViewport(new Rect(0f, 0f, _cloudTexture.width, _cloudTexture.height));
             _commands.ClearRenderTarget(false, true, Color.clear);
             _commands.DrawProcedural(Matrix4x4.identity, _material!, raymarchPass, MeshTopology.Triangles, 3, 1);
             _commands.SetRenderTarget(BuiltinRenderTextureType.CameraTarget);
+            _commands.SetViewport(camera.pixelRect);
             _commands.DrawProcedural(Matrix4x4.identity, _material!, compositePass, MeshTopology.Triangles, 3, 1);
             context.ExecuteCommandBuffer(_commands);
             CompositeCount++;

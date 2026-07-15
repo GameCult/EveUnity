@@ -461,6 +461,31 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 Assert.That(finalPickupEntityCount, Is.EqualTo(initialPickupEntityCount - 1),
                     "Collected pickup remained in the provider-authored entity generation.");
 
+                targetFact = host.PresentedEntities.CurrentGeneration.Entities
+                    .Single(entity => entity.EntityId == targetEntityId);
+                playerFact = host.PresentedEntities.CurrentGeneration.Entities
+                    .Single(entity => entity.EntityId == playerId);
+                aim = targetFact.Position - playerFact.Position;
+                aim.y = 0;
+                Assert.That(aim.sqrMagnitude, Is.GreaterThan(0.0001f));
+                aim.Normalize();
+                lookVersion = runtime.ActiveVersion;
+                look = runtime.SubmitLookDirectionIntent(playerId, aim.x, 0f, aim.z);
+                lookDeadline = Time.realtimeSinceStartup + 12f;
+                while (Time.realtimeSinceStartup < lookDeadline &&
+                       (runtime.LastReceipt == null || runtime.LastReceipt.CommandId != look.CommandId ||
+                        !string.Equals(runtime.LastReceipt.State, "reconciled", StringComparison.OrdinalIgnoreCase) ||
+                        runtime.ActiveVersion < runtime.LastReceipt.SourceVersion ||
+                        Vector3.Dot(FindMarker(root, playerId).transform.forward, aim) < 0.99f))
+                {
+                    yield return new WaitForSecondsRealtime(0.1f);
+                    runtime.Refresh();
+                }
+                AssertReconciledProviderReceipt(runtime.LastReceipt, look.CommandId,
+                    provider.Selection.ProviderId, provider.Selection.SurfaceId, lookVersion);
+                Assert.That(Vector3.Dot(FindMarker(root, playerId).transform.forward, aim), Is.GreaterThan(0.99f));
+                lookReceipt = WitnessReceipt.From("look", runtime.LastReceipt);
+
                 var focusVersion = runtime.ActiveVersion;
                 var inputDriver = root.GetComponent<EveUnityPlayableWorldInputDriver>() ??
                     root.AddComponent<EveUnityPlayableWorldInputDriver>();
@@ -605,6 +630,8 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(capturePath)));
                 File.WriteAllBytes(capturePath, pixels.EncodeToPNG());
                 Assert.That(new FileInfo(capturePath).Length, Is.GreaterThan(1024));
+                WriteFieldLayerCaptures(root, host.Runtime.ActiveWorld, capturePath);
+                WriteFieldCloudCapture(root, capturePath);
                 MeasureRendererOutputs(
                     camera,
                     target,
@@ -1098,6 +1125,11 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     renderer.enabled = false;
                 camera.clearFlags = CameraClearFlags.SolidColor;
                 camera.backgroundColor = Color.black;
+                camera.Render();
+                RenderTexture.active = target;
+                pixels.ReadPixels(new Rect(0, 0, target.width, target.height), 0, 0);
+                pixels.Apply();
+                var baseline = pixels.GetPixels();
                 for (var index = 0; index < measuredRenderers.Count; index++)
                 {
                     var fact = facts[index];
@@ -1106,9 +1138,10 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     RenderTexture.active = target;
                     pixels.ReadPixels(new Rect(0, 0, target.width, target.height), 0, 0);
                     pixels.Apply();
-                    fact.renderedPixelCount = CountChangedPixels(pixels, Color.black);
-                    MeasureLuminance(
-                        pixels,
+                    MeasureDifference(
+                        pixels.GetPixels(),
+                        baseline,
+                        out fact.renderedPixelCount,
                         out fact.renderedAverageLuminance,
                         out fact.renderedBrightPixelCount);
                     measuredRenderers[index].enabled = false;
@@ -1123,6 +1156,32 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             }
         }
 
+        private static void MeasureDifference(
+            IReadOnlyList<Color> actual,
+            IReadOnlyList<Color> baseline,
+            out int changedPixelCount,
+            out float averageLuminance,
+            out int brightPixelCount)
+        {
+            changedPixelCount = 0;
+            brightPixelCount = 0;
+            double total = 0;
+            var count = Math.Min(actual.Count, baseline.Count);
+            for (var index = 0; index < count; index++)
+            {
+                var delta = new Color(
+                    Mathf.Abs(actual[index].r - baseline[index].r),
+                    Mathf.Abs(actual[index].g - baseline[index].g),
+                    Mathf.Abs(actual[index].b - baseline[index].b));
+                var magnitude = delta.r + delta.g + delta.b;
+                if (magnitude > 0.08f) changedPixelCount++;
+                var luminance = delta.r * 0.2126f + delta.g * 0.7152f + delta.b * 0.0722f;
+                total += luminance;
+                if (luminance >= 0.2f) brightPixelCount++;
+            }
+            averageLuminance = count == 0 ? 0f : (float)(total / count);
+        }
+
         private static int CountChangedPixels(Texture2D texture, Color background)
         {
             var changed = 0;
@@ -1134,6 +1193,59 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     changed++;
             }
             return changed;
+        }
+
+        private static void WriteFieldLayerCaptures(GameObject root, EveUnityPlayableWorldProjection world, string capturePath)
+        {
+            var renderer = root.GetComponent<EveFieldsSplatLayerRenderer>();
+            if (renderer == null || world == null || string.IsNullOrWhiteSpace(capturePath)) return;
+            var directory = Path.GetDirectoryName(Path.GetFullPath(capturePath));
+            foreach (var field in world.FieldVolumes)
+            {
+                if (!field.Props.TryGetValue("layerBindings", out var bindings)) continue;
+                foreach (var pair in (bindings ?? "").Split(';'))
+                {
+                    var separator = pair.IndexOf('=');
+                    if (separator <= 0) continue;
+                    var layerKey = pair.Substring(0, separator).Trim();
+                    if (!renderer.TryGetTexture(layerKey, out var texture) || texture == null) continue;
+                    var previous = RenderTexture.active;
+                    RenderTexture.active = texture;
+                    var copy = new Texture2D(texture.width, texture.height, TextureFormat.RGBA32, false, true);
+                    copy.ReadPixels(new Rect(0, 0, texture.width, texture.height), 0, 0);
+                    copy.Apply();
+                    RenderTexture.active = previous;
+                    File.WriteAllBytes(Path.Combine(directory, $"field-{layerKey}.png"), copy.EncodeToPNG());
+                    UnityEngine.Object.DestroyImmediate(copy);
+
+                    RenderTexture.active = texture;
+                    var floatCopy = new Texture2D(texture.width, texture.height, TextureFormat.RGBAFloat, false, true);
+                    floatCopy.ReadPixels(new Rect(0, 0, texture.width, texture.height), 0, 0);
+                    floatCopy.Apply();
+                    RenderTexture.active = previous;
+                    File.WriteAllBytes(Path.Combine(directory, $"field-{layerKey}.exr"), floatCopy.EncodeToEXR());
+                    UnityEngine.Object.DestroyImmediate(floatCopy);
+                }
+            }
+        }
+
+        private static void WriteFieldCloudCapture(GameObject root, string capturePath)
+        {
+            var renderer = root.GetComponent<EveUnityFieldsVolumeRenderer>();
+            var field = typeof(EveUnityFieldsVolumeRenderer).GetField(
+                "_cloudTexture",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            var texture = field?.GetValue(renderer) as RenderTexture;
+            if (texture == null || string.IsNullOrWhiteSpace(capturePath)) return;
+            var previous = RenderTexture.active;
+            RenderTexture.active = texture;
+            var copy = new Texture2D(texture.width, texture.height, TextureFormat.RGBAFloat, false, true);
+            copy.ReadPixels(new Rect(0, 0, texture.width, texture.height), 0, 0);
+            copy.Apply();
+            RenderTexture.active = previous;
+            var directory = Path.GetDirectoryName(Path.GetFullPath(capturePath));
+            File.WriteAllBytes(Path.Combine(directory, "field-volume-cloud.exr"), copy.EncodeToEXR());
+            UnityEngine.Object.DestroyImmediate(copy);
         }
 
         private static EveUnitySceneProviderSurfaceDocument WorldDocument()

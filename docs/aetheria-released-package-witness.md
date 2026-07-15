@@ -4,9 +4,12 @@
 
 The warm-cache released-package witness passes with:
 
-- `org.gamecult.eve.unity-scene` `0.3.32`, commit
-  `817912a041ac1911e1e27a4b88617754d90ad4b7`;
-- `org.gamecult.eve.surface` `0.2.2`, from the same commit;
+- `org.gamecult.eve.unity-scene` `0.3.37`, commit
+  `5ce654800760203154132d4b0fd1475294283ba6`;
+- `org.gamecult.eve.plugin-fields` `0.2.0`, commit
+  `382a23d8f8a07e4b5eef5f81f84655861a858367`;
+- `org.gamecult.eve.surface` `0.2.2`, commit
+  `140e1bd963a0033e66777a3b2c5fe6e9c97dfe32`;
 - `org.gamecult.eve.unity-uitoolkit` `0.1.1`, commit
   `4d0cbe0185bdc4fc65eb63503a7c5cb578539669`;
 - `org.gamecult.cultlib` `1.0.13`, commit
@@ -14,7 +17,7 @@ The warm-cache released-package witness passes with:
 - the generic `ReleaseConsumerProject` client connected directly to the
   Aetheria daemon.
 
-Evidence is in `artifacts/aetheria-daemon-native-0326-warm`. The PlayMode test
+Evidence is in `artifacts/aetheria-daemon-gravity-fog-warm`. The PlayMode test
 passed and recorded provider-owned reconciled movement, look, targeting,
 tractor press, tractor release, contact-gated cargo collection, and action
 receipts. The daemon-owned look direction reached the SoA body rotation,
@@ -37,6 +40,14 @@ with `display: none` in the pilot presentation. The runnable generic-client
 launcher mounts the same advertised document and forwards its typed commands;
 it contains no Aetheria gameplay or client-authored world light.
 
+The same surface publishes a `field.volume3d` node over four canonical Eve
+Fields splat layers. Its surface contract contains logical ports such as
+`surfaceHeight`, `patch`, and `tint`; it contains no Unity `_Nebula*` property
+names or pass indices. The selected `unity-scene` provider asset variant owns
+that concrete shader ABI through `unity.volume.*` metadata. The released
+generic lowerer resolved the provider shader and dither texture, rasterized all
+four layers, and composited `22` pilot-camera frames from daemon frame `220`.
+
 The two PNGs below are deliberate camera-channel captures, not a composited
 screen capture, so they prove world/map isolation rather than HUD pixels. The
 native cockpit proof is the asserted UI Toolkit visual tree recorded as
@@ -46,11 +57,11 @@ daemon lock progress `1.0`; Unity does not manufacture or smooth that value.
 Camera-channel facts:
 
 - provider-authored player renderers: `13`, including the lowered tractor effect;
-- pilot changed pixels: `230,302`;
-- pilot average luminance: `0.002843`;
-- pilot bright pixels: `1,040`;
+- pilot changed pixels: `230,323`;
+- pilot average luminance: `0.0532403`;
+- pilot bright pixels: `954`;
 - map-channel renderers: `11`;
-- map changed pixels: `3,921`;
+- map changed pixels: `4,115`;
 - native cockpit progress bars: `7`;
 - daemon tractor power at capture: `1.0` after the held input completed its
   authored ramp;
@@ -66,12 +77,12 @@ Camera-channel facts:
 - the map camera renders exactly the advertised map layer.
 
 Visual inspection confirms that map glyphs are absent from the pilot frame and
-present in the map-only frame. Restoring the authored ARPG camera in place of
-the copied TestScene tuning increased hull-renderer pixel coverage by roughly
-four times and bright pilot pixels from `502` to `1,319`. The pilot presentation
-remains dark. Renderer-isolation facts prove that the hull draws under the
-provider-owned light, so the next native-art work is available pre-generated
-provider textures, not a client-side lighting fallback.
+present in the map-only frame. The pilot frame also shows the provider-owned
+gravity-shaped fog basin rather than a client-authored background effect. Its
+current dark, broad shape is transport/lowering proof, not visual-parity proof;
+restoring the fossil's cloud structure, scale, tint range, and scene readability
+remains provider art work. EveUnity must not compensate with Aetheria-specific
+lighting or fog rules.
 Substance is not part of this path; later texture baking belongs in Blender.
 Aetheria currently bundles ambientCG's 1K `Metal012` color, normal, and
 metalness maps under CC0. The same pre-generated maps now replace dead
@@ -112,8 +123,8 @@ Primary artifacts:
 
 ## Cold delivery is not currently proven
 
-The current `46,131,569` byte Unity bundle (SHA-256
-`a4b26fb234ae7d82eda26fb342d7f77a236e3bc1107420175eb1c626785db212`)
+The current `46,413,003` byte Unity bundle (SHA-256
+`229a7833120d9b4fe7e4270f13adc8ce8e553246a99efcbf20bb50d3ca18494d`)
 times out from an empty cache. Its bytes are
 still transported through batched snapshot records rather than the intended
 mapped/network body transport. Increasing the Unity timeout would hide the

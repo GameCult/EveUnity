@@ -17,6 +17,7 @@ drivers, asset-provider hooks, package release, runtime tests, and captures.
 - `gamecult.eve.provider_advertisement.v1`
 - `gamecult.eve.surface.v1`
 - provider asset-manifest documents
+- runtime-selected asset-variant metadata, including native rendering-program bindings
 - provider command receipts
 - semantic render-channel inclusion and exclusion policy
 - Unity input and local presentation assets
@@ -31,15 +32,18 @@ drivers, asset-provider hooks, package release, runtime tests, and captures.
 ## Derived State
 
 `ActiveWorld`, scene objects, transforms, markers, camera pose, native
-render-channel layer mappings, asset caches, presentation counters, and receipt
-display state are projections. They are not world truth.
+render-channel layer mappings, resolved native shader ports/passes, asset caches,
+presentation counters, and receipt display state are projections. They are not
+world truth.
 
 ## Forbidden Writers
 
 Unity transforms, input drivers, camera rigs, scene sinks, asset caches, and
 pending receipts may not mutate or simulate provider world state. Plugin
 projection shells may not implement Sai, Norn, or TeX semantics. Portable
-surfaces may not carry Unity layer numbers or camera culling masks.
+surfaces may not carry Unity layer numbers, camera culling masks, shader property
+names, shader keywords, or native pass indices. Those bindings belong to the
+selected runtime asset variant.
 
 ## Shared Paths
 

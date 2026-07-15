@@ -13,7 +13,8 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$expectedEveUnityCommit = "817912a041ac1911e1e27a4b88617754d90ad4b7"
+$expectedEveUnityCommit = "5ce654800760203154132d4b0fd1475294283ba6"
+$expectedEveFieldsCommit = "382a23d8f8a07e4b5eef5f81f84655861a858367"
 $expectedEveUnityUiToolkitCommit = "4d0cbe0185bdc4fc65eb63503a7c5cb578539669"
 $expectedCultLibCommit = "feb5c71513e71d681699f462fe3682b3168c6f73"
 $repoRoot = Split-Path -Parent $PSScriptRoot
@@ -118,8 +119,27 @@ if (-not $SkipAssetBundleBuild) {
   }
 }
 
+$daemonBuildLogPath = Join-Path $outputRoot "aetheria-daemon-build.log"
+$daemonBuildErrorLogPath = Join-Path $outputRoot "aetheria-daemon-build.error.log"
+$daemonBuildArguments = @(
+  "build", $daemonProject,
+  "-p:CultLibRoot=$CultLibRoot", "-p:EveUnityRoot=$EveUnityRoot", "-p:YmirRoot=$YmirRoot"
+)
+$previousErrorActionPreference = $ErrorActionPreference
+try {
+  $ErrorActionPreference = "Continue"
+  & dotnet @daemonBuildArguments 1> $daemonBuildLogPath 2> $daemonBuildErrorLogPath
+  $daemonBuildExitCode = $LASTEXITCODE
+}
+finally {
+  $ErrorActionPreference = $previousErrorActionPreference
+}
+if ($daemonBuildExitCode -ne 0) {
+  throw "Aetheria daemon prebuild failed with exit code $daemonBuildExitCode. See $daemonBuildErrorLogPath"
+}
+
 $daemonArguments = @(
-  "run", "--project", $daemonProject,
+  "run", "--project", $daemonProject, "--no-build",
   "-p:CultLibRoot=$CultLibRoot", "-p:EveUnityRoot=$EveUnityRoot", "-p:YmirRoot=$YmirRoot",
   "--",
   "--root", $AetheriaRoot,
@@ -204,17 +224,19 @@ try {
   $releaseLock = Get-Content -LiteralPath (Join-Path $repoRoot "ReleaseConsumerProject\Packages\packages-lock.json") -Raw | ConvertFrom-Json
   $releasedPackageClient = $projectRoot -eq "ReleaseConsumerProject"
   $sceneLock = $releaseLock.dependencies.'org.gamecult.eve.unity-scene'
+  $fieldsLock = $releaseLock.dependencies.'org.gamecult.eve.plugin-fields'
   $uiToolkitLock = $releaseLock.dependencies.'org.gamecult.eve.unity-uitoolkit'
   $cultLibLock = $releaseLock.dependencies.'org.gamecult.cultlib'
   if (-not $releasedPackageClient) { throw "Released witness must run ReleaseConsumerProject, got '$projectRoot'." }
-  if ($sceneLock.source -ne "git" -or $uiToolkitLock.source -ne "git" -or $cultLibLock.source -ne "git" -or
-      $sceneLock.version -like "file:*" -or $uiToolkitLock.version -like "file:*" -or $cultLibLock.version -like "file:*") {
+  if ($sceneLock.source -ne "git" -or $fieldsLock.source -ne "git" -or $uiToolkitLock.source -ne "git" -or $cultLibLock.source -ne "git" -or
+      $sceneLock.version -like "file:*" -or $fieldsLock.version -like "file:*" -or $uiToolkitLock.version -like "file:*" -or $cultLibLock.version -like "file:*") {
     throw "Released witness resolved a non-git/local package dependency."
   }
   if ($sceneLock.hash -ne $expectedEveUnityCommit -or
+      $fieldsLock.hash -ne $expectedEveFieldsCommit -or
       $uiToolkitLock.hash -ne $expectedEveUnityUiToolkitCommit -or
       $cultLibLock.hash -ne $expectedCultLibCommit) {
-    throw "Released package commits do not match the witnessed releases. scene=$($sceneLock.hash) uitoolkit=$($uiToolkitLock.hash) cultlib=$($cultLibLock.hash)"
+    throw "Released package commits do not match the witnessed releases. scene=$($sceneLock.hash) fields=$($fieldsLock.hash) uitoolkit=$($uiToolkitLock.hash) cultlib=$($cultLibLock.hash)"
   }
   $finalBodies = @(Get-ChildItem -LiteralPath $assetCachePath -Filter *.body -File -Recurse -ErrorAction SilentlyContinue)
   $finalPartials = @(Get-ChildItem -LiteralPath $assetCachePath -Filter *.partial -File -Recurse -ErrorAction SilentlyContinue)
@@ -234,6 +256,7 @@ try {
   $facts | Add-Member -NotePropertyName releasedPackageClient -NotePropertyValue $releasedPackageClient
   $facts | Add-Member -NotePropertyName clientProject -NotePropertyValue $projectRoot
   $facts | Add-Member -NotePropertyName eveUnityPackageCommit -NotePropertyValue $sceneLock.hash
+  $facts | Add-Member -NotePropertyName eveFieldsPackageCommit -NotePropertyValue $fieldsLock.hash
   $facts | Add-Member -NotePropertyName eveUnityUiToolkitPackageCommit -NotePropertyValue $uiToolkitLock.hash
   $facts | Add-Member -NotePropertyName cultLibPackageCommit -NotePropertyValue $cultLibLock.hash
   $facts | Add-Member -NotePropertyName contentDelivery -NotePropertyValue ([ordered]@{

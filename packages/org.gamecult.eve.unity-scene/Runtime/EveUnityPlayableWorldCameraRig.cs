@@ -71,7 +71,8 @@ namespace GameCult.Eve.UnityScene
             }
             var bounds = CalculateVisualBounds(
                 player,
-                cameraComponent != null ? cameraComponent.cullingMask : -1);
+                cameraComponent != null ? cameraComponent.cullingMask : -1,
+                FindSelectedTarget(resolvedHost));
             var target = bounds?.center ?? player.position;
             var radius = bounds?.extents.magnitude ?? 0f;
             var verticalFov = cameraComponent != null ? cameraComponent.fieldOfView : 60f;
@@ -91,27 +92,45 @@ namespace GameCult.Eve.UnityScene
             return true;
         }
 
-        private static Bounds? CalculateVisualBounds(Transform player, int cullingMask)
+        private static Bounds? CalculateVisualBounds(Transform player, int cullingMask, Transform? selectedTarget)
         {
-            var renderers = player.GetComponentsInChildren<Renderer>(includeInactive: false);
             Bounds? bounds = null;
-            foreach (var visual in renderers)
+            foreach (var root in selectedTarget == null
+                         ? new[] { player }
+                         : new[] { player, selectedTarget! })
             {
-                if (visual == null || !visual.enabled ||
-                    (cullingMask & (1 << visual.gameObject.layer)) == 0)
-                    continue;
-                if (bounds.HasValue)
+                foreach (var visual in root.GetComponentsInChildren<Renderer>(includeInactive: false))
                 {
-                    var combined = bounds.Value;
-                    combined.Encapsulate(visual.bounds);
-                    bounds = combined;
-                }
-                else
-                {
-                    bounds = visual.bounds;
+                    if (visual == null || !visual.enabled ||
+                        (cullingMask & (1 << visual.gameObject.layer)) == 0)
+                        continue;
+                    if (visual is LineRenderer || visual is TrailRenderer ||
+                        string.Equals(visual.GetType().Name, "ParticleSystemRenderer", System.StringComparison.Ordinal))
+                        continue;
+                    if (bounds.HasValue)
+                    {
+                        var combined = bounds.Value;
+                        combined.Encapsulate(visual.bounds);
+                        bounds = combined;
+                    }
+                    else
+                    {
+                        bounds = visual.bounds;
+                    }
                 }
             }
             return bounds;
+        }
+
+        private static Transform? FindSelectedTarget(EveUnityPlayableWorldClientHost host)
+        {
+            var combat = EveUnityCombatPresentation.Find(host.ActiveProjection);
+            if (combat == null || string.IsNullOrWhiteSpace(combat.SelectedTargetEntityId))
+                return null;
+            if (host.PresentedEntities?.CurrentGeneration != null &&
+                host.PresentedEntities.TryGetByEntityId(combat.SelectedTargetEntityId, out var presented))
+                return presented.Transform;
+            return null;
         }
 
         private void LateUpdate()

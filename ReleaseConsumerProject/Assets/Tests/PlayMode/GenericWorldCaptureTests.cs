@@ -190,6 +190,10 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             WitnessReceipt movementReceipt = null;
             WitnessReceipt focusReceipt = null;
             WitnessReceipt actionReceipt = null;
+            EveUnityShotReceipt observedShot = null;
+            EveUnityCombatPresentation observedCombat = null;
+            float shieldRatioBefore = 0f;
+            float hullRatioBefore = 0f;
             long initialVersion = 0;
             float movementDistance = 0f;
 
@@ -231,6 +235,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     provider,
                     provider);
                 host.Connect();
+                host.ShotAvailable += shot => observedShot = shot;
                 runtime = host.Runtime;
                 Assert.That(runtime, Is.Not.Null);
                 Assert.That(runtime.ActiveWorld.PlayerEntityId, Is.Not.Empty);
@@ -248,12 +253,6 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 var playerId = runtime.ActiveWorld.PlayerEntityId;
                 var playerFact = host.PresentedEntities.CurrentGeneration.Entities
                     .Single(entity => entity.EntityId == playerId);
-                var targetEntityId = host.PresentedEntities.CurrentGeneration.Entities
-                    .Where(entity => entity.EntityId != playerId)
-                    .Select(entity => entity.EntityId)
-                    .FirstOrDefault();
-                Assert.That(targetEntityId, Is.Not.Null.And.Not.Empty,
-                    "The advertised live generation has no explicit targeting candidate.");
                 var playerPrefab = provider.ResolvePrefab(new EveUnityPlayableWorldAssetBinding(
                     playerFact.AssetRef,
                     playerFact.EntityKind,
@@ -292,13 +291,27 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 Assert.That(movementDistance, Is.GreaterThan(0.01f));
                 movementReceipt = WitnessReceipt.From("movement", runtime.LastReceipt);
 
+                var releaseVersion = runtime.ActiveVersion;
+                var release = runtime.SubmitMoveVectorIntent(playerId, 0f, 0f, 0f);
+                var releaseDeadline = Time.realtimeSinceStartup + 12f;
+                while (Time.realtimeSinceStartup < releaseDeadline &&
+                       (runtime.LastReceipt == null || runtime.LastReceipt.CommandId != release.CommandId ||
+                        !string.Equals(runtime.LastReceipt.State, "reconciled", StringComparison.OrdinalIgnoreCase)))
+                {
+                    yield return new WaitForSecondsRealtime(0.1f);
+                    runtime.Refresh();
+                }
+                AssertReconciledProviderReceipt(runtime.LastReceipt, release.CommandId,
+                    provider.Selection.ProviderId, provider.Selection.SurfaceId, releaseVersion);
+
                 var movementVersion = runtime.ActiveVersion;
-                var focus = runtime.SubmitTargetIntent(playerId, targetEntityId);
+                var focus = runtime.SubmitFocusIntent(playerId);
                 var focusDeadline = Time.realtimeSinceStartup + 12f;
                 while (Time.realtimeSinceStartup < focusDeadline &&
                        (runtime.LastReceipt == null || runtime.LastReceipt.CommandId != focus.CommandId ||
                         !string.Equals(runtime.LastReceipt.State, "reconciled", StringComparison.OrdinalIgnoreCase) ||
-                        runtime.ActiveVersion < runtime.LastReceipt.SourceVersion))
+                        runtime.ActiveVersion < runtime.LastReceipt.SourceVersion ||
+                        string.IsNullOrWhiteSpace(EveUnityCombatPresentation.Find(runtime.ActiveProjection)?.SelectedTargetEntityId)))
                 {
                     yield return new WaitForSecondsRealtime(0.1f);
                     runtime.Refresh();
@@ -311,12 +324,49 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     movementVersion);
                 Assert.That(runtime.ActiveVersion, Is.GreaterThanOrEqualTo(runtime.LastReceipt.SourceVersion));
                 focusReceipt = WitnessReceipt.From("targeting", runtime.LastReceipt);
+                observedCombat = EveUnityCombatPresentation.Find(runtime.ActiveProjection);
+                Assert.That(observedCombat, Is.Not.Null);
+                Assert.That(observedCombat.TargetVisible, Is.True);
+                Assert.That(observedCombat.TargetHostile, Is.True);
+                var targetEntityId = observedCombat.SelectedTargetEntityId;
+                var targetEntityIndex = observedCombat.SelectedTargetEntityIndex;
+                Assert.That(targetEntityId, Is.Not.Empty);
+                Assert.That(host.PresentedEntities.CurrentGeneration.Entities.Any(entity => entity.EntityId == targetEntityId), Is.True,
+                    "The provider-selected combat target is absent from the advertised SoA generation.");
+                shieldRatioBefore = observedCombat.ShieldRatio;
+                hullRatioBefore = observedCombat.HullRatio;
+
+                var targetFact = host.PresentedEntities.CurrentGeneration.Entities
+                    .Single(entity => entity.EntityId == targetEntityId);
+                playerFact = host.PresentedEntities.CurrentGeneration.Entities
+                    .Single(entity => entity.EntityId == playerId);
+                var aim = targetFact.Position - playerFact.Position;
+                aim.y = 0;
+                Assert.That(aim.sqrMagnitude, Is.GreaterThan(0.0001f));
+                aim.Normalize();
+                var steerVersion = runtime.ActiveVersion;
+                var steer = runtime.SubmitMoveVectorIntent(playerId, aim.x, aim.z, 0.25f);
+                var steerDeadline = Time.realtimeSinceStartup + 12f;
+                while (Time.realtimeSinceStartup < steerDeadline &&
+                       (runtime.LastReceipt == null || runtime.LastReceipt.CommandId != steer.CommandId ||
+                        !string.Equals(runtime.LastReceipt.State, "reconciled", StringComparison.OrdinalIgnoreCase)))
+                {
+                    yield return new WaitForSecondsRealtime(0.1f);
+                    runtime.Refresh();
+                }
+                AssertReconciledProviderReceipt(runtime.LastReceipt, steer.CommandId,
+                    provider.Selection.ProviderId, provider.Selection.SurfaceId, steerVersion);
 
                 var focusVersion = runtime.ActiveVersion;
-                var action = runtime.SubmitActionIntent(playerId, "0");
+                var inputDriver = root.GetComponent<EveUnityPlayableWorldInputDriver>() ??
+                    root.AddComponent<EveUnityPlayableWorldInputDriver>();
+                inputDriver.Host = host;
+                var action = inputDriver.SubmitPrimaryAction();
+                Assert.That(action, Is.Not.Null,
+                    "The advertised input capability did not bind a primary action for this generic client.");
                 var actionDeadline = Time.realtimeSinceStartup + 12f;
                 while (Time.realtimeSinceStartup < actionDeadline &&
-                       (runtime.LastReceipt == null || runtime.LastReceipt.CommandId != action.CommandId ||
+                        (runtime.LastReceipt == null || runtime.LastReceipt.CommandId != action!.CommandId ||
                         !string.Equals(runtime.LastReceipt.State, "reconciled", StringComparison.OrdinalIgnoreCase) ||
                         runtime.ActiveVersion < runtime.LastReceipt.SourceVersion))
                 {
@@ -325,12 +375,37 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 }
                 AssertReconciledProviderReceipt(
                     runtime.LastReceipt,
-                    action.CommandId,
+                    action!.CommandId,
                     provider.Selection.ProviderId,
                     provider.Selection.SurfaceId,
                     focusVersion);
                 Assert.That(runtime.ActiveVersion, Is.GreaterThanOrEqualTo(runtime.LastReceipt.SourceVersion));
                 actionReceipt = WitnessReceipt.From("action", runtime.LastReceipt);
+
+                var shotDeadline = Time.realtimeSinceStartup + 15f;
+                while (Time.realtimeSinceStartup < shotDeadline && observedShot == null)
+                {
+                    yield return new WaitForSecondsRealtime(0.05f);
+                    runtime.Refresh();
+                }
+                Assert.That(observedShot, Is.Not.Null,
+                    "A reconciled fire request never reached daemon-owned lock acquisition and shot resolution.");
+                observedCombat = EveUnityCombatPresentation.Find(runtime.ActiveProjection);
+                Assert.That(observedShot.TargetEntityIndex, Is.EqualTo(targetEntityIndex));
+                Assert.That(observedShot.LockQuality, Is.GreaterThan(0.99));
+                var trajectories = root.GetComponent<EveUnityShotTrajectoryRenderer>();
+                var combatRenderer = root.GetComponent<EveUnityCombatPresentationRenderer>();
+                Assert.That(trajectories, Is.Not.Null);
+                Assert.That(trajectories.ActiveTrajectoryCount, Is.GreaterThan(0));
+                Assert.That(combatRenderer, Is.Not.Null);
+                combatRenderer.RefreshNow();
+                if (observedCombat != null && !string.IsNullOrWhiteSpace(observedCombat.SelectedTargetEntityId))
+                {
+                    Assert.That(combatRenderer.ReticleVisible, Is.True);
+                    Assert.That(combatRenderer.LockVisible, Is.True);
+                }
+                if (observedShot.Hit && (observedShot.AppliedDamage > 0 || observedShot.ShieldAbsorbedDamage > 0))
+                    Assert.That(combatRenderer.HitMarkerVisible, Is.True);
 
                 var light = lightObject.AddComponent<Light>();
                 light.type = LightType.Directional;
@@ -340,17 +415,6 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 camera.clearFlags = CameraClearFlags.SolidColor;
                 camera.backgroundColor = new Color(0.035f, 0.055f, 0.08f, 1f);
                 camera.cullingMask = -1;
-                foreach (var entityMarker in root.GetComponentsInChildren<EveUnityPlayableWorldEntityMarker>())
-                {
-                    foreach (var renderer in entityMarker.GetComponentsInChildren<Renderer>())
-                    {
-                        renderer.material.color = entityMarker.Controllable
-                            ? new Color(0.18f, 0.75f, 1f)
-                            : entityMarker.EntityKind == "enemy"
-                                ? new Color(1f, 0.25f, 0.2f)
-                                : new Color(1f, 0.78f, 0.15f);
-                    }
-                }
                 var playerMarker = FindMarker(root, playerId);
                 var playerRenderers = playerMarker.GetComponentsInChildren<Renderer>();
                 Assert.That(playerRenderers, Is.Not.Empty, "The provider-authored player prefab has no renderable visual.");
@@ -387,6 +451,9 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 File.WriteAllBytes(capturePath, pixels.EncodeToPNG());
                 Assert.That(new FileInfo(capturePath).Length, Is.GreaterThan(1024));
 
+                mapRenderers = mapRenderers.Where(renderer => renderer != null).ToList();
+                Assert.That(mapRenderers, Is.Not.Empty,
+                    "All advertised map-channel renderers were destroyed before map capture.");
                 var mapBounds = mapRenderers[0].bounds;
                 foreach (var renderer in mapRenderers)
                     mapBounds.Encapsulate(renderer.bounds);
@@ -420,7 +487,13 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     (mapCamera.cullingMask & (1 << mapLayer)) != 0,
                     movementReceipt,
                     focusReceipt,
-                    actionReceipt);
+                    actionReceipt,
+                    observedShot,
+                    shieldRatioBefore,
+                    observedCombat?.ShieldRatio ?? shieldRatioBefore,
+                    hullRatioBefore,
+                    observedCombat?.HullRatio ?? hullRatioBefore,
+                    (float)observedShot.LockQuality);
             }
             finally
             {
@@ -451,7 +524,13 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             bool mapCameraIncludesMapChannel,
             WitnessReceipt movement,
             WitnessReceipt targeting,
-            WitnessReceipt action)
+            WitnessReceipt action,
+            EveUnityShotReceipt shot,
+            float shieldRatioBefore,
+            float shieldRatioAfter,
+            float hullRatioBefore,
+            float hullRatioAfter,
+            float lockProgress)
         {
             var path = Environment.GetEnvironmentVariable("EVEUNITY_WITNESS_FACTS_PATH");
             if (string.IsNullOrWhiteSpace(path)) return;
@@ -462,6 +541,17 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 movement = movement != null,
                 targeting = targeting != null,
                 action = action != null,
+                combatPresentation = shot != null,
+                shotId = shot?.ShotId ?? "",
+                shotHit = shot?.Hit ?? false,
+                impactKind = shot?.ImpactKind ?? "",
+                appliedDamage = (float)(shot?.AppliedDamage ?? 0),
+                shieldAbsorbedDamage = (float)(shot?.ShieldAbsorbedDamage ?? 0),
+                shieldRatioBefore = shieldRatioBefore,
+                shieldRatioAfter = shieldRatioAfter,
+                hullRatioBefore = hullRatioBefore,
+                hullRatioAfter = hullRatioAfter,
+                lockProgress = lockProgress,
                 initialVersion = initialVersion,
                 finalVersion = finalVersion,
                 movementDistance = movementDistance,
@@ -485,6 +575,17 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             public bool movement;
             public bool targeting;
             public bool action;
+            public bool combatPresentation;
+            public string shotId;
+            public bool shotHit;
+            public string impactKind;
+            public float appliedDamage;
+            public float shieldAbsorbedDamage;
+            public float shieldRatioBefore;
+            public float shieldRatioAfter;
+            public float hullRatioBefore;
+            public float hullRatioAfter;
+            public float lockProgress;
             public long initialVersion;
             public long finalVersion;
             public float movementDistance;

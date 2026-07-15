@@ -25,6 +25,7 @@ namespace GameCult.Eve.UnityScene
         {
             typeof(EveProviderAdvertisementDocument),
             typeof(EveSurfaceDocument),
+            typeof(EveInputCapabilityDocument),
             typeof(EveSurfaceCommandRequest),
             typeof(EveCommandReceiptDocument),
             typeof(EveAssetCatalogDocument),
@@ -86,6 +87,7 @@ namespace GameCult.Eve.UnityScene
             _bodyResolver = bodyResolver;
             CurrentSurfaceDocument = EmptySurfaceDocument();
             CurrentAssetManifestDocument = EmptyAssetManifest();
+            CurrentInputCapability = new EveInputCapabilityDocument();
         }
 
         public string TransportKind => "eve-cultmesh-remote-replica";
@@ -97,6 +99,8 @@ namespace GameCult.Eve.UnityScene
         public EveUnitySceneProviderSurfaceDocument CurrentSurfaceDocument { get; private set; }
 
         public EveUnityPlayableWorldAssetManifestDocument CurrentAssetManifestDocument { get; private set; }
+
+        public EveInputCapabilityDocument CurrentInputCapability { get; private set; }
 
         public event Action<EveUnitySceneProviderSurfaceDocument>? SurfaceDocumentAvailable;
 
@@ -132,7 +136,39 @@ namespace GameCult.Eve.UnityScene
             EnsureOpen();
             ResolveAdvertisement(forceRefresh: true);
             RefreshSurface();
+            RefreshInputCapability();
             RefreshAssetCatalog();
+        }
+
+        private void RefreshInputCapability()
+        {
+            var recordRef = FindComponentProp(
+                CurrentSurfaceDocument.SurfaceDocument.Surface.Root,
+                "inputCapability");
+            if (string.IsNullOrWhiteSpace(recordRef))
+                throw new InvalidOperationException("The advertised playable world does not publish an input capability record.");
+            CurrentInputCapability = _snapshot!
+                .FetchDocumentsAsync<EveInputCapabilityDocument>(
+                    recordKeys: new[] { recordRef },
+                    schemaIds: new[] { EveInputCapabilityDocument.SchemaId })
+                .GetAwaiter()
+                .GetResult()
+                .FirstOrDefault()
+                ?? throw new InvalidOperationException($"The advertised input capability '{recordRef}' was not available.");
+        }
+
+        private static string FindComponentProp(EveSurfaceComponent component, string key)
+        {
+            var value = component.GetProp(key);
+            if (!string.IsNullOrWhiteSpace(value))
+                return value;
+            foreach (var child in component.Children)
+            {
+                value = FindComponentProp(child, key);
+                if (!string.IsNullOrWhiteSpace(value))
+                    return value;
+            }
+            return "";
         }
 
         public void PumpLiveEvents()

@@ -18,7 +18,8 @@ namespace GameCult.Eve.UnityScene
         IEveUnityProviderRefreshSource,
         IEveUnityEntitySoaViewDocumentSource,
         IEveUnityCameraRenderPolicySource,
-        IEveUnityNativeAssetProvider
+        IEveUnityNativeAssetProvider,
+        IEveUnityInputCapabilitySource
     {
         [SerializeField] private string rendezvousEndpoint = "";
         [SerializeField] private string providerFilter = "";
@@ -39,6 +40,15 @@ namespace GameCult.Eve.UnityScene
         public string SinkKind => Bridge.SinkKind;
 
         public EveUnitySceneProviderSurfaceDocument CurrentDocument => Bridge.CurrentSurfaceDocument;
+
+        public EveInputCapabilityDocument CurrentInputCapability
+        {
+            get
+            {
+                EnsureTransport();
+                return _transport!.CurrentInputCapability;
+            }
+        }
 
         public event Action<EveUnitySceneProviderSurfaceDocument>? DocumentAvailable
         {

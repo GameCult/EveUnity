@@ -114,6 +114,8 @@
                                                            "packages/org.gamecult.eve.unity-scene/Runtime/EveUnityFeedbackPresenter.cs",
                                                            "packages/org.gamecult.eve.unity-scene/Runtime/EveUnityShotReceiptPresenter.cs",
                                                            "packages/org.gamecult.eve.unity-scene/Runtime/EveUnityShotTrajectoryRenderer.cs",
+                                                           "packages/org.gamecult.eve.unity-scene/Runtime/EveUnityCombatPresentation.cs",
+                                                           "packages/org.gamecult.eve.unity-scene/Runtime/EveUnityCombatPresentationRenderer.cs",
                                                            "packages/org.gamecult.eve.unity-scene/Runtime/EveUnityProviderRefreshSource.cs",
                                                            "packages/org.gamecult.eve.unity-scene/Runtime/EveUnityPlayableWorldPresenter.cs",
                                                            "packages/org.gamecult.eve.unity-scene/Runtime/EveUnityGameObjectPlayableWorldSceneSink.cs",
@@ -121,7 +123,8 @@
                                                            "packages/org.gamecult.eve.unity-scene/Runtime/SaiVisualNovelUnitySceneProjectionAdapter.cs",
                                                            "packages/org.gamecult.eve.unity-scene/Runtime/NornGraphUnitySceneProjectionAdapter.cs",
                                                            "packages/org.gamecult.eve.unity-scene/Runtime/TeXMathUnitySceneProjectionAdapter.cs",
-                                                           "packages/org.gamecult.eve.unity-scene/Tests/Editor/EveUnitySceneSurfaceLowererTests.cs"
+                                                           "packages/org.gamecult.eve.unity-scene/Tests/Editor/EveUnitySceneSurfaceLowererTests.cs",
+                                                           "packages/org.gamecult.eve.unity-scene/Tests/Editor/EveUnityCombatPresentationTests.cs"
                                                        ]
                                  }
                              ],

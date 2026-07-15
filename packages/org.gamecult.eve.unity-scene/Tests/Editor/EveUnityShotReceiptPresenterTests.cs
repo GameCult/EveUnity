@@ -34,6 +34,8 @@ namespace GameCult.Eve.UnityScene.Tests
             Assert.That(emitted[0].ItemKey, Is.EqualTo("test-cannon"));
             Assert.That(emitted[0].ImpactKind, Is.EqualTo("shield"));
             Assert.That(emitted[0].PresentationIntensity, Is.EqualTo(9));
+            Assert.That(emitted[0].AppliedDamage, Is.EqualTo(12));
+            Assert.That(emitted[0].ShieldAbsorbedDamage, Is.EqualTo(8));
             Assert.That(presenter.Apply(next), Is.Zero);
         }
 
@@ -69,7 +71,9 @@ namespace GameCult.Eve.UnityScene.Tests
                     ["presentationKind"] = "test-laser",
                     ["itemKey"] = "test-cannon",
                     ["impactKind"] = "shield",
-                    ["presentationIntensity"] = "9"
+                    ["presentationIntensity"] = "9",
+                    ["appliedDamage"] = "12",
+                    ["shieldAbsorbedDamage"] = "8"
                 }, Empty(), Empty(), 0, 0, Array.Empty<EveUnitySceneEmbeddedDocumentSlot>(), null,
                 Array.Empty<EveUnitySceneNode>());
 

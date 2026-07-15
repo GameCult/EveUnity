@@ -3,6 +3,7 @@ param(
   [string] $AetheriaRoot = "E:\Projects\Aetheria",
   [string] $CultLibRoot = "E:\Projects\CultLib",
   [string] $EveUnityRoot = "E:\Projects\EveUnity",
+  [string] $YmirRoot = "E:\Projects\Ymir",
   [string] $ClientProject = "ReleaseConsumerProject",
   [int] $Port = 3076,
   [string] $OutputDirectory = "artifacts\aetheria-daemon",
@@ -31,7 +32,7 @@ $statePath = Join-Path $outputRoot "aetheria-witness-state.cc"
 $daemonProject = Join-Path $AetheriaRoot "Aetheria.State.Daemon\Aetheria.State.Daemon.csproj"
 $importProject = Join-Path $AetheriaRoot "Aetheria.State.Import\Aetheria.State.Import.csproj"
 
-foreach ($required in @($UnityExe, (Join-Path $repoRoot $projectRoot), $daemonProject, $importProject)) {
+foreach ($required in @($UnityExe, (Join-Path $repoRoot $projectRoot), $daemonProject, $importProject, (Join-Path $YmirRoot "src\Ymir.Core\Ymir.Core.csproj"))) {
   if (-not (Test-Path -LiteralPath $required)) { throw "Required world witness path not found: $required" }
 }
 $canonicalWitnessTest = Join-Path $repoRoot "TestProject\Assets\Tests\PlayMode\GenericWorldCaptureTests.cs"
@@ -76,7 +77,7 @@ foreach ($ephemeralPath in @(
 
 $importArguments = @(
   "run", "--project", $importProject,
-  "-p:CultLibRoot=$CultLibRoot", "-p:EveUnityRoot=$EveUnityRoot",
+  "-p:CultLibRoot=$CultLibRoot", "-p:EveUnityRoot=$EveUnityRoot", "-p:YmirRoot=$YmirRoot",
   "--", $AetheriaRoot, $statePath
 )
 $importLogPath = Join-Path $outputRoot "aetheria-import.log"
@@ -114,7 +115,7 @@ if (-not $SkipAssetBundleBuild) {
 
 $daemonArguments = @(
   "run", "--project", $daemonProject,
-  "-p:CultLibRoot=$CultLibRoot", "-p:EveUnityRoot=$EveUnityRoot",
+  "-p:CultLibRoot=$CultLibRoot", "-p:EveUnityRoot=$EveUnityRoot", "-p:YmirRoot=$YmirRoot",
   "--",
   "--root", $AetheriaRoot,
   "--state", $statePath,
@@ -135,13 +136,13 @@ Write-Host "Poll: Select-String -Path '$daemonLogPath' -Pattern 'Aetheria client
 
 try {
   $ready = $false
-  for ($attempt = 0; $attempt -lt 60; $attempt++) {
+  for ($attempt = 0; $attempt -lt 240; $attempt++) {
     if ($daemon.HasExited) { throw "Aetheria daemon exited before publishing CultMesh. See $daemonLogPath" }
     if ((Test-Path $daemonLogPath) -and
         (Select-String -Path $daemonLogPath -Pattern "Aetheria client CultMesh endpoint: rudp://127.0.0.1:$Port" -Quiet)) { $ready = $true; break }
     Start-Sleep -Milliseconds 500
   }
-  if (-not $ready) { throw "Aetheria daemon did not open CultMesh port $Port. See $daemonLogPath" }
+  if (-not $ready) { throw "Aetheria daemon did not open CultMesh port $Port within 120 seconds. See $daemonLogPath" }
 
   $env:EVEUNITY_RENDEZVOUS_ENDPOINT = "rudp://127.0.0.1:$Port"
   $env:EVEUNITY_PROVIDER_ID = "aetheria"
@@ -177,6 +178,10 @@ try {
     }
   }
   $facts = Get-Content -LiteralPath $factsPath -Raw | ConvertFrom-Json
+  if (-not $facts.combatPresentation -or [string]::IsNullOrWhiteSpace($facts.shotId) -or
+      [double]$facts.lockProgress -le 0.99) {
+    throw "Live witness did not observe daemon-owned selection, completed lock, and a resolved shot."
+  }
   $releaseLock = Get-Content -LiteralPath (Join-Path $repoRoot "ReleaseConsumerProject\Packages\packages-lock.json") -Raw | ConvertFrom-Json
   $releasedPackageClient = $projectRoot -eq "ReleaseConsumerProject"
   $sceneLock = $releaseLock.dependencies.'org.gamecult.eve.unity-scene'
@@ -265,7 +270,7 @@ try {
         sizeBytes = $resultsArtifact.Length
       }
     )
-    authority = "released-generic-runtime-observes-provider-advertisement-assets-command-receipts-and-republished-surface-versions"
+    authority = "released-generic-runtime-observes-provider-assets-authoritative-combat-receipts-and-camera-channel-separation"
   }
   $witness | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $witnessPath -Encoding UTF8
   $stateWitnessPath = Join-Path $outputRoot "runtime-witness.$observedCacheState.json"

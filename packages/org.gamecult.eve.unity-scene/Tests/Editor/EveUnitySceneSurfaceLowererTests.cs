@@ -979,6 +979,48 @@ namespace GameCult.Eve.UnityScene.Tests
         }
 
         [Test]
+        public void PlayableWorldInputDriverUsesAdvertisedPrimaryBinding()
+        {
+            var capability = new EveInputCapabilityDocument
+            {
+                Actions = new[]
+                {
+                    new EveInputActionDocument
+                    {
+                        ActionId = "weapon-group.0.fire",
+                        Availability = "available"
+                    }
+                },
+                DefaultProfiles = new[]
+                {
+                    new EveInputProfileDocument
+                    {
+                        ProfileId = "keyboard-mouse",
+                        DeviceClass = "keyboard-mouse",
+                        Bindings = new[]
+                        {
+                            new EveInputBindingDocument
+                            {
+                                ActionId = "weapon-group.0.fire",
+                                Gesture = new EveInputGestureDocument
+                                {
+                                    Controls = new[] { "mouse.primary" }
+                                },
+                                ActionBar = true
+                            }
+                        }
+                    }
+                }
+            };
+
+            Assert.That(
+                EveUnityPlayableWorldInputDriver.ResolvePrimaryActionId(capability),
+                Is.EqualTo("weapon-group.0.fire"));
+            capability.Actions[0].Availability = "unavailable";
+            Assert.That(EveUnityPlayableWorldInputDriver.ResolvePrimaryActionId(capability), Is.Empty);
+        }
+
+        [Test]
         public void PlayableWorldCameraRigFollowsAdvertisedPlayerEntityWithoutProviderTypes()
         {
             var rootObject = new GameObject("generic-eve-world-root");

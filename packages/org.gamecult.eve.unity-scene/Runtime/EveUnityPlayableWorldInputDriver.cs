@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using GameCult.Eve.Surface;
 using UnityEngine;
 
@@ -6,6 +7,11 @@ using UnityEngine;
 
 namespace GameCult.Eve.UnityScene
 {
+    public interface IEveUnityInputCapabilitySource
+    {
+        EveInputCapabilityDocument CurrentInputCapability { get; }
+    }
+
     public sealed class EveUnityPlayableWorldInputDriver : MonoBehaviour
     {
         [SerializeField] private EveUnityPlayableWorldClientHost? host;
@@ -71,15 +77,41 @@ namespace GameCult.Eve.UnityScene
                 issuedAt);
         }
 
-        public EveSurfaceCommandRequest? SubmitPrimaryAction(string actionId = "primary")
+        public EveSurfaceCommandRequest? SubmitPrimaryAction(string actionId = "")
         {
             var resolvedHost = ResolveHost();
             if (resolvedHost?.ActiveWorld == null)
                 return null;
 
+            var resolvedActionId = string.IsNullOrWhiteSpace(actionId)
+                ? ResolvePrimaryActionId(resolvedHost.InputCapability)
+                : actionId;
+            if (string.IsNullOrWhiteSpace(resolvedActionId))
+                return null;
+
             return resolvedHost.SubmitActionIntent(
                 resolvedHost.ActiveWorld.PlayerEntityId,
-                string.IsNullOrWhiteSpace(actionId) ? "primary" : actionId);
+                resolvedActionId);
+        }
+
+        public static string ResolvePrimaryActionId(EveInputCapabilityDocument? capability)
+        {
+            if (capability == null)
+                return "";
+            var profile = (capability.DefaultProfiles ?? Array.Empty<EveInputProfileDocument>())
+                .FirstOrDefault(value => string.Equals(value.DeviceClass, "keyboard-mouse", StringComparison.Ordinal))
+                ?? (capability.DefaultProfiles ?? Array.Empty<EveInputProfileDocument>()).FirstOrDefault();
+            var binding = (profile?.Bindings ?? Array.Empty<EveInputBindingDocument>())
+                .FirstOrDefault(value => (value.Gesture?.Controls ?? Array.Empty<string>())
+                    .Any(control => string.Equals(control, "mouse.primary", StringComparison.Ordinal)))
+                ?? (profile?.Bindings ?? Array.Empty<EveInputBindingDocument>()).FirstOrDefault(value => value.ActionBar);
+            if (binding == null)
+                return "";
+            var action = (capability.Actions ?? Array.Empty<EveInputActionDocument>())
+                .FirstOrDefault(value => string.Equals(value.ActionId, binding.ActionId, StringComparison.Ordinal));
+            return action != null && string.Equals(action.Availability, "available", StringComparison.OrdinalIgnoreCase)
+                ? action.ActionId
+                : "";
         }
 
         private void Update()
@@ -91,7 +123,7 @@ namespace GameCult.Eve.UnityScene
             SubmitMoveVectorInput(Input.GetAxisRaw(horizontalAxis), Input.GetAxisRaw(verticalAxis));
 
             if (!string.IsNullOrWhiteSpace(actionButton) && Input.GetButtonDown(actionButton))
-                SubmitPrimaryAction(actionButton);
+                SubmitPrimaryAction();
         }
 
         private EveUnityPlayableWorldClientHost? ResolveHost()

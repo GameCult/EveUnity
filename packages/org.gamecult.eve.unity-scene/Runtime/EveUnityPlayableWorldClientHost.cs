@@ -33,6 +33,9 @@ namespace GameCult.Eve.UnityScene
         public EveUnitySceneCommandReceipt? LastReceipt => Runtime?.LastReceipt;
         public IEveUnityPresentedEntityRegistry? PresentedEntities => Runtime?.PresentedEntities;
 
+        public EveInputCapabilityDocument? InputCapability =>
+            (providerSurfaceDocuments as IEveUnityInputCapabilitySource)?.CurrentInputCapability;
+
         public long ActiveVersion => Runtime?.ActiveVersion ?? 0;
 
         public event Action<EveUnityFeedbackEvent>? FeedbackAvailable;
@@ -89,6 +92,9 @@ namespace GameCult.Eve.UnityScene
             var feedbackEffects = GetComponent<EveUnityFeedbackEffectRenderer>();
             if (feedbackEffects == null) feedbackEffects = gameObject.AddComponent<EveUnityFeedbackEffectRenderer>();
             feedbackEffects.Bind(this, Runtime.GameObjectAssetProvider);
+            var combatPresentation = GetComponent<EveUnityCombatPresentationRenderer>();
+            if (combatPresentation == null) combatPresentation = gameObject.AddComponent<EveUnityCombatPresentationRenderer>();
+            combatPresentation.Bind(this);
             var thermal = GetComponent<EveUnityThermalPresenter>();
             var thermalHud = GetComponent<EveUnityThermalHudSink>();
             if (thermalHud == null) thermalHud = gameObject.AddComponent<EveUnityThermalHudSink>();

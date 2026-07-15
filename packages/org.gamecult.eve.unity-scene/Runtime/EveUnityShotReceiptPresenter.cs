@@ -38,6 +38,9 @@ namespace GameCult.Eve.UnityScene
             ItemKey = Get(node, "itemKey");
             ImpactKind = Get(node, "impactKind");
             PresentationIntensity = Math.Max(0, Double(node, "presentationIntensity", 1));
+            AppliedDamage = Math.Max(0, Double(node, "appliedDamage", 0));
+            ShieldAbsorbedDamage = Math.Max(0, Double(node, "shieldAbsorbedDamage", 0));
+            LockQuality = Math.Max(0, Math.Min(1, Double(node, "lockQuality", 0)));
         }
 
         public string ShotId { get; }
@@ -54,6 +57,9 @@ namespace GameCult.Eve.UnityScene
         public string ItemKey { get; }
         public string ImpactKind { get; }
         public double PresentationIntensity { get; }
+        public double AppliedDamage { get; }
+        public double ShieldAbsorbedDamage { get; }
+        public double LockQuality { get; }
 
         private static string Get(EveUnitySceneNode node, string key) =>
             node.Props.TryGetValue(key, out var value) ? value ?? "" : "";

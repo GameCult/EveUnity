@@ -35,6 +35,14 @@ Retained provider feedback is lowered without becoming Unity authority.
 The generic `EveUnityShotTrajectoryRenderer` renders provider-authored origin,
 endpoint, duration, and hit outcome, then expires the visual locally. It never
 uses Unity collision to infer damage or report a hit back to the provider.
+Providers may publish a non-spatial `combat.presentation` component beside the
+SoA body view. `EveUnityCombatPresentationRenderer` lowers its selected target,
+contact visibility, lock progress, meter ratios, semantic roles, and timing
+into reticle, lock, shield/hull, and hit-marker visuals. Hit markers require a
+new deduplicated shot receipt from the advertised controlled source to the
+advertised selection with authoritative applied or shield-absorbed damage.
+SoA remains the only transform authority; the presentation component never
+duplicates bodies or computes combat outcomes.
 The reusable `LightningCompute` renderer and its shader/material bundle live in
 this runtime package with their original Unity GUIDs. Provider asset bundles may
 therefore reference the effect without importing Aetheria gameplay code.

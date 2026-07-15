@@ -184,7 +184,11 @@ namespace GameCult.Eve.UnityScene
         {
             foreach (var instance in _instances.Values)
                 if (instance != null)
+                {
+                    instance.transform.SetParent(null, false);
+                    instance.SetActive(false);
                     DestroyInstance(instance);
+                }
             _instances.Clear();
             _presentedById = new Dictionary<string, EveUnityPresentedEntityHandle>(StringComparer.Ordinal);
             _presentedByIndex = new Dictionary<int, EveUnityPresentedEntityHandle>();

@@ -139,7 +139,10 @@ namespace GameCult.Eve.UnityScene
                 ParseFloat(worldRoot.GetProp("cameraFarClipPlane"), 0f),
                 worldRoot.GetProp("lookCommand"),
                 ParseFloat(worldRoot.GetProp("lookSensitivityRadians"), 0f),
-                worldRoot.GetProp("lookModel"));
+                worldRoot.GetProp("lookModel"),
+                worldRoot.GetProp("skyboxAssetRef"),
+                worldRoot.GetProp("reflectionAssetRef"),
+                ParseFloat(worldRoot.GetProp("reflectionIntensity"), 1f));
         }
 
         private static EveUnityPlayableWorldEntity BuildPlayableEntity(EveSurfaceComponent component)
@@ -363,7 +366,10 @@ namespace GameCult.Eve.UnityScene
             float cameraFarClipPlane = 0f,
             string lookCommand = "",
             float lookSensitivityRadians = 0f,
-            string lookModel = "")
+            string lookModel = "",
+            string skyboxAssetRef = "",
+            string reflectionAssetRef = "",
+            float reflectionIntensity = 1f)
         {
             WorldRootId = worldRootId ?? "";
             StatePointerId = statePointerId ?? "";
@@ -397,6 +403,9 @@ namespace GameCult.Eve.UnityScene
             LookCommand = lookCommand ?? "";
             LookSensitivityRadians = lookSensitivityRadians;
             LookModel = lookModel ?? "";
+            SkyboxAssetRef = skyboxAssetRef ?? "";
+            ReflectionAssetRef = reflectionAssetRef ?? "";
+            ReflectionIntensity = reflectionIntensity;
         }
 
         public string WorldRootId { get; }
@@ -452,6 +461,12 @@ namespace GameCult.Eve.UnityScene
         public float LookSensitivityRadians { get; }
 
         public string LookModel { get; }
+
+        public string SkyboxAssetRef { get; }
+
+        public string ReflectionAssetRef { get; }
+
+        public float ReflectionIntensity { get; }
 
         public string FocusCommand { get; }
 

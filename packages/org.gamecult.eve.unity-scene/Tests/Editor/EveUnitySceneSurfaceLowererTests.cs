@@ -7,6 +7,7 @@ using GameCult.Eve.Surface;
 using GameCult.Mesh;
 using NUnit.Framework;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 #nullable enable
 
@@ -410,7 +411,10 @@ namespace GameCult.Eve.UnityScene.Tests
             Assert.That(projection.PlayableWorld.AmbientLightR, Is.EqualTo(0.2f));
             Assert.That(projection.PlayableWorld.AmbientLightG, Is.EqualTo(0.2f));
             Assert.That(projection.PlayableWorld.AmbientLightB, Is.EqualTo(0.2f));
-            Assert.That(projection.PlayableWorld.AmbientLightIntensity, Is.EqualTo(1f));
+            Assert.That(projection.PlayableWorld.AmbientLightIntensity, Is.EqualTo(1.46f));
+            Assert.That(projection.PlayableWorld.SkyboxAssetRef, Is.Empty);
+            Assert.That(projection.PlayableWorld.ReflectionAssetRef, Is.Empty);
+            Assert.That(projection.PlayableWorld.ReflectionIntensity, Is.EqualTo(1f));
             Assert.That(projection.PlayableWorld.ExcludedRenderChannels, Is.EqualTo(new[] { "map" }));
             Assert.That(projection.PlayableWorld.PlayerEntityId, Is.EqualTo("player-vanguard"));
             Assert.That(projection.PlayableWorld.MovementCommand, Is.EqualTo("aetheria.daemon.move_intent"));
@@ -1075,16 +1079,33 @@ namespace GameCult.Eve.UnityScene.Tests
             var rootObject = new GameObject("generic-eve-world-root");
             var hostObject = new GameObject("generic-eve-client");
             var cameraObject = new GameObject("generic-eve-camera");
+            var competingCameraObject = new GameObject("competing-eve-camera");
             hostObject.SetActive(false);
             var ambientMode = RenderSettings.ambientMode;
             var ambientLight = RenderSettings.ambientLight;
+            var ambientIntensity = RenderSettings.ambientIntensity;
+            var previousSkybox = RenderSettings.skybox;
+            var previousReflectionMode = RenderSettings.defaultReflectionMode;
+            var previousCustomReflection = RenderSettings.customReflectionTexture;
+            var previousReflectionIntensity = RenderSettings.reflectionIntensity;
+            Material? skyboxMaterial = null;
+            Cubemap? reflectionCubemap = null;
 
             try
             {
                 var provider = hostObject.AddComponent<FakePlayableWorldProviderComponent>();
+                var nativeAssets = hostObject.AddComponent<FixedNativeAssetProviderComponent>();
+                var skyboxShader = Shader.Find("Skybox/Procedural");
+                Assert.That(skyboxShader, Is.Not.Null);
+                skyboxMaterial = new Material(skyboxShader!);
+                reflectionCubemap = new Cubemap(4, TextureFormat.RGBA32, false);
+                nativeAssets.Set("material.environment.skybox", skyboxMaterial);
+                nativeAssets.Set("texture.environment.reflection", reflectionCubemap);
                 provider.Set(
                     new EveUnitySceneProviderSurfaceDocument(
-                        PlayableArpgDocument(),
+                        PlayableArpgDocument(
+                            skyboxAssetRef: "material.environment.skybox",
+                            reflectionAssetRef: "texture.environment.reflection"),
                         Advertisement("aetheria.daemon.game"),
                         "cultmesh://aetheria/eve/surfaces/aetheria.daemon.game",
                         1),
@@ -1094,7 +1115,7 @@ namespace GameCult.Eve.UnityScene.Tests
                         "aetheria"));
 
                 var host = hostObject.AddComponent<EveUnityPlayableWorldClientHost>();
-                host.Configure(rootObject.transform, provider, provider, provider, provider);
+                host.Configure(rootObject.transform, provider, provider, provider, provider, nativeAssets);
                 host.Connect();
                 hostObject.SetActive(true);
 
@@ -1126,8 +1147,19 @@ namespace GameCult.Eve.UnityScene.Tests
                 var viewport = camera.WorldToViewportPoint(player.transform.position);
                 Assert.That(viewport.x, Is.EqualTo(0.9f).Within(0.001f));
                 Assert.That(viewport.y, Is.EqualTo(0.55f).Within(0.001f));
-                Assert.That(RenderSettings.ambientMode, Is.EqualTo(UnityEngine.Rendering.AmbientMode.Flat));
-                Assert.That(RenderSettings.ambientLight.r, Is.EqualTo(0.2f).Within(0.001f));
+                Assert.That(RenderSettings.ambientMode, Is.EqualTo(UnityEngine.Rendering.AmbientMode.Skybox));
+                Assert.That(RenderSettings.ambientIntensity, Is.EqualTo(1.46f).Within(0.001f));
+                Assert.That(RenderSettings.skybox, Is.SameAs(skyboxMaterial));
+                Assert.That(RenderSettings.defaultReflectionMode, Is.EqualTo(DefaultReflectionMode.Custom));
+                Assert.That(RenderSettings.customReflectionTexture, Is.SameAs(reflectionCubemap));
+                Assert.That(RenderSettings.reflectionIntensity, Is.EqualTo(1f).Within(0.001f));
+                Assert.That(camera.clearFlags, Is.EqualTo(CameraClearFlags.Skybox));
+
+                var competingRig = competingCameraObject.AddComponent<EveUnityPlayableWorldCameraRig>();
+                competingRig.Host = host;
+                competingRig.CameraTransform = competingCameraObject.transform;
+                Assert.That(competingRig.ApplyRig(0f), Is.False);
+                Assert.That(host.ActiveCameraTransform, Is.SameAs(cameraObject.transform));
 
                 var aim = hostObject.GetComponent<EveUnityAimPresentationRenderer>();
                 Assert.That(aim, Is.Not.Null);
@@ -1157,17 +1189,34 @@ namespace GameCult.Eve.UnityScene.Tests
                 Assert.That(
                     cameraObject.transform.position.x - beforeFollow.x,
                     Is.EqualTo(10f * (1f - Mathf.Exp(-0.5f))).Within(0.001f));
-                rig.ReleaseRig();
+                rig.CameraTransform = null;
                 Assert.That(host.ActiveCameraTransform, Is.Null);
                 aim.RefreshNow();
                 Assert.That(aim.ViewDotVisible, Is.False);
                 Assert.That(RenderSettings.ambientMode, Is.EqualTo(ambientMode));
                 Assert.That(RenderSettings.ambientLight, Is.EqualTo(ambientLight));
+                Assert.That(RenderSettings.ambientIntensity, Is.EqualTo(ambientIntensity));
+                Assert.That(RenderSettings.skybox, Is.SameAs(previousSkybox));
+                Assert.That(RenderSettings.defaultReflectionMode, Is.EqualTo(previousReflectionMode));
+                Assert.That(RenderSettings.customReflectionTexture, Is.SameAs(previousCustomReflection));
+                Assert.That(RenderSettings.reflectionIntensity, Is.EqualTo(previousReflectionIntensity));
+                nativeAssets.Clear();
+                nativeAssets.Set("some.other.asset", skyboxMaterial);
+                Assert.That(rig.ApplyRig(0f), Is.False);
+                Assert.That(host.ActiveCameraTransform, Is.Null);
             }
             finally
             {
                 RenderSettings.ambientMode = ambientMode;
                 RenderSettings.ambientLight = ambientLight;
+                RenderSettings.ambientIntensity = ambientIntensity;
+                RenderSettings.skybox = previousSkybox;
+                RenderSettings.defaultReflectionMode = previousReflectionMode;
+                RenderSettings.customReflectionTexture = previousCustomReflection;
+                RenderSettings.reflectionIntensity = previousReflectionIntensity;
+                if (skyboxMaterial != null) UnityEngine.Object.DestroyImmediate(skyboxMaterial);
+                if (reflectionCubemap != null) UnityEngine.Object.DestroyImmediate(reflectionCubemap);
+                UnityEngine.Object.DestroyImmediate(competingCameraObject);
                 UnityEngine.Object.DestroyImmediate(cameraObject);
                 UnityEngine.Object.DestroyImmediate(hostObject);
                 UnityEngine.Object.DestroyImmediate(rootObject);
@@ -1680,7 +1729,9 @@ namespace GameCult.Eve.UnityScene.Tests
 
         private static EveSurfaceDocument PlayableArpgDocument(
             bool includeRaider = true,
-            string playerPosition = "0,0,0")
+            string playerPosition = "0,0,0",
+            string skyboxAssetRef = "",
+            string reflectionAssetRef = "")
         {
             var playableChildren = new List<EveSurfaceComponent>
             {
@@ -1812,7 +1863,10 @@ namespace GameCult.Eve.UnityScene.Tests
                                     ["cameraNearClipPlane"] = "0.3",
                                     ["cameraFarClipPlane"] = "4096",
                                     ["ambientLightColor"] = "0.2,0.2,0.2",
-                                    ["ambientLightIntensity"] = "1",
+                                    ["ambientLightIntensity"] = "1.46",
+                                    ["skyboxAssetRef"] = skyboxAssetRef,
+                                    ["reflectionAssetRef"] = reflectionAssetRef,
+                                    ["reflectionIntensity"] = "1",
                                     ["excludedRenderChannels"] = "map",
                                     ["playerEntityId"] = "player-vanguard",
                                     ["movementCommand"] = "aetheria.daemon.move_intent",
@@ -2376,6 +2430,26 @@ namespace GameCult.Eve.UnityScene.Tests
             }
 
             public GameObject? ResolvePrefab(EveUnityPlayableWorldAssetBinding asset) => _prefab;
+        }
+
+        private sealed class FixedNativeAssetProviderComponent : MonoBehaviour, IEveUnityNativeAssetProvider
+        {
+            private readonly Dictionary<string, UnityEngine.Object> _assets =
+                new Dictionary<string, UnityEngine.Object>(StringComparer.Ordinal);
+
+            public void Set(string assetRef, UnityEngine.Object asset)
+            {
+                _assets[assetRef ?? ""] = asset;
+            }
+
+            public void Clear() => _assets.Clear();
+
+            public GameObject? ResolvePrefab(EveUnityPlayableWorldAssetBinding asset) => null;
+
+            public UnityEngine.Object? ResolveAsset(EveUnityPlayableWorldAssetBinding asset, Type assetType) =>
+                _assets.TryGetValue(asset?.AssetRef ?? "", out var value) && assetType.IsInstanceOfType(value)
+                    ? value
+                    : null;
         }
 
         private sealed class ObservingGameObjectAssetProvider : IEveUnityGameObjectAssetProvider

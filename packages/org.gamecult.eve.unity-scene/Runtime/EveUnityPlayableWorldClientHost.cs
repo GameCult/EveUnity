@@ -40,6 +40,8 @@ namespace GameCult.Eve.UnityScene
         public long ActiveVersion => Runtime?.ActiveVersion ?? 0;
         public int ConnectionEpoch { get; private set; }
         public Transform? ActiveCameraTransform { get; private set; }
+        public IEveUnityNativeAssetProvider? NativeAssetProvider =>
+            Runtime?.GameObjectAssetProvider as IEveUnityNativeAssetProvider;
 
         public event Action<EveUnityFeedbackEvent>? FeedbackAvailable;
         public event Action<EveUnityShotReceipt>? ShotAvailable;
@@ -113,10 +115,15 @@ namespace GameCult.Eve.UnityScene
             return presentation;
         }
 
-        internal void ClaimWorldCamera(object owner, Transform camera)
+        internal bool TryClaimWorldCamera(object owner, Transform camera)
         {
-            _cameraOwner = owner ?? throw new ArgumentNullException(nameof(owner));
-            ActiveCameraTransform = camera != null ? camera : throw new ArgumentNullException(nameof(camera));
+            if (owner == null) throw new ArgumentNullException(nameof(owner));
+            if (camera == null) throw new ArgumentNullException(nameof(camera));
+            if (_cameraOwner != null && !ReferenceEquals(_cameraOwner, owner))
+                return false;
+            _cameraOwner = owner;
+            ActiveCameraTransform = camera;
+            return true;
         }
 
         internal void ReleaseWorldCamera(object owner)
@@ -190,6 +197,8 @@ namespace GameCult.Eve.UnityScene
 
         public void Disconnect()
         {
+            if (_cameraOwner is EveUnityPlayableWorldCameraRig rig)
+                rig.ReleaseRig();
             if (Runtime != null)
             {
                 Runtime.FeedbackAvailable -= OnFeedbackAvailable;

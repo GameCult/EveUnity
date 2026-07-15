@@ -24,6 +24,13 @@ namespace GameCult.Eve.UnityScene
         private bool _ownsAmbientEnvironment;
         private AmbientMode _previousAmbientMode;
         private Color _previousAmbientLight;
+        private float _previousAmbientIntensity;
+        private Material? _previousSkybox;
+        private DefaultReflectionMode _previousReflectionMode;
+        private Texture? _previousCustomReflection;
+        private float _previousReflectionIntensity;
+        private Camera? _environmentCamera;
+        private CameraClearFlags _previousCameraClearFlags;
 
         public EveUnityPlayableWorldClientHost? Host
         {
@@ -31,7 +38,7 @@ namespace GameCult.Eve.UnityScene
             set
             {
                 if (ReferenceEquals(host, value)) return;
-                ReleaseCamera();
+                ReleaseRig();
                 host = value;
             }
         }
@@ -39,7 +46,12 @@ namespace GameCult.Eve.UnityScene
         public Transform? CameraTransform
         {
             get => cameraTransform;
-            set => cameraTransform = value;
+            set
+            {
+                if (ReferenceEquals(cameraTransform, value)) return;
+                ReleaseRig();
+                cameraTransform = value;
+            }
         }
 
         public IEveUnityCameraRenderPolicySource? RenderPolicySource
@@ -71,11 +83,6 @@ namespace GameCult.Eve.UnityScene
                 RestoreAmbientEnvironment();
                 return false;
             }
-            if (activeWorld.CameraRig == "planar.top-down-follow.v1")
-                ApplyAmbientEnvironment(activeWorld);
-            else
-                RestoreAmbientEnvironment();
-
             if (!string.IsNullOrWhiteSpace(activeWorld.CameraRig) &&
                 activeWorld.CameraRig != "planar.top-down-follow.v1" &&
                 activeWorld.CameraRig != "arpg.orbital-follow.v1" &&
@@ -95,10 +102,20 @@ namespace GameCult.Eve.UnityScene
                 ReleaseCamera();
                 return false;
             }
-            resolvedHost.ClaimWorldCamera(this, camera);
+            if (!TryResolveEnvironment(resolvedHost, activeWorld, out var skybox, out var reflection))
+            {
+                ReleaseRig();
+                return false;
+            }
+            if (!resolvedHost.TryClaimWorldCamera(this, camera))
+            {
+                RestoreAmbientEnvironment();
+                return false;
+            }
             _cameraHost = resolvedHost;
 
             var cameraComponent = camera.GetComponent<Camera>();
+            ApplyAmbientEnvironment(activeWorld, cameraComponent, skybox, reflection);
             if (cameraComponent != null && _renderPolicySource != null)
             {
                 var cullingMask = cameraComponent.cullingMask;
@@ -180,20 +197,93 @@ namespace GameCult.Eve.UnityScene
             world.CameraNearClipPlane > 0f &&
             world.CameraFarClipPlane > world.CameraNearClipPlane;
 
-        private void ApplyAmbientEnvironment(EveUnityPlayableWorldProjection world)
+        private static bool TryResolveEnvironment(
+            EveUnityPlayableWorldClientHost host,
+            EveUnityPlayableWorldProjection world,
+            out Material? skybox,
+            out Cubemap? reflection)
+        {
+            skybox = null;
+            reflection = null;
+            var assets = host.NativeAssetProvider;
+            if (!string.IsNullOrWhiteSpace(world.SkyboxAssetRef))
+            {
+                skybox = assets?.ResolveAsset(
+                    new EveUnityPlayableWorldAssetBinding(
+                        world.SkyboxAssetRef,
+                        "environment.skybox",
+                        "provider-asset-ref"),
+                    typeof(Material)) as Material;
+                if (skybox == null || skybox.shader == null || !skybox.shader.isSupported)
+                    return false;
+            }
+            if (!string.IsNullOrWhiteSpace(world.ReflectionAssetRef))
+            {
+                reflection = assets?.ResolveAsset(
+                    new EveUnityPlayableWorldAssetBinding(
+                        world.ReflectionAssetRef,
+                        "environment.reflection",
+                        "provider-asset-ref"),
+                    typeof(Cubemap)) as Cubemap;
+                if (reflection == null)
+                    return false;
+            }
+            return true;
+        }
+
+        private void ApplyAmbientEnvironment(
+            EveUnityPlayableWorldProjection world,
+            Camera? camera,
+            Material? skybox,
+            Cubemap? reflection)
         {
             if (!_ownsAmbientEnvironment)
             {
                 _previousAmbientMode = RenderSettings.ambientMode;
                 _previousAmbientLight = RenderSettings.ambientLight;
+                _previousAmbientIntensity = RenderSettings.ambientIntensity;
+                _previousSkybox = RenderSettings.skybox;
+                _previousReflectionMode = RenderSettings.defaultReflectionMode;
+                _previousCustomReflection = RenderSettings.customReflectionTexture;
+                _previousReflectionIntensity = RenderSettings.reflectionIntensity;
+                _environmentCamera = camera;
+                if (camera != null)
+                    _previousCameraClearFlags = camera.clearFlags;
                 _ownsAmbientEnvironment = true;
             }
-            RenderSettings.ambientMode = AmbientMode.Flat;
-            RenderSettings.ambientLight = new Color(
-                Mathf.Max(0f, world.AmbientLightR * world.AmbientLightIntensity),
-                Mathf.Max(0f, world.AmbientLightG * world.AmbientLightIntensity),
-                Mathf.Max(0f, world.AmbientLightB * world.AmbientLightIntensity),
-                1f);
+            if (skybox != null)
+            {
+                RenderSettings.skybox = skybox;
+                RenderSettings.ambientMode = AmbientMode.Skybox;
+                RenderSettings.ambientIntensity = Mathf.Max(0f, world.AmbientLightIntensity);
+                if (camera != null)
+                    camera.clearFlags = CameraClearFlags.Skybox;
+            }
+            else
+            {
+                RenderSettings.skybox = _previousSkybox;
+                RenderSettings.ambientMode = AmbientMode.Flat;
+                RenderSettings.ambientIntensity = _previousAmbientIntensity;
+                RenderSettings.ambientLight = new Color(
+                    Mathf.Max(0f, world.AmbientLightR * world.AmbientLightIntensity),
+                    Mathf.Max(0f, world.AmbientLightG * world.AmbientLightIntensity),
+                    Mathf.Max(0f, world.AmbientLightB * world.AmbientLightIntensity),
+                    1f);
+                if (_environmentCamera != null)
+                    _environmentCamera.clearFlags = _previousCameraClearFlags;
+            }
+            if (reflection != null)
+            {
+                RenderSettings.defaultReflectionMode = DefaultReflectionMode.Custom;
+                RenderSettings.customReflectionTexture = reflection;
+                RenderSettings.reflectionIntensity = Mathf.Max(0f, world.ReflectionIntensity);
+            }
+            else
+            {
+                RenderSettings.defaultReflectionMode = _previousReflectionMode;
+                RenderSettings.customReflectionTexture = _previousCustomReflection;
+                RenderSettings.reflectionIntensity = _previousReflectionIntensity;
+            }
         }
 
         private void RestoreAmbientEnvironment()
@@ -201,6 +291,16 @@ namespace GameCult.Eve.UnityScene
             if (!_ownsAmbientEnvironment) return;
             RenderSettings.ambientMode = _previousAmbientMode;
             RenderSettings.ambientLight = _previousAmbientLight;
+            RenderSettings.ambientIntensity = _previousAmbientIntensity;
+            RenderSettings.skybox = _previousSkybox;
+            RenderSettings.defaultReflectionMode = _previousReflectionMode;
+            RenderSettings.customReflectionTexture = _previousCustomReflection;
+            RenderSettings.reflectionIntensity = _previousReflectionIntensity;
+            if (_environmentCamera != null)
+                _environmentCamera.clearFlags = _previousCameraClearFlags;
+            _environmentCamera = null;
+            _previousSkybox = null;
+            _previousCustomReflection = null;
             _ownsAmbientEnvironment = false;
         }
 

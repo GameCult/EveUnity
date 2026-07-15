@@ -20,13 +20,17 @@ namespace GameCult.Eve.UnityScene.Fields
         private Material? _material;
         private Shader? _sourceShader;
         private IReadOnlyDictionary<string, string>? _programMetadata;
-        private RenderTexture? _cloudTexture;
+        private RenderTexture? _raymarchTexture;
+        private readonly RenderTexture?[] _historyTextures = new RenderTexture?[2];
+        private int _historyTextureIndex = -1;
+        private Matrix4x4 _previousViewProjection;
         private CommandBuffer? _commands;
         private string _activeNodeId = "";
 
         public long PresentedFrameId { get; private set; } = -1;
         public int PresentedLayerCount => _targets.Count(target => target.TargetTexture != null);
         public long CompositeCount { get; private set; }
+        public bool UsesTemporalHistory => HasTemporalProgram();
 
         public void Bind(EveUnityPlayableWorldClientHost host, IEveUnityFieldsSplatsDocumentSource? source)
         {
@@ -84,28 +88,58 @@ namespace GameCult.Eve.UnityScene.Fields
             if (field == null || !EnsureMaterial(field)) return;
             ApplyFieldBindings(field, _document);
             camera.depthTextureMode |= DepthTextureMode.Depth;
-            EnsureCloudTexture(camera, field);
-            if (_cloudTexture == null) return;
+            EnsureVolumeTextures(camera, field);
+            if (_raymarchTexture == null) return;
 
             var gpuProjection = GL.GetGPUProjectionMatrix(camera.projectionMatrix, true);
-            SetMatrixPort("cameraInverseViewProjection", (gpuProjection * camera.worldToCameraMatrix).inverse);
+            var viewProjection = gpuProjection * camera.worldToCameraMatrix;
+            SetMatrixPort("cameraInverseViewProjection", viewProjection.inverse);
             SetVectorPort("cameraProjectionExtents", ProjectionExtents(camera));
             SetFloatPort("raymarchOffset", Halton(Time.frameCount & 1023, 3));
 
             var raymarchPass = ProgramPass("raymarch");
             var compositePass = ProgramPass("composite");
-            SetTexturePort("cloud", _cloudTexture);
+            var temporalPass = ProgramPass("temporal");
+            var useTemporalHistory = temporalPass >= 0;
+            var historyWriteIndex = -1;
+            RenderTexture finalCloudTexture = _raymarchTexture;
+
+            if (useTemporalHistory)
+            {
+                historyWriteIndex = _historyTextureIndex < 0 ? 0 : (_historyTextureIndex + 1) % _historyTextures.Length;
+                var historyReadTexture = _historyTextureIndex < 0
+                    ? _raymarchTexture
+                    : _historyTextures[_historyTextureIndex];
+                finalCloudTexture = _historyTextures[historyWriteIndex]!;
+                SetTexturePort("currentSample", _raymarchTexture);
+                SetTexturePort("history", historyReadTexture!);
+                SetMatrixPort("previousViewProjection", _historyTextureIndex < 0 ? viewProjection : _previousViewProjection);
+                SetFloatPort("resetHistory", _historyTextureIndex < 0 ? 1f : 0f);
+            }
+            SetTexturePort("cloud", finalCloudTexture);
 
             _commands ??= new CommandBuffer { name = "Eve Fields Volume" };
             _commands.Clear();
-            _commands.SetRenderTarget(_cloudTexture);
-            _commands.SetViewport(new Rect(0f, 0f, _cloudTexture.width, _cloudTexture.height));
+            _commands.SetRenderTarget(_raymarchTexture);
+            _commands.SetViewport(new Rect(0f, 0f, _raymarchTexture.width, _raymarchTexture.height));
             _commands.ClearRenderTarget(false, true, Color.clear);
             _commands.DrawProcedural(Matrix4x4.identity, _material!, raymarchPass, MeshTopology.Triangles, 3, 1);
+            if (useTemporalHistory)
+            {
+                _commands.SetRenderTarget(finalCloudTexture);
+                _commands.SetViewport(new Rect(0f, 0f, finalCloudTexture.width, finalCloudTexture.height));
+                _commands.ClearRenderTarget(false, true, Color.clear);
+                _commands.DrawProcedural(Matrix4x4.identity, _material!, temporalPass, MeshTopology.Triangles, 3, 1);
+            }
             _commands.SetRenderTarget(BuiltinRenderTextureType.CameraTarget);
             _commands.SetViewport(camera.pixelRect);
             _commands.DrawProcedural(Matrix4x4.identity, _material!, compositePass, MeshTopology.Triangles, 3, 1);
             Graphics.ExecuteCommandBuffer(_commands);
+            if (useTemporalHistory)
+            {
+                _historyTextureIndex = historyWriteIndex;
+                _previousViewProjection = viewProjection;
+            }
             CompositeCount++;
         }
 
@@ -126,12 +160,7 @@ namespace GameCult.Eve.UnityScene.Fields
                 !metadataProvider.TryResolveAssetMetadata(shaderBinding, out var metadata))
                 return false;
             _programMetadata = metadata;
-            if (ProgramPass("raymarch") < 0 || ProgramPass("composite") < 0 ||
-                string.IsNullOrWhiteSpace(ProgramPort("texture", "cloud")) ||
-                string.IsNullOrWhiteSpace(ProgramPort("matrix", "cameraInverseViewProjection")) ||
-                string.IsNullOrWhiteSpace(ProgramPort("vector", "cameraProjectionExtents")) ||
-                string.IsNullOrWhiteSpace(ProgramPort("vector", "viewportTransform")) ||
-                string.IsNullOrWhiteSpace(ProgramPort("float", "raymarchOffset")))
+            if (!TryValidateProgramMetadata(metadata, out _))
                 return false;
             if (_material != null && ReferenceEquals(shader, _sourceShader) &&
                 string.Equals(_activeNodeId, field.NodeId, StringComparison.Ordinal)) return true;
@@ -139,6 +168,7 @@ namespace GameCult.Eve.UnityScene.Fields
             _sourceShader = shader;
             _activeNodeId = field.NodeId;
             _material = new Material(shader) { hideFlags = HideFlags.DontSave };
+            ResetTemporalHistory();
             foreach (var parameter in ParseBindings(Prop(field, "floatParameters")))
             {
                 if (TryFloat(parameter.Value, out var value)) SetFloatPort(parameter.Key, value);
@@ -203,32 +233,108 @@ namespace GameCult.Eve.UnityScene.Fields
             if (_layers == null) _layers = gameObject.AddComponent<EveFieldsSplatLayerRenderer>();
         }
 
-        private void EnsureCloudTexture(Camera camera, EveUnityFieldVolumeProjection field)
+        private void EnsureVolumeTextures(Camera camera, EveUnityFieldVolumeProjection field)
         {
             var downsample = Mathf.Clamp(NonNegativeInt(field, "downsample", 1), 0, 3);
             var width = Mathf.Max(1, camera.pixelWidth >> downsample);
             var height = Mathf.Max(1, camera.pixelHeight >> downsample);
-            if (_cloudTexture != null && _cloudTexture.width == width && _cloudTexture.height == height) return;
-            if (_cloudTexture != null) { _cloudTexture.Release(); Destroy(_cloudTexture); }
-            _cloudTexture = new RenderTexture(width, height, 0, RenderTextureFormat.ARGBFloat)
+            var resetHistory = EnsureRenderTexture(ref _raymarchTexture, width, height, "Eve Fields Volume Raymarch");
+            if (HasTemporalProgram())
             {
-                name = "Eve Fields Volume",
-                filterMode = FilterMode.Bilinear,
-                wrapMode = TextureWrapMode.Clamp
-            };
-            _cloudTexture.Create();
+                resetHistory |= EnsureRenderTexture(ref _historyTextures[0], width, height, "Eve Fields Volume History A");
+                resetHistory |= EnsureRenderTexture(ref _historyTextures[1], width, height, "Eve Fields Volume History B");
+            }
+            else
+            {
+                ReleaseRenderTexture(ref _historyTextures[0]);
+                ReleaseRenderTexture(ref _historyTextures[1]);
+                resetHistory = true;
+            }
+            if (resetHistory) ResetTemporalHistory();
         }
 
         private void ReleaseRenderState()
         {
             if (_commands != null) { _commands.Release(); _commands = null; }
-            if (_cloudTexture != null) { _cloudTexture.Release(); Destroy(_cloudTexture); _cloudTexture = null; }
+            ReleaseRenderTexture(ref _raymarchTexture);
+            ReleaseRenderTexture(ref _historyTextures[0]);
+            ReleaseRenderTexture(ref _historyTextures[1]);
             if (_material != null) { Destroy(_material); _material = null; }
             _sourceShader = null;
             _programMetadata = null;
             _activeNodeId = "";
             PresentedFrameId = -1;
             CompositeCount = 0;
+            ResetTemporalHistory();
+        }
+
+        private void ResetTemporalHistory()
+        {
+            _historyTextureIndex = -1;
+            _previousViewProjection = Matrix4x4.identity;
+        }
+
+        private bool HasTemporalProgram() => ProgramPass("temporal") >= 0;
+
+        private static bool EnsureRenderTexture(ref RenderTexture? texture, int width, int height, string name)
+        {
+            if (texture != null && texture.width == width && texture.height == height) return false;
+            ReleaseRenderTexture(ref texture);
+            texture = new RenderTexture(width, height, 0, RenderTextureFormat.ARGBFloat)
+            {
+                name = name,
+                filterMode = FilterMode.Bilinear,
+                wrapMode = TextureWrapMode.Clamp
+            };
+            texture.Create();
+            return true;
+        }
+
+        private static void ReleaseRenderTexture(ref RenderTexture? texture)
+        {
+            if (texture == null) return;
+            texture.Release();
+            Destroy(texture);
+            texture = null;
+        }
+
+        public static bool TryValidateProgramMetadata(
+            IReadOnlyDictionary<string, string>? metadata,
+            out string error)
+        {
+            error = "";
+            if (metadata == null) return Fail("Native volume program metadata is missing.", out error);
+            if (!ValidPass(metadata, "raymarch")) return Fail("Native volume raymarch pass is missing.", out error);
+            if (!ValidPass(metadata, "composite")) return Fail("Native volume composite pass is missing.", out error);
+            if (!ValidPort(metadata, "texture", "cloud") ||
+                !ValidPort(metadata, "matrix", "cameraInverseViewProjection") ||
+                !ValidPort(metadata, "vector", "cameraProjectionExtents") ||
+                !ValidPort(metadata, "vector", "viewportTransform") ||
+                !ValidPort(metadata, "float", "raymarchOffset"))
+                return Fail("Native volume program is missing a required raymarch or composite port.", out error);
+
+            if (!metadata.ContainsKey("unity.volume.pass.temporal")) return true;
+            if (!ValidPass(metadata, "temporal")) return Fail("Native volume temporal pass is invalid.", out error);
+            if (!ValidPort(metadata, "texture", "currentSample") ||
+                !ValidPort(metadata, "texture", "history") ||
+                !ValidPort(metadata, "matrix", "previousViewProjection") ||
+                !ValidPort(metadata, "float", "resetHistory"))
+                return Fail("Native volume temporal pass is missing a required history port.", out error);
+            return true;
+        }
+
+        private static bool ValidPass(IReadOnlyDictionary<string, string> metadata, string pass) =>
+            metadata.TryGetValue($"unity.volume.pass.{pass}", out var value) &&
+            int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) && parsed >= 0;
+
+        private static bool ValidPort(IReadOnlyDictionary<string, string> metadata, string kind, string port) =>
+            metadata.TryGetValue($"unity.volume.{kind}Port.{port}", out var value) &&
+            !string.IsNullOrWhiteSpace(value);
+
+        private static bool Fail(string message, out string error)
+        {
+            error = message;
+            return false;
         }
 
         private void SetMatrixPort(string port, Matrix4x4 value)

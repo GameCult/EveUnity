@@ -42,6 +42,38 @@ namespace GameCult.Eve.UnityScene.Tests
         }
 
         [Test]
+        public void VolumeProgramAcceptsPortableTwoPassLifecycle()
+        {
+            var metadata = RequiredVolumeProgramMetadata();
+
+            Assert.That(EveUnityFieldsVolumeRenderer.TryValidateProgramMetadata(metadata, out var error), Is.True, error);
+        }
+
+        [Test]
+        public void VolumeProgramAcceptsCompleteTemporalLifecycle()
+        {
+            var metadata = RequiredVolumeProgramMetadata();
+            metadata["unity.volume.pass.temporal"] = "1";
+            metadata["unity.volume.texturePort.currentSample"] = "_CurrentVolume";
+            metadata["unity.volume.texturePort.history"] = "_HistoryVolume";
+            metadata["unity.volume.matrixPort.previousViewProjection"] = "_PreviousViewProjection";
+            metadata["unity.volume.floatPort.resetHistory"] = "_ResetHistory";
+
+            Assert.That(EveUnityFieldsVolumeRenderer.TryValidateProgramMetadata(metadata, out var error), Is.True, error);
+        }
+
+        [Test]
+        public void VolumeProgramRejectsPartialTemporalLifecycle()
+        {
+            var metadata = RequiredVolumeProgramMetadata();
+            metadata["unity.volume.pass.temporal"] = "1";
+            metadata["unity.volume.texturePort.currentSample"] = "_CurrentVolume";
+
+            Assert.That(EveUnityFieldsVolumeRenderer.TryValidateProgramMetadata(metadata, out var error), Is.False);
+            Assert.That(error, Does.Contain("history port"));
+        }
+
+        [Test]
         public void PackageContainsGenericFieldsShader()
         {
             Assert.That(Shader.Find("Eve/Fields/Splats"), Is.Not.Null);
@@ -89,6 +121,18 @@ namespace GameCult.Eve.UnityScene.Tests
             public IReadOnlyList<IEveFieldsSplatLayer> Layers { get; } = Array.Empty<IEveFieldsSplatLayer>();
             public IEveFieldsSplatSoa Splats { get; } = new CaptureSplats();
         }
+
+        private static Dictionary<string, string> RequiredVolumeProgramMetadata() =>
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["unity.volume.pass.raymarch"] = "0",
+                ["unity.volume.pass.composite"] = "2",
+                ["unity.volume.texturePort.cloud"] = "_Cloud",
+                ["unity.volume.matrixPort.cameraInverseViewProjection"] = "_CameraInverseViewProjection",
+                ["unity.volume.vectorPort.cameraProjectionExtents"] = "_CameraProjectionExtents",
+                ["unity.volume.vectorPort.viewportTransform"] = "_ViewportTransform",
+                ["unity.volume.floatPort.raymarchOffset"] = "_RaymarchOffset"
+            };
 
         private sealed class CaptureViewport : IEveFieldsViewport
         {

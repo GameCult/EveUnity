@@ -46,12 +46,17 @@
                                  "pluginId": "fields.surface",
                                  "capabilities": [
                                      "field.surface2d",
-                                     "gravity.surface"
+                                     "gravity.surface",
+                                     "field.volume3d",
+                                     "volume.raymarch",
+                                     "volume.temporal-history",
+                                     "volume.composite"
                                  ],
                                  "projectionAdapter": "EveFieldsSplatRasterizer",
                                  "evidencePaths": [
                                      "Runtime/Fields/EveFieldsSplatRasterizer.cs",
                                      "Runtime/Fields/EveFieldsSplatLayerRenderer.cs",
+                                     "Runtime/Fields/EveUnityFieldsVolumeRenderer.cs",
                                      "Tests/Editor/EveFieldsUnitySceneProjectionTests.cs",
                                      "artifacts/fields-surface/latest/unity-fields.png"
                                  ]

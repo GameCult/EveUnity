@@ -106,7 +106,7 @@ namespace GameCult.Eve.UnityScene
                     trajectory.ImpactPresented = true;
                     if (trajectory.ImpactPrefab != null)
                     {
-                        var impact = Instantiate(trajectory.ImpactPrefab, transform);
+                        var impact = Instantiate(trajectory.ImpactPrefab, trajectory.Root.transform);
                         impact.transform.position = trajectory.Endpoint;
                     }
                 }

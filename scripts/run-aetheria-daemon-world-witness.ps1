@@ -13,7 +13,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$expectedEveUnityCommit = "35ff288aabc03130a61228579f1b09bac4345b5c"
+$expectedEveUnityCommit = "3c8d127ef8d0d8e6c9a45f92a8bbd553d87e6a07"
 $expectedEveFieldsCommit = "382a23d8f8a07e4b5eef5f81f84655861a858367"
 $expectedEveUnityUiToolkitCommit = "4d0cbe0185bdc4fc65eb63503a7c5cb578539669"
 $expectedCultLibCommit = "feb5c71513e71d681699f462fe3682b3168c6f73"

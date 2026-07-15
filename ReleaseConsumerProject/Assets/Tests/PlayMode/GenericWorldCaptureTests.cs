@@ -188,6 +188,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             EveUnityPlayableWorldClientHost host = null;
             EveUnityPlayableWorldRuntime runtime = null;
             WitnessReceipt movementReceipt = null;
+            WitnessReceipt lookReceipt = null;
             WitnessReceipt focusReceipt = null;
             WitnessReceipt actionReceipt = null;
             EveUnityShotReceipt observedShot = null;
@@ -196,6 +197,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             float hullRatioBefore = 0f;
             long initialVersion = 0;
             float movementDistance = 0f;
+            float aimDotDistance = 0f;
 
             try
             {
@@ -344,18 +346,24 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 aim.y = 0;
                 Assert.That(aim.sqrMagnitude, Is.GreaterThan(0.0001f));
                 aim.Normalize();
-                var steerVersion = runtime.ActiveVersion;
-                var steer = runtime.SubmitMoveVectorIntent(playerId, aim.x, aim.z, 0.25f);
-                var steerDeadline = Time.realtimeSinceStartup + 12f;
-                while (Time.realtimeSinceStartup < steerDeadline &&
-                       (runtime.LastReceipt == null || runtime.LastReceipt.CommandId != steer.CommandId ||
-                        !string.Equals(runtime.LastReceipt.State, "reconciled", StringComparison.OrdinalIgnoreCase)))
+                var lookVersion = runtime.ActiveVersion;
+                var look = runtime.SubmitLookDirectionIntent(playerId, aim.x, 0f, aim.z);
+                var lookDeadline = Time.realtimeSinceStartup + 12f;
+                while (Time.realtimeSinceStartup < lookDeadline &&
+                       (runtime.LastReceipt == null || runtime.LastReceipt.CommandId != look.CommandId ||
+                        !string.Equals(runtime.LastReceipt.State, "reconciled", StringComparison.OrdinalIgnoreCase) ||
+                        runtime.ActiveVersion < runtime.LastReceipt.SourceVersion ||
+                        Vector3.Dot(FindMarker(root, playerId).transform.forward, aim) < 0.99f))
                 {
                     yield return new WaitForSecondsRealtime(0.1f);
                     runtime.Refresh();
                 }
-                AssertReconciledProviderReceipt(runtime.LastReceipt, steer.CommandId,
-                    provider.Selection.ProviderId, provider.Selection.SurfaceId, steerVersion);
+                AssertReconciledProviderReceipt(runtime.LastReceipt, look.CommandId,
+                    provider.Selection.ProviderId, provider.Selection.SurfaceId, lookVersion);
+                Assert.That(Vector3.Dot(FindMarker(root, playerId).transform.forward, aim), Is.GreaterThan(0.99f));
+                lookReceipt = WitnessReceipt.From("look", runtime.LastReceipt);
+                var aimRenderer = root.GetComponent<EveUnityAimPresentationRenderer>();
+                Assert.That(aimRenderer, Is.Not.Null);
 
                 var focusVersion = runtime.ActiveVersion;
                 var inputDriver = root.GetComponent<EveUnityPlayableWorldInputDriver>() ??
@@ -448,6 +456,10 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 cameraRig.CameraTransform = camera.transform;
                 cameraRig.RenderPolicySource = provider;
                 Assert.That(cameraRig.ApplyRig(0f), Is.True);
+                aimRenderer.RefreshNow();
+                Assert.That(aimRenderer.ViewDotVisible, Is.True);
+                aimDotDistance = Vector3.Distance(playerMarker.transform.position, aimRenderer.ViewDotPosition);
+                Assert.That(aimDotDistance, Is.GreaterThanOrEqualTo(49.9f));
                 Assert.That(camera.cullingMask & (1 << mapLayer), Is.Zero);
                 Assert.That(camera.fieldOfView, Is.EqualTo(60f).Within(0.001f));
                 var playerViewport = camera.WorldToViewportPoint(playerMarker.transform.position);
@@ -504,6 +516,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     (camera.cullingMask & (1 << mapLayer)) == 0,
                     (mapCamera.cullingMask & (1 << mapLayer)) != 0,
                     movementReceipt,
+                    lookReceipt,
                     focusReceipt,
                     actionReceipt,
                     observedShot,
@@ -511,7 +524,8 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     observedCombat?.ShieldRatio ?? shieldRatioBefore,
                     hullRatioBefore,
                     observedCombat?.HullRatio ?? hullRatioBefore,
-                    (float)observedShot.LockQuality);
+                    (float)observedShot.LockQuality,
+                    aimDotDistance);
             }
             finally
             {
@@ -541,6 +555,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             bool pilotCameraExcludesMapChannel,
             bool mapCameraIncludesMapChannel,
             WitnessReceipt movement,
+            WitnessReceipt look,
             WitnessReceipt targeting,
             WitnessReceipt action,
             EveUnityShotReceipt shot,
@@ -548,7 +563,8 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             float shieldRatioAfter,
             float hullRatioBefore,
             float hullRatioAfter,
-            float lockProgress)
+            float lockProgress,
+            float aimDotDistance)
         {
             var path = Environment.GetEnvironmentVariable("EVEUNITY_WITNESS_FACTS_PATH");
             if (string.IsNullOrWhiteSpace(path)) return;
@@ -557,6 +573,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 providerAdvertisement = true,
                 providerAssets = true,
                 movement = movement != null,
+                aimPresentation = look != null && aimDotDistance >= 49.9f,
                 targeting = targeting != null,
                 action = action != null,
                 combatPresentation = shot != null,
@@ -573,13 +590,14 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 initialVersion = initialVersion,
                 finalVersion = finalVersion,
                 movementDistance = movementDistance,
+                aimDotDistance = aimDotDistance,
                 playerRendererCount = playerRendererCount,
                 pilotChangedPixels = pilotChangedPixels,
                 mapChannelRendererCount = mapChannelRendererCount,
                 mapChangedPixels = mapChangedPixels,
                 pilotCameraExcludesMapChannel = pilotCameraExcludesMapChannel,
                 mapCameraIncludesMapChannel = mapCameraIncludesMapChannel,
-                receipts = new[] { movement, targeting, action }
+                receipts = new[] { movement, look, targeting, action }
             };
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path)));
             File.WriteAllText(path, JsonUtility.ToJson(document, true));
@@ -591,6 +609,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             public bool providerAdvertisement;
             public bool providerAssets;
             public bool movement;
+            public bool aimPresentation;
             public bool targeting;
             public bool action;
             public bool combatPresentation;
@@ -607,6 +626,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             public long initialVersion;
             public long finalVersion;
             public float movementDistance;
+            public float aimDotDistance;
             public int playerRendererCount;
             public int pilotChangedPixels;
             public int mapChannelRendererCount;

@@ -13,7 +13,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$expectedEveUnityCommit = "e43f2d74557dcbf2cc408893c7b7d7ac708a44a8"
+$expectedEveUnityCommit = "58d87c628a261751439584263c18e93a7d8d8708"
 $expectedCultLibCommit = "feb5c71513e71d681699f462fe3682b3168c6f73"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $projectRoot = $ClientProject

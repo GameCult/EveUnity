@@ -205,9 +205,16 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             float tractorBeamPower = 0f;
             float tractorReleasedPower = 1f;
             int tractorBeamParticleSystemCount = 0;
+            EveUnityFeedbackEvent pickupCollection = null;
+            int pickupCollectionEventCount = 0;
+            int initialPickupEntityCount = 0;
+            int finalPickupEntityCount = -1;
 
             try
             {
+                var providerReadyPath = Environment.GetEnvironmentVariable("EVEUNITY_PROVIDER_READY_PATH");
+                if (!string.IsNullOrWhiteSpace(providerReadyPath))
+                    File.WriteAllText(providerReadyPath, DateTimeOffset.UtcNow.ToString("O"));
                 provider = root.AddComponent<EveUnityCultMeshPlayableWorldProvider>();
                 provider.Configure(
                     rendezvousEndpoint,
@@ -216,7 +223,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     surfaceId,
                     requiredSurfaceKind: "interactive-world",
                     clientRuntimeId: $"eve-unity-test-{Guid.NewGuid():N}");
-                var publicationDeadline = Time.realtimeSinceStartup + 10f;
+                var publicationDeadline = Time.realtimeSinceStartup + 30f;
                 while (true)
                 {
                     var published = false;
@@ -226,6 +233,9 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                         published = true;
                     }
                     catch (InvalidOperationException) when (Time.realtimeSinceStartup < publicationDeadline)
+                    {
+                    }
+                    catch (TimeoutException) when (Time.realtimeSinceStartup < publicationDeadline)
                     {
                     }
                     if (published) break;
@@ -267,6 +277,16 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 }
                 Assert.That(host.PresentedEntities?.CurrentGeneration, Is.Not.Null);
                 Assert.That(host.PresentedEntities.CurrentGeneration.Entities.Count, Is.GreaterThan(0));
+                initialPickupEntityCount = host.PresentedEntities.CurrentGeneration.Entities.Count(entity =>
+                    string.Equals(entity.EntityKind, "pickup", StringComparison.Ordinal));
+                Assert.That(initialPickupEntityCount, Is.GreaterThan(0),
+                    "The daemon fixture did not publish its physical starter pickup through the entity SoA.");
+                runtime.FeedbackAvailable += feedback =>
+                {
+                    if (!string.Equals(feedback.Kind, "pickup.collected", StringComparison.Ordinal)) return;
+                    pickupCollectionEventCount++;
+                    pickupCollection = feedback;
+                };
 
                 var playerId = runtime.ActiveWorld.PlayerEntityId;
                 var playerFact = host.PresentedEntities.CurrentGeneration.Entities
@@ -418,6 +438,27 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 tractorBeamParticleSystemCount = beamRenderer.ActiveParticleSystemCount;
                 Assert.That(tractorBeamParticleSystemCount, Is.GreaterThan(0),
                     "The generic beam lowerer did not instantiate the provider-owned effect prefab.");
+                var pickupDeadline = Time.realtimeSinceStartup + 12f;
+                while (Time.realtimeSinceStartup < pickupDeadline &&
+                       (pickupCollection == null ||
+                        host.PresentedEntities.CurrentGeneration.Entities.Any(entity =>
+                            string.Equals(entity.EntityKind, "pickup", StringComparison.Ordinal))))
+                {
+                    yield return new WaitForSecondsRealtime(0.1f);
+                    runtime.Refresh();
+                }
+                finalPickupEntityCount = host.PresentedEntities.CurrentGeneration.Entities.Count(entity =>
+                    string.Equals(entity.EntityKind, "pickup", StringComparison.Ordinal));
+                Assert.That(pickupCollection, Is.Not.Null,
+                    "The released client did not observe provider-owned feedback for Ymir contact collection.");
+                Assert.That(pickupCollectionEventCount, Is.EqualTo(1),
+                    "One Ymir contact transaction must emit one client-visible collection event.");
+                Assert.That(pickupCollection.ItemKey, Is.EqualTo("scrap-metal"));
+                Assert.That(pickupCollection.ScalarValue, Is.EqualTo(1));
+                Assert.That(pickupCollection.CargoQuantityBefore, Is.Zero);
+                Assert.That(pickupCollection.CargoQuantityAfter, Is.EqualTo(1));
+                Assert.That(finalPickupEntityCount, Is.EqualTo(initialPickupEntityCount - 1),
+                    "Collected pickup remained in the provider-authored entity generation.");
 
                 var focusVersion = runtime.ActiveVersion;
                 var inputDriver = root.GetComponent<EveUnityPlayableWorldInputDriver>() ??
@@ -659,6 +700,10 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     tractorBeamPower,
                     tractorReleasedPower,
                     tractorBeamParticleSystemCount,
+                    initialPickupEntityCount,
+                    finalPickupEntityCount,
+                    pickupCollectionEventCount,
+                    pickupCollection,
                     playerRendererFacts);
             }
             finally
@@ -711,6 +756,10 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             float tractorBeamPower,
             float tractorReleasedPower,
             int tractorBeamParticleSystemCount,
+            int initialPickupEntityCount,
+            int finalPickupEntityCount,
+            int pickupCollectionEventCount,
+            EveUnityFeedbackEvent pickupCollection,
             RendererFact[] playerRendererFacts)
         {
             var path = Environment.GetEnvironmentVariable("EVEUNITY_WITNESS_FACTS_PATH");
@@ -753,6 +802,15 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 tractorBeamPower = tractorBeamPower,
                 tractorReleasedPower = tractorReleasedPower,
                 tractorBeamParticleSystemCount = tractorBeamParticleSystemCount,
+                pickupCollection = pickupCollection != null && pickupCollectionEventCount == 1 &&
+                    pickupCollection.CargoQuantityAfter - pickupCollection.CargoQuantityBefore == pickupCollection.ScalarValue,
+                initialPickupEntityCount = initialPickupEntityCount,
+                finalPickupEntityCount = finalPickupEntityCount,
+                pickupCollectionEventCount = pickupCollectionEventCount,
+                pickupItemKey = pickupCollection?.ItemKey ?? "",
+                pickupQuantity = (float)(pickupCollection?.ScalarValue ?? 0),
+                cargoQuantityBeforePickup = (float)(pickupCollection?.CargoQuantityBefore ?? 0),
+                cargoQuantityAfterPickup = (float)(pickupCollection?.CargoQuantityAfter ?? 0),
                 playerRenderers = playerRendererFacts,
                 mapChannelRendererCount = mapChannelRendererCount,
                 mapChangedPixels = mapChangedPixels,
@@ -803,6 +861,14 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             public float tractorBeamPower;
             public float tractorReleasedPower;
             public int tractorBeamParticleSystemCount;
+            public bool pickupCollection;
+            public int initialPickupEntityCount;
+            public int finalPickupEntityCount;
+            public int pickupCollectionEventCount;
+            public string pickupItemKey;
+            public float pickupQuantity;
+            public float cargoQuantityBeforePickup;
+            public float cargoQuantityAfterPickup;
             public RendererFact[] playerRenderers;
             public int mapChannelRendererCount;
             public int mapChangedPixels;

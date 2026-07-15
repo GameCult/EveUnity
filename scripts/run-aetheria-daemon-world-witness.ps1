@@ -13,7 +13,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$expectedEveUnityCommit = "140e1bd963a0033e66777a3b2c5fe6e9c97dfe32"
+$expectedEveUnityCommit = "817912a041ac1911e1e27a4b88617754d90ad4b7"
 $expectedEveUnityUiToolkitCommit = "4d0cbe0185bdc4fc65eb63503a7c5cb578539669"
 $expectedCultLibCommit = "feb5c71513e71d681699f462fe3682b3168c6f73"
 $repoRoot = Split-Path -Parent $PSScriptRoot
@@ -26,6 +26,7 @@ $daemonLogPath = Join-Path $outputRoot "aetheria-daemon.log"
 $capturePath = Join-Path $outputRoot "aetheria-daemon-world.png"
 $mapCapturePath = Join-Path $outputRoot "aetheria-daemon-map.png"
 $factsPath = Join-Path $outputRoot "witness-facts.json"
+$providerReadyPath = Join-Path $outputRoot "provider-ready.txt"
 $witnessPath = Join-Path $outputRoot "runtime-witness.json"
 $replicaPath = Join-Path $outputRoot "eve-unity-replica.cc"
 $assetCachePath = Join-Path $outputRoot "asset-cache"
@@ -44,7 +45,7 @@ if ((Get-FileHash -LiteralPath $canonicalWitnessTest -Algorithm SHA256).Hash -ne
 }
 
 New-Item -ItemType Directory -Force -Path $outputRoot | Out-Null
-foreach ($priorArtifact in @($resultsPath, $capturePath, $mapCapturePath, $factsPath, $witnessPath)) {
+foreach ($priorArtifact in @($resultsPath, $capturePath, $mapCapturePath, $factsPath, $providerReadyPath, $witnessPath)) {
   if (Test-Path -LiteralPath $priorArtifact) { Remove-Item -LiteralPath $priorArtifact -Force }
 }
 if ($CacheState -eq "cold" -and (Test-Path -LiteralPath $assetCachePath)) {
@@ -132,6 +133,37 @@ $daemonArguments = @(
 )
 $env:AETHERIA_TRACE_EVE_SNAPSHOTS = "1"
 $env:AETHERIA_TRACE_CLIENT_RUDP = "1"
+$env:EVEUNITY_RENDEZVOUS_ENDPOINT = "rudp://127.0.0.1:$Port"
+$env:EVEUNITY_PROVIDER_ID = "aetheria"
+Remove-Item Env:EVEUNITY_SURFACE_ID -ErrorAction SilentlyContinue
+$env:EVEUNITY_REPLICA_PATH = $replicaPath
+$env:EVEUNITY_AETHERIA_CAPTURE_PATH = $capturePath
+$env:EVEUNITY_AETHERIA_MAP_CAPTURE_PATH = $mapCapturePath
+$env:EVEUNITY_DISABLE_AUTO_LAUNCHER = "1"
+$env:EVEUNITY_ASSET_CACHE_PATH = $assetCachePath
+$env:EVEUNITY_WITNESS_FACTS_PATH = $factsPath
+$env:EVEUNITY_PROVIDER_READY_PATH = $providerReadyPath
+$arguments = @(
+  "-batchmode", "-projectPath", $projectRoot,
+  "-runTests", "-testPlatform", "PlayMode",
+  "-assemblyNames", "GameCult.EveUnity.GenericClient.PlayModeTests",
+  "-testFilter", "GenericCultMeshClientLowersAndMovesAdvertisedWorld",
+  "-testResults", $resultsPath, "-logFile", $unityLogPath
+)
+$unity = Start-Process -FilePath $UnityExe -ArgumentList $arguments -WorkingDirectory $repoRoot -PassThru -WindowStyle Hidden
+Write-Host "Unity witness PID: $($unity.Id)"
+Write-Host "Unity log: $unityLogPath"
+$clientReady = $false
+for ($attempt = 0; $attempt -lt 240; $attempt++) {
+  if ($unity.HasExited) { throw "Unity exited before reaching provider connection. See $unityLogPath" }
+  if (Test-Path -LiteralPath $providerReadyPath) { $clientReady = $true; break }
+  Start-Sleep -Milliseconds 500
+}
+if (-not $clientReady) {
+  Stop-Process -Id $unity.Id -Force -ErrorAction SilentlyContinue
+  throw "Unity did not reach provider connection within 120 seconds. See $unityLogPath"
+}
+
 $daemon = Start-Process -FilePath "dotnet" -ArgumentList $daemonArguments -PassThru -WindowStyle Hidden `
   -RedirectStandardOutput $daemonLogPath -RedirectStandardError (Join-Path $outputRoot "aetheria-daemon.error.log")
 Write-Host "Aetheria daemon PID: $($daemon.Id)"
@@ -148,23 +180,6 @@ try {
   }
   if (-not $ready) { throw "Aetheria daemon did not open CultMesh port $Port within 120 seconds. See $daemonLogPath" }
 
-  $env:EVEUNITY_RENDEZVOUS_ENDPOINT = "rudp://127.0.0.1:$Port"
-  $env:EVEUNITY_PROVIDER_ID = "aetheria"
-  Remove-Item Env:EVEUNITY_SURFACE_ID -ErrorAction SilentlyContinue
-  $env:EVEUNITY_REPLICA_PATH = $replicaPath
-  $env:EVEUNITY_AETHERIA_CAPTURE_PATH = $capturePath
-  $env:EVEUNITY_AETHERIA_MAP_CAPTURE_PATH = $mapCapturePath
-  $env:EVEUNITY_DISABLE_AUTO_LAUNCHER = "1"
-  $env:EVEUNITY_ASSET_CACHE_PATH = $assetCachePath
-  $env:EVEUNITY_WITNESS_FACTS_PATH = $factsPath
-  $arguments = @(
-    "-batchmode", "-projectPath", $projectRoot,
-    "-runTests", "-testPlatform", "PlayMode",
-    "-assemblyNames", "GameCult.EveUnity.GenericClient.PlayModeTests",
-    "-testFilter", "GenericCultMeshClientLowersAndMovesAdvertisedWorld",
-    "-testResults", $resultsPath, "-logFile", $unityLogPath
-  )
-  $unity = Start-Process -FilePath $UnityExe -ArgumentList $arguments -WorkingDirectory $repoRoot -PassThru -WindowStyle Hidden
   if (-not $unity.WaitForExit(300000)) {
     Stop-Process -Id $unity.Id -Force -ErrorAction SilentlyContinue
     throw "Unity witness exceeded 300 seconds. See $unityLogPath"
@@ -296,7 +311,8 @@ try {
   Write-Host "Cache-state witness: $stateWitnessPath"
 }
 finally {
+  if ($null -ne $unity -and -not $unity.HasExited) { Stop-Process -Id $unity.Id -Force -ErrorAction SilentlyContinue }
   if ($null -ne $daemon -and -not $daemon.HasExited) { Stop-Process -Id $daemon.Id -Force }
-  Remove-Item Env:EVEUNITY_RENDEZVOUS_ENDPOINT, Env:EVEUNITY_PROVIDER_ENDPOINT, Env:EVEUNITY_PROVIDER_ID, Env:EVEUNITY_SURFACE_ID, Env:EVEUNITY_REPLICA_PATH, Env:EVEUNITY_AETHERIA_CAPTURE_PATH, Env:EVEUNITY_AETHERIA_MAP_CAPTURE_PATH, Env:EVEUNITY_DISABLE_AUTO_LAUNCHER, Env:EVEUNITY_ASSET_CACHE_PATH, Env:EVEUNITY_WITNESS_FACTS_PATH -ErrorAction SilentlyContinue
+  Remove-Item Env:EVEUNITY_RENDEZVOUS_ENDPOINT, Env:EVEUNITY_PROVIDER_ENDPOINT, Env:EVEUNITY_PROVIDER_ID, Env:EVEUNITY_SURFACE_ID, Env:EVEUNITY_REPLICA_PATH, Env:EVEUNITY_AETHERIA_CAPTURE_PATH, Env:EVEUNITY_AETHERIA_MAP_CAPTURE_PATH, Env:EVEUNITY_DISABLE_AUTO_LAUNCHER, Env:EVEUNITY_ASSET_CACHE_PATH, Env:EVEUNITY_WITNESS_FACTS_PATH, Env:EVEUNITY_PROVIDER_READY_PATH -ErrorAction SilentlyContinue
   Remove-Item Env:AETHERIA_TRACE_EVE_SNAPSHOTS -ErrorAction SilentlyContinue
 }

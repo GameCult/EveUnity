@@ -212,6 +212,9 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
 
             try
             {
+                var providerReadyPath = Environment.GetEnvironmentVariable("EVEUNITY_PROVIDER_READY_PATH");
+                if (!string.IsNullOrWhiteSpace(providerReadyPath))
+                    File.WriteAllText(providerReadyPath, DateTimeOffset.UtcNow.ToString("O"));
                 provider = root.AddComponent<EveUnityCultMeshPlayableWorldProvider>();
                 provider.Configure(
                     rendezvousEndpoint,
@@ -220,7 +223,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     surfaceId,
                     requiredSurfaceKind: "interactive-world",
                     clientRuntimeId: $"eve-unity-test-{Guid.NewGuid():N}");
-                var publicationDeadline = Time.realtimeSinceStartup + 10f;
+                var publicationDeadline = Time.realtimeSinceStartup + 30f;
                 while (true)
                 {
                     var published = false;
@@ -230,6 +233,9 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                         published = true;
                     }
                     catch (InvalidOperationException) when (Time.realtimeSinceStartup < publicationDeadline)
+                    {
+                    }
+                    catch (TimeoutException) when (Time.realtimeSinceStartup < publicationDeadline)
                     {
                     }
                     if (published) break;

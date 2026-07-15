@@ -4,8 +4,8 @@
 
 The warm-cache released-package witness passes with:
 
-- `org.gamecult.eve.unity-scene` `0.3.31`, commit
-  `140e1bd963a0033e66777a3b2c5fe6e9c97dfe32`;
+- `org.gamecult.eve.unity-scene` `0.3.32`, commit
+  `817912a041ac1911e1e27a4b88617754d90ad4b7`;
 - `org.gamecult.eve.surface` `0.2.2`, from the same commit;
 - `org.gamecult.eve.unity-uitoolkit` `0.1.1`, commit
   `4d0cbe0185bdc4fc65eb63503a7c5cb578539669`;
@@ -16,7 +16,8 @@ The warm-cache released-package witness passes with:
 
 Evidence is in `artifacts/aetheria-daemon-native-0326-warm`. The PlayMode test
 passed and recorded provider-owned reconciled movement, look, targeting,
-tractor press, tractor release, and action receipts. The daemon-owned look direction reached the SoA body rotation,
+tractor press, tractor release, contact-gated cargo collection, and action
+receipts. The daemon-owned look direction reached the SoA body rotation,
 and the generic aim presentation rendered at the advertised 50-unit minimum
 convergence distance. The advertised skybox material and reflection cubemap
 resolved from the provider bundle as their required native types and became the
@@ -45,16 +46,20 @@ daemon lock progress `1.0`; Unity does not manufacture or smooth that value.
 Camera-channel facts:
 
 - provider-authored player renderers: `13`, including the lowered tractor effect;
-- pilot changed pixels: `230,105`;
-- pilot average luminance: `0.004590`;
-- pilot bright pixels: `1,620`;
+- pilot changed pixels: `230,302`;
+- pilot average luminance: `0.002843`;
+- pilot bright pixels: `1,040`;
 - map-channel renderers: `11`;
-- map changed pixels: `5,187`;
+- map changed pixels: `3,921`;
 - native cockpit progress bars: `7`;
 - daemon tractor power at capture: `1.0` after the held input completed its
   authored ramp;
 - daemon tractor power after the advertised release: `0`;
 - provider tractor particle systems: `1`;
+- pickup entities before/after collection: `1` / `0`;
+- provider `pickup.collected` events: exactly `1`;
+- collected item and quantity: `scrap-metal`, `1`;
+- authoritative cargo quantity before/after: `0` / `1`;
 - the pilot camera excludes the advertised map layer;
 - the player prefab's embedded layer-14 map icon contributes exactly `0` pilot
   pixels;
@@ -86,6 +91,14 @@ build removes the fossil's embedded tractor object from player/ship prefabs, so
 the standalone `beam.presentation` prefab is the only tractor renderer. Its
 cyan/yellow dotted band is visible in the pilot capture and absent from the map
 capture.
+The same released run begins with one provider-owned pickup in the entity SoA.
+Held tractor input produces a Ymir Begin contact fact; the daemon consumes that
+fact once, removes the pickup once, changes cargo from `0` to `1`, and emits one
+`pickup.collected` feedback event carrying the exact delta. Aetheria's Ymir body
+mapping excludes stations and non-ship world bodies from pickup collision facts,
+so ambient station contact cannot become a cargo writer. Capacity rejection and
+its `cargo-capacity` reason are covered by the daemon smoke, not claimed as a
+released-client live scenario here.
 Effect tuning remains provider art work; the runtime must not compensate with
 an Aetheria-specific beam.
 

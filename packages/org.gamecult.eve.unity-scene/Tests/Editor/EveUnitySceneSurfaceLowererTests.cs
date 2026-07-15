@@ -401,6 +401,7 @@ namespace GameCult.Eve.UnityScene.Tests
             Assert.That(projection.PlayableWorld.AssetManifest, Is.EqualTo("cultmesh://aetheria/assets/manifest"));
             Assert.That(projection.PlayableWorld.InputProfile, Is.EqualTo("arpg-third-person"));
             Assert.That(projection.PlayableWorld.CameraRig, Is.EqualTo("planar.top-down-follow.v1"));
+            Assert.That(projection.PlayableWorld.CameraLookAt, Is.Empty);
             Assert.That(projection.PlayableWorld.CameraTargetEntityId, Is.EqualTo("player-vanguard"));
             Assert.That(projection.PlayableWorld.CameraDistance, Is.EqualTo(150f));
             Assert.That(projection.PlayableWorld.CameraVerticalFieldOfViewDegrees, Is.EqualTo(60f));
@@ -1266,7 +1267,7 @@ namespace GameCult.Eve.UnityScene.Tests
         }
 
         [Test]
-        public void PlayableWorldCameraRigFramesEntityForwardPerspectiveWithoutProviderTypes()
+        public void PlayableWorldCameraRigFramesEntityAndLooksAtAdvertisedConvergencePointWithoutProviderTypes()
         {
             var rootObject = new GameObject("generic-forward-world-root");
             var hostObject = new GameObject("generic-forward-client");
@@ -1285,7 +1286,8 @@ namespace GameCult.Eve.UnityScene.Tests
                             cameraTargetScreenY: "0.81",
                             cameraPositionDamping: "0",
                             cameraNearClipPlane: "1",
-                            cameraFarClipPlane: "4096"),
+                            cameraFarClipPlane: "4096",
+                            cameraLookAt: "aim.convergence-point.v1"),
                         Advertisement("aetheria.daemon.game"),
                         "cultmesh://generic/eve/surfaces/forward",
                         1),
@@ -1307,7 +1309,10 @@ namespace GameCult.Eve.UnityScene.Tests
                 var player = rootObject.GetComponentInChildren<EveUnityPlayableWorldEntityMarker>();
                 Assert.That(player, Is.Not.Null);
                 Assert.That(rig.ApplyRig(0f), Is.True);
-                Assert.That(Vector3.Dot(cameraObject.transform.forward, player!.transform.forward), Is.GreaterThan(0.999f));
+                var aimPoint = player!.transform.position + player.transform.forward * 50f;
+                var cameraToAim = (aimPoint - cameraObject.transform.position).normalized;
+                Assert.That(Vector3.Dot(cameraObject.transform.forward, cameraToAim), Is.GreaterThan(0.999f));
+                Assert.That(cameraObject.transform.forward.y, Is.GreaterThan(0f));
                 Assert.That(camera.fieldOfView, Is.EqualTo(60f).Within(0.001f));
                 Assert.That(camera.nearClipPlane, Is.EqualTo(1f).Within(0.001f));
                 Assert.That(camera.farClipPlane, Is.EqualTo(4096f).Within(0.001f));
@@ -1839,7 +1844,8 @@ namespace GameCult.Eve.UnityScene.Tests
             string cameraTargetScreenY = "0.55",
             string cameraPositionDamping = "5",
             string cameraNearClipPlane = "0.3",
-            string cameraFarClipPlane = "4096")
+            string cameraFarClipPlane = "4096",
+            string cameraLookAt = "")
         {
             var playableChildren = new List<EveSurfaceComponent>
             {
@@ -1977,6 +1983,7 @@ namespace GameCult.Eve.UnityScene.Tests
                                     ["assetManifest"] = "cultmesh://aetheria/assets/manifest",
                                     ["inputProfile"] = "arpg-third-person",
                                     ["cameraRig"] = cameraRig,
+                                    ["cameraLookAt"] = cameraLookAt,
                                     ["cameraTargetEntityId"] = "player-vanguard",
                                     ["cameraDistance"] = cameraDistance,
                                     ["cameraVerticalFieldOfViewDegrees"] = "60",

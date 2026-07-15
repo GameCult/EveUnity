@@ -1,5 +1,6 @@
 using System;
 using System.Globalization;
+using UnityEngine;
 
 #nullable enable
 
@@ -23,6 +24,24 @@ namespace GameCult.Eve.UnityScene
         public float MinimumConvergenceDistance { get; }
         public float ViewDotRadius { get; }
 
+        public bool TryResolveViewPoint(EveUnityPlayableWorldClientHost? host, out Vector3 viewPoint)
+        {
+            viewPoint = default;
+            if (host == null || string.IsNullOrWhiteSpace(ControlledEntityId)) return false;
+            var controlled = FindMarker(host, ControlledEntityId);
+            if (controlled == null) return false;
+            var distance = MinimumConvergenceDistance;
+            var target = FindMarker(host, ConvergenceTargetEntityId);
+            if (target != null)
+                distance = Mathf.Max(distance, Vector3.Distance(controlled.transform.position, target.transform.position));
+            var forward = controlled.transform.forward;
+            forward.y = 0f;
+            if (forward.sqrMagnitude <= 0.0001f) forward = Vector3.forward;
+            forward.Normalize();
+            viewPoint = controlled.transform.position + forward * distance;
+            return true;
+        }
+
         public static EveUnityAimPresentation? Find(EveUnitySceneProjection? projection) =>
             projection == null ? null : Find(projection.Root);
 
@@ -35,6 +54,16 @@ namespace GameCult.Eve.UnityScene
                 var found = Find(child);
                 if (found != null) return found;
             }
+            return null;
+        }
+
+        private static EveUnityPlayableWorldEntityMarker? FindMarker(
+            EveUnityPlayableWorldClientHost host,
+            string entityId)
+        {
+            if (string.IsNullOrWhiteSpace(entityId)) return null;
+            foreach (var marker in host.SceneRoot.GetComponentsInChildren<EveUnityPlayableWorldEntityMarker>(true))
+                if (string.Equals(marker.EntityId, entityId, StringComparison.Ordinal)) return marker;
             return null;
         }
 

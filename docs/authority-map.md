@@ -63,9 +63,13 @@ The provider selects camera semantics and framing from its authoritative mode.
 `planar.top-down-follow.v1` derives a downward presentation from the advertised
 target and framing values. `perspective.entity-forward-follow.v1` derives its
 view direction from the presented entity rotation and applies the same generic
-distance, screen-position, damping, and lens contract. EveUnity owns only the
-native camera transform. It cannot collapse distinct provider modes into one
-camera opinion or infer a product camera from entity kind.
+distance, screen-position, damping, and lens contract. When the provider also
+advertises `aim.convergence-point.v1`, the camera and aim marker consume one
+derived convergence point from the `aim.presentation` node. The native camera
+rotation and position are solved together so the optical axis reaches that
+point while the followed entity remains at the advertised screen coordinate.
+EveUnity owns only this native projection. It cannot collapse distinct provider
+modes into one camera opinion or infer a product camera from entity kind.
 
 ## Shared Paths
 

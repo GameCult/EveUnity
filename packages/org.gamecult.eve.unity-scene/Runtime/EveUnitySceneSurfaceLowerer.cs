@@ -150,7 +150,8 @@ namespace GameCult.Eve.UnityScene
                 ParseVector3(worldRoot.GetProp("keyLightDirection")),
                 ParseVector3(worldRoot.GetProp("keyLightColor")),
                 ParseFloat(worldRoot.GetProp("keyLightIntensity"), 0f),
-                fieldVolumes);
+                fieldVolumes,
+                worldRoot.GetProp("cameraLookAt"));
         }
 
         private static EveUnityFieldVolumeProjection BuildFieldVolume(EveSurfaceComponent component) =>
@@ -392,7 +393,8 @@ namespace GameCult.Eve.UnityScene
             (float x, float y, float z) keyLightDirection = default,
             (float r, float g, float b) keyLightColor = default,
             float keyLightIntensity = 0f,
-            IReadOnlyList<EveUnityFieldVolumeProjection>? fieldVolumes = null)
+            IReadOnlyList<EveUnityFieldVolumeProjection>? fieldVolumes = null,
+            string cameraLookAt = "")
         {
             WorldRootId = worldRootId ?? "";
             StatePointerId = statePointerId ?? "";
@@ -437,6 +439,7 @@ namespace GameCult.Eve.UnityScene
             KeyLightColorB = keyLightColor.b;
             KeyLightIntensity = keyLightIntensity;
             FieldVolumes = fieldVolumes ?? Array.Empty<EveUnityFieldVolumeProjection>();
+            CameraLookAt = cameraLookAt ?? "";
         }
 
         public string WorldRootId { get; }
@@ -458,6 +461,8 @@ namespace GameCult.Eve.UnityScene
         public string CameraRig { get; }
 
         public string CameraTargetEntityId { get; }
+
+        public string CameraLookAt { get; }
 
         public float CameraDistance { get; }
 

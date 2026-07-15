@@ -143,7 +143,7 @@ namespace GameCult.Eve.UnityScene
             if (activeWorld.CameraRig == "planar.top-down-follow.v1")
                 return ApplyPlanarTopDown(activeWorld, camera, cameraComponent, player.position, deltaTime);
             if (activeWorld.CameraRig == "perspective.entity-forward-follow.v1")
-                return ApplyEntityForwardFollow(activeWorld, camera, cameraComponent, player, deltaTime);
+                return ApplyEntityForwardFollow(activeWorld, resolvedHost, camera, cameraComponent, player, deltaTime);
 
             var bounds = CalculateVisualBounds(
                 player,
@@ -204,6 +204,7 @@ namespace GameCult.Eve.UnityScene
 
         private static bool ApplyEntityForwardFollow(
             EveUnityPlayableWorldProjection world,
+            EveUnityPlayableWorldClientHost host,
             Transform camera,
             Camera? cameraComponent,
             Transform target,
@@ -226,16 +227,35 @@ namespace GameCult.Eve.UnityScene
                 forward = Vector3.forward;
             forward.Normalize();
             var rotation = Quaternion.LookRotation(forward, Vector3.up);
-            var right = rotation * Vector3.right;
             var aspect = cameraComponent != null ? cameraComponent.aspect : 16f / 9f;
             var verticalHalfExtent = resolvedDistance * Mathf.Tan(verticalFov * 0.5f * Mathf.Deg2Rad);
             var horizontalHalfExtent = verticalHalfExtent * Mathf.Max(0.01f, aspect);
             var horizontalOffset = (Mathf.Clamp01(world.CameraTargetScreenX) - 0.5f) * 2f * horizontalHalfExtent;
             var verticalOffset = (Mathf.Clamp01(world.CameraTargetScreenY) - 0.5f) * 2f * verticalHalfExtent;
+            if (string.Equals(world.CameraLookAt, "aim.convergence-point.v1", System.StringComparison.Ordinal))
+            {
+                var aim = EveUnityAimPresentation.Find(host.ActiveProjection);
+                if (aim == null || !aim.TryResolveViewPoint(host, out var aimPoint)) return false;
+                var targetToAim = aimPoint - target.position;
+                var targetToAimDistanceSquared = targetToAim.sqrMagnitude;
+                var screenOffsetSquared = horizontalOffset * horizontalOffset + verticalOffset * verticalOffset;
+                if (targetToAimDistanceSquared <= screenOffsetSquared + 0.0001f) return false;
+                var targetToAimDirection = targetToAim.normalized;
+                var opticalDepthDelta = Mathf.Sqrt(targetToAimDistanceSquared - screenOffsetSquared);
+                var cameraLocalTargetToAim = new Vector3(
+                    -horizontalOffset,
+                    -verticalOffset,
+                    opticalDepthDelta);
+                rotation = Quaternion.LookRotation(targetToAimDirection, Vector3.up) *
+                           Quaternion.FromToRotation(cameraLocalTargetToAim.normalized, Vector3.forward);
+            }
+            var right = rotation * Vector3.right;
+            var up = rotation * Vector3.up;
+            var opticalForward = rotation * Vector3.forward;
             var desiredPosition = target.position -
-                                  (forward * resolvedDistance) -
+                                  (opticalForward * resolvedDistance) -
                                   (right * horizontalOffset) -
-                                  (Vector3.up * verticalOffset);
+                                  (up * verticalOffset);
             var damping = Mathf.Max(0f, world.CameraPositionDamping);
             var t = deltaTime <= 0f || damping <= 0f
                 ? 1f

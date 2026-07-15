@@ -34,22 +34,12 @@ namespace GameCult.Eve.UnityScene
                 return;
             }
 
-            var controlled = FindMarker(Current.ControlledEntityId);
-            if (controlled == null)
+            if (!Current.TryResolveViewPoint(_host, out var viewPoint))
             {
                 SetVisible(false);
                 return;
             }
-
-            var distance = Current.MinimumConvergenceDistance;
-            var target = FindMarker(Current.ConvergenceTargetEntityId);
-            if (target != null)
-                distance = Mathf.Max(distance, Vector3.Distance(controlled.transform.position, target.transform.position));
-            var forward = controlled.transform.forward;
-            forward.y = 0f;
-            if (forward.sqrMagnitude <= 0.0001f) forward = Vector3.forward;
-            forward.Normalize();
-            ViewDotPosition = controlled.transform.position + forward * distance;
+            ViewDotPosition = viewPoint;
 
             EnsureVisuals();
             var camera = _host?.ActiveCameraTransform;
@@ -68,14 +58,6 @@ namespace GameCult.Eve.UnityScene
         }
 
         private void LateUpdate() => RefreshNow();
-
-        private EveUnityPlayableWorldEntityMarker? FindMarker(string entityId)
-        {
-            if (_host == null || string.IsNullOrWhiteSpace(entityId)) return null;
-            foreach (var marker in _host.SceneRoot.GetComponentsInChildren<EveUnityPlayableWorldEntityMarker>(true))
-                if (string.Equals(marker.EntityId, entityId, StringComparison.Ordinal)) return marker;
-            return null;
-        }
 
         private void EnsureVisuals()
         {

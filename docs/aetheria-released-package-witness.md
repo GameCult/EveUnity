@@ -4,8 +4,8 @@
 
 The warm-cache released-package witness passes with:
 
-- `org.gamecult.eve.unity-scene` `0.3.37`, commit
-  `5ce654800760203154132d4b0fd1475294283ba6`;
+- `org.gamecult.eve.unity-scene` `0.3.38`, commit
+  `de580fe88350f422e30f1e4b64ded5c33070b118`;
 - `org.gamecult.eve.plugin-fields` `0.2.0`, commit
   `382a23d8f8a07e4b5eef5f81f84655861a858367`;
 - `org.gamecult.eve.surface` `0.2.2`, commit
@@ -46,7 +46,10 @@ Fields splat layers. Its surface contract contains logical ports such as
 names or pass indices. The selected `unity-scene` provider asset variant owns
 that concrete shader ABI through `unity.volume.*` metadata. The released
 generic lowerer resolved the provider shader and dither texture, rasterized all
-four layers, and composited `22` pilot-camera frames from daemon frame `220`.
+four layers, and composited `22` pilot-camera frames from daemon frame `224`.
+The provider variant advertises the fossil shader's raymarch, temporal-history,
+and composite passes plus their logical ports. EveUnity allocates and resets the
+history targets generically; a partial temporal ABI fails closed.
 
 The two PNGs below are deliberate camera-channel captures, not a composited
 screen capture, so they prove world/map isolation rather than HUD pixels. The
@@ -57,11 +60,11 @@ daemon lock progress `1.0`; Unity does not manufacture or smooth that value.
 Camera-channel facts:
 
 - provider-authored player renderers: `13`, including the lowered tractor effect;
-- pilot changed pixels: `230,323`;
-- pilot average luminance: `0.0532403`;
-- pilot bright pixels: `954`;
+- pilot changed pixels: `230,310`;
+- pilot average luminance: `0.0524399`;
+- pilot bright pixels: `1,731`;
 - map-channel renderers: `11`;
-- map changed pixels: `4,115`;
+- map changed pixels: `4,937`;
 - native cockpit progress bars: `7`;
 - daemon tractor power at capture: `1.0` after the held input completed its
   authored ramp;
@@ -77,12 +80,12 @@ Camera-channel facts:
 - the map camera renders exactly the advertised map layer.
 
 Visual inspection confirms that map glyphs are absent from the pilot frame and
-present in the map-only frame. The pilot frame also shows the provider-owned
-gravity-shaped fog basin rather than a client-authored background effect. Its
-current dark, broad shape is transport/lowering proof, not visual-parity proof;
-restoring the fossil's cloud structure, scale, tint range, and scene readability
-remains provider art work. EveUnity must not compensate with Aetheria-specific
-lighting or fog rules.
+present in the map-only frame. The volume lifecycle is active, but the pilot
+frame remains nearly black and geometric; it does not yet reproduce the fossil's
+blue gravity-shaped fog sea. This is transport and lowering proof, not visual
+parity. The next provider-side diagnosis must inspect published tint/height
+field values, exposure/composition, camera depth, and the fossil tuning. EveUnity
+must not compensate with Aetheria-specific lighting or fog rules.
 Substance is not part of this path; later texture baking belongs in Blender.
 Aetheria currently bundles ambientCG's 1K `Metal012` color, normal, and
 metalness maps under CC0. The same pre-generated maps now replace dead
@@ -123,8 +126,8 @@ Primary artifacts:
 
 ## Cold delivery is not currently proven
 
-The current `46,413,003` byte Unity bundle (SHA-256
-`229a7833120d9b4fe7e4270f13adc8ce8e553246a99efcbf20bb50d3ca18494d`)
+The current `46,412,252` byte Unity bundle (SHA-256
+`bc45d84b54666e813bfccca12496ba4a3533ed08896dfc57de726749574fa796`)
 times out from an empty cache. Its bytes are
 still transported through batched snapshot records rather than the intended
 mapped/network body transport. Increasing the Unity timeout would hide the

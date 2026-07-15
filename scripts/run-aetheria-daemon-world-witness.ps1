@@ -32,6 +32,7 @@ $witnessPath = Join-Path $outputRoot "runtime-witness.json"
 $replicaPath = Join-Path $outputRoot "eve-unity-replica.cc"
 $assetCachePath = Join-Path $outputRoot "asset-cache"
 $statePath = Join-Path $outputRoot "aetheria-witness-state.cc"
+$providerBundlePath = Join-Path $AetheriaRoot "Build\EveAssets\StandaloneWindows64\aetheria-world"
 $daemonProject = Join-Path $AetheriaRoot "Aetheria.State.Daemon\Aetheria.State.Daemon.csproj"
 $importProject = Join-Path $AetheriaRoot "Aetheria.State.Import\Aetheria.State.Import.csproj"
 
@@ -116,6 +117,17 @@ if (-not $SkipAssetBundleBuild) {
   if ($bundleBuilder.ExitCode -ne 0) {
     Get-Content $bundleBuildLogPath -Tail 160
     throw "Aetheria AssetBundle build failed with exit code $($bundleBuilder.ExitCode)"
+  }
+}
+if ($CacheState -eq "warm") {
+  if (-not (Test-Path -LiteralPath $providerBundlePath)) {
+    throw "Provider-owned Aetheria bundle is missing: $providerBundlePath"
+  }
+  $currentBundleHash = (Get-FileHash -LiteralPath $providerBundlePath -Algorithm SHA256).Hash.ToLowerInvariant()
+  $currentWarmBody = Get-ChildItem -LiteralPath $assetCachePath -Filter "$currentBundleHash.body" -File -Recurse -ErrorAction SilentlyContinue |
+    Select-Object -First 1
+  if ($null -eq $currentWarmBody) {
+    throw "Warm witness cache does not contain the current provider bundle. expected=$currentBundleHash cache=$assetCachePath"
   }
 }
 
@@ -240,7 +252,6 @@ try {
   }
   $finalBodies = @(Get-ChildItem -LiteralPath $assetCachePath -Filter *.body -File -Recurse -ErrorAction SilentlyContinue)
   $finalPartials = @(Get-ChildItem -LiteralPath $assetCachePath -Filter *.partial -File -Recurse -ErrorAction SilentlyContinue)
-  $providerBundlePath = Join-Path $AetheriaRoot "Build\EveAssets\StandaloneWindows64\aetheria-world"
   if (-not (Test-Path -LiteralPath $providerBundlePath)) {
     throw "Provider-owned Aetheria bundle is missing: $providerBundlePath"
   }

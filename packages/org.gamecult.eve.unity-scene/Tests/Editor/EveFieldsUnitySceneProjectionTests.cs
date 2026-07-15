@@ -49,7 +49,7 @@ namespace GameCult.Eve.UnityScene.Tests
 
             var previous = RenderTexture.active;
             RenderTexture.active = output;
-            var readback = new Texture2D(64, 64, TextureFormat.RGBAFloat, false, true);
+            var readback = new Texture2D(64, 64, TextureFormat.RGBA32, false, true);
             readback.ReadPixels(new Rect(0, 0, 64, 64), 0, 0);
             readback.Apply();
             RenderTexture.active = previous;

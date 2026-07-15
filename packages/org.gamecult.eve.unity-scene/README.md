@@ -49,6 +49,11 @@ new deduplicated shot receipt from the advertised controlled source to the
 advertised selection with authoritative applied or shield-absorbed damage.
 SoA remains the only transform authority; the presentation component never
 duplicates bodies or computes combat outcomes.
+Continuous `beam.presentation` nodes bind provider-authored effect assets to
+the current presented-entity generation. The generic beam renderer follows the
+advertised source transform, applies provider-owned power to particle emission,
+and reconciles asset lifecycles by semantic role. It never raycasts, applies
+force, infers contact, collects cargo, or emits gameplay receipts.
 The reusable `LightningCompute` renderer and its shader/material bundle live in
 this runtime package with their original Unity GUIDs. Provider asset bundles may
 therefore reference the effect without importing Aetheria gameplay code.

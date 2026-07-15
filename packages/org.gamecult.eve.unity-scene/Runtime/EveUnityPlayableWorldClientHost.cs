@@ -103,6 +103,9 @@ namespace GameCult.Eve.UnityScene
             var aimPresentation = GetComponent<EveUnityAimPresentationRenderer>();
             if (aimPresentation == null) aimPresentation = gameObject.AddComponent<EveUnityAimPresentationRenderer>();
             aimPresentation.Bind(this);
+            var beamPresentation = GetComponent<EveUnityBeamPresentationRenderer>();
+            if (beamPresentation == null) beamPresentation = gameObject.AddComponent<EveUnityBeamPresentationRenderer>();
+            beamPresentation.Bind(this, Runtime.GameObjectAssetProvider);
             var thermal = GetComponent<EveUnityThermalPresenter>();
             var thermalHud = GetComponent<EveUnityThermalHudSink>();
             if (thermalHud == null) thermalHud = gameObject.AddComponent<EveUnityThermalHudSink>();

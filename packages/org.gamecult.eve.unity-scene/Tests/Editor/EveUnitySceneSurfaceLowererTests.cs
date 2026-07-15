@@ -993,12 +993,27 @@ namespace GameCult.Eve.UnityScene.Tests
                 var controlledYaw = rootObject.GetComponentsInChildren<EveUnityPlayableWorldEntityMarker>(true)
                     .Single(marker => marker.EntityId == "player-vanguard")
                     .transform.eulerAngles.y * Mathf.Deg2Rad;
-                var look = driver.SubmitLookInput(1000f);
+                driver.QueueLookInput(250f);
+                driver.QueueLookInput(250f);
+                driver.QueueLookInput(500f);
+                var look = driver.SubmitPendingLookInput();
                 Assert.That(look, Is.Not.Null);
                 Assert.That(provider.Submitted.Count, Is.EqualTo(2));
                 Assert.That(look!.Payload.GetString("commandId"), Is.EqualTo("aetheria.daemon.look_intent"));
                 Assert.That(look.Payload.GetDouble("directionX", 0), Is.EqualTo(Mathf.Sin(controlledYaw - 1f)).Within(0.0001f));
                 Assert.That(look.Payload.GetDouble("directionZ", 0), Is.EqualTo(Mathf.Cos(controlledYaw - 1f)).Within(0.0001f));
+
+                host.Connect();
+                var rebasedYaw = rootObject.GetComponentsInChildren<EveUnityPlayableWorldEntityMarker>(true)
+                    .Single(marker => marker.EntityId == "player-vanguard")
+                    .transform.eulerAngles.y * Mathf.Deg2Rad;
+                var rebasedLook = driver.SubmitLookInput(1000f);
+                Assert.That(rebasedLook, Is.Not.Null);
+                Assert.That(provider.Submitted.Count, Is.EqualTo(3));
+                Assert.That(rebasedLook!.Payload.GetDouble("directionX", 0),
+                    Is.EqualTo(Mathf.Sin(rebasedYaw - 1f)).Within(0.0001f));
+                Assert.That(rebasedLook.Payload.GetDouble("directionZ", 0),
+                    Is.EqualTo(Mathf.Cos(rebasedYaw - 1f)).Within(0.0001f));
 
                 var movement = EveUnityPlayableWorldMoveVector.FromCameraRelativeInput(1f, 1f, null);
                 Assert.That(movement.HasInput, Is.True);
@@ -1100,6 +1115,7 @@ namespace GameCult.Eve.UnityScene.Tests
                 largeVisual.layer = 14;
 
                 Assert.That(rig.ApplyRig(0f), Is.True);
+                Assert.That(host.ActiveCameraTransform, Is.SameAs(cameraObject.transform));
                 Assert.That(camera.cullingMask & (1 << 14), Is.Zero);
                 Assert.That(camera.fieldOfView, Is.EqualTo(60f).Within(0.001f));
                 Assert.That(camera.orthographic, Is.False);
@@ -1112,6 +1128,16 @@ namespace GameCult.Eve.UnityScene.Tests
                 Assert.That(viewport.y, Is.EqualTo(0.55f).Within(0.001f));
                 Assert.That(RenderSettings.ambientMode, Is.EqualTo(UnityEngine.Rendering.AmbientMode.Flat));
                 Assert.That(RenderSettings.ambientLight.r, Is.EqualTo(0.2f).Within(0.001f));
+
+                var aim = hostObject.GetComponent<EveUnityAimPresentationRenderer>();
+                Assert.That(aim, Is.Not.Null);
+                var playerPosition = player.transform.position;
+                var playerRotation = player.transform.rotation;
+                aim.RefreshNow();
+                Assert.That(aim.ViewDotVisible, Is.True);
+                Assert.That(Vector3.Distance(playerPosition, aim.ViewDotPosition), Is.EqualTo(50f).Within(0.001f));
+                Assert.That(player.transform.position, Is.EqualTo(playerPosition));
+                Assert.That(player.transform.rotation, Is.EqualTo(playerRotation));
 
                 var selectedTarget = rootObject.GetComponentsInChildren<EveUnityPlayableWorldEntityMarker>()
                     .Single(marker => marker.EntityId == "raider-scout");
@@ -1132,6 +1158,9 @@ namespace GameCult.Eve.UnityScene.Tests
                     cameraObject.transform.position.x - beforeFollow.x,
                     Is.EqualTo(10f * (1f - Mathf.Exp(-0.5f))).Within(0.001f));
                 rig.ReleaseRig();
+                Assert.That(host.ActiveCameraTransform, Is.Null);
+                aim.RefreshNow();
+                Assert.That(aim.ViewDotVisible, Is.False);
                 Assert.That(RenderSettings.ambientMode, Is.EqualTo(ambientMode));
                 Assert.That(RenderSettings.ambientLight, Is.EqualTo(ambientLight));
             }
@@ -1711,6 +1740,19 @@ namespace GameCult.Eve.UnityScene.Tests
                 ""));
 
             playableChildren.Add(new EveSurfaceComponent(
+                "aetheria.daemon.game.aim",
+                "aim.presentation",
+                new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["controlledEntityId"] = "player-vanguard",
+                    ["convergenceTargetEntityId"] = "",
+                    ["viewDotRole"] = "pilot.view-direction",
+                    ["minimumConvergenceDistance"] = "50",
+                    ["viewDotRadius"] = "0.8"
+                },
+                Array.Empty<EveSurfaceComponent>()));
+
+            playableChildren.Add(new EveSurfaceComponent(
                 "aetheria.daemon.game.combat",
                 "combat.presentation",
                 new Dictionary<string, string>(StringComparer.Ordinal)
@@ -1775,6 +1817,7 @@ namespace GameCult.Eve.UnityScene.Tests
                                     ["playerEntityId"] = "player-vanguard",
                                     ["movementCommand"] = "aetheria.daemon.move_intent",
                                     ["lookCommand"] = "aetheria.daemon.look_intent",
+                                    ["lookModel"] = "planar-yaw.v1",
                                     ["lookSensitivityRadians"] = "-0.001",
                                     ["focusCommand"] = "aetheria.daemon.focus",
                                     ["targetCommand"] = "aetheria.daemon.target",

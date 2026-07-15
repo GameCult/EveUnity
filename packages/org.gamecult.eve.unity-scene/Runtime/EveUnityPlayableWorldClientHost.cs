@@ -21,6 +21,7 @@ namespace GameCult.Eve.UnityScene
         [SerializeField] private bool renderShotTrajectories = true;
 
         private float _nextRefreshAt;
+        private object? _cameraOwner;
 
         public EveUnityPlayableWorldRuntime? Runtime { get; private set; }
 
@@ -37,6 +38,8 @@ namespace GameCult.Eve.UnityScene
             (providerSurfaceDocuments as IEveUnityInputCapabilitySource)?.CurrentInputCapability;
 
         public long ActiveVersion => Runtime?.ActiveVersion ?? 0;
+        public int ConnectionEpoch { get; private set; }
+        public Transform? ActiveCameraTransform { get; private set; }
 
         public event Action<EveUnityFeedbackEvent>? FeedbackAvailable;
         public event Action<EveUnityShotReceipt>? ShotAvailable;
@@ -105,8 +108,22 @@ namespace GameCult.Eve.UnityScene
             thermal.Bind(this, Runtime.GameObjectAssetProvider as IEveUnityNativeAssetProvider);
 
             var presentation = Runtime.Connect();
+            ConnectionEpoch++;
             _nextRefreshAt = Time.unscaledTime + Math.Max(0.01f, refreshIntervalSeconds);
             return presentation;
+        }
+
+        internal void ClaimWorldCamera(object owner, Transform camera)
+        {
+            _cameraOwner = owner ?? throw new ArgumentNullException(nameof(owner));
+            ActiveCameraTransform = camera != null ? camera : throw new ArgumentNullException(nameof(camera));
+        }
+
+        internal void ReleaseWorldCamera(object owner)
+        {
+            if (!ReferenceEquals(_cameraOwner, owner)) return;
+            _cameraOwner = null;
+            ActiveCameraTransform = null;
         }
 
         public EveUnityPlayableWorldPresentation Refresh()
@@ -180,6 +197,8 @@ namespace GameCult.Eve.UnityScene
             }
             Runtime?.Dispose();
             Runtime = null;
+            _cameraOwner = null;
+            ActiveCameraTransform = null;
         }
 
         private void OnFeedbackAvailable(EveUnityFeedbackEvent value) => FeedbackAvailable?.Invoke(value);

@@ -138,7 +138,8 @@ namespace GameCult.Eve.UnityScene
                 ParseFloat(worldRoot.GetProp("cameraNearClipPlane"), 0f),
                 ParseFloat(worldRoot.GetProp("cameraFarClipPlane"), 0f),
                 worldRoot.GetProp("lookCommand"),
-                ParseFloat(worldRoot.GetProp("lookSensitivityRadians"), 0f));
+                ParseFloat(worldRoot.GetProp("lookSensitivityRadians"), 0f),
+                worldRoot.GetProp("lookModel"));
         }
 
         private static EveUnityPlayableWorldEntity BuildPlayableEntity(EveSurfaceComponent component)
@@ -361,7 +362,8 @@ namespace GameCult.Eve.UnityScene
             float cameraNearClipPlane = 0f,
             float cameraFarClipPlane = 0f,
             string lookCommand = "",
-            float lookSensitivityRadians = 0f)
+            float lookSensitivityRadians = 0f,
+            string lookModel = "")
         {
             WorldRootId = worldRootId ?? "";
             StatePointerId = statePointerId ?? "";
@@ -394,6 +396,7 @@ namespace GameCult.Eve.UnityScene
             CameraFarClipPlane = cameraFarClipPlane;
             LookCommand = lookCommand ?? "";
             LookSensitivityRadians = lookSensitivityRadians;
+            LookModel = lookModel ?? "";
         }
 
         public string WorldRootId { get; }
@@ -447,6 +450,8 @@ namespace GameCult.Eve.UnityScene
         public string LookCommand { get; }
 
         public float LookSensitivityRadians { get; }
+
+        public string LookModel { get; }
 
         public string FocusCommand { get; }
 

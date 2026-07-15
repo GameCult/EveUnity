@@ -52,10 +52,15 @@ namespace GameCult.Eve.UnityScene
             ViewDotPosition = controlled.transform.position + forward * distance;
 
             EnsureVisuals();
-            var camera = Camera.main;
-            var right = camera == null ? Vector3.right : camera.transform.right;
-            var up = camera == null ? Vector3.up : camera.transform.up;
-            var center = ViewDotPosition + (camera == null ? Vector3.zero : -camera.transform.forward * 0.1f);
+            var camera = _host?.ActiveCameraTransform;
+            if (camera == null)
+            {
+                SetVisible(false);
+                return;
+            }
+            var right = camera.right;
+            var up = camera.up;
+            var center = ViewDotPosition - camera.forward * 0.1f;
             Ring(_ring!, center, right, up, Current.ViewDotRadius);
             Segment(_horizontal!, center, right, Current.ViewDotRadius * 1.6f);
             Segment(_vertical!, center, up, Current.ViewDotRadius * 1.6f);

@@ -15,6 +15,7 @@ namespace GameCult.Eve.UnityScene
         private readonly IEveUnityEntitySoaViewDocumentSource? _entityViews;
         private readonly EveUnityEntitySoaPresenter _entityPresenter;
         private readonly IEveUnityPresentedEntityRegistry? _presentedEntities;
+        private IDisposable? _ownedSceneSink;
         private bool _entityViewsConnected;
         private bool _assetManifestConnected;
 
@@ -106,6 +107,7 @@ namespace GameCult.Eve.UnityScene
                 new EveUnityAssetRefResolver(),
                 assetManifests);
             runtime.GameObjectAssetProvider = liveAssetProvider;
+            runtime._ownedSceneSink = sceneSink;
             return runtime;
         }
 
@@ -198,6 +200,8 @@ namespace GameCult.Eve.UnityScene
             Disconnect();
             _client.Dispose();
             _assetManifestSource?.Dispose();
+            _ownedSceneSink?.Dispose();
+            _ownedSceneSink = null;
         }
 
         private void EnsureAssetManifestConnected()

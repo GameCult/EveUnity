@@ -30,11 +30,18 @@ namespace GameCult.Eve.UnityScene
         private bool _wasMoving;
         private float _lookYawRadians;
         private bool _hasLookYaw;
+        private float _pendingLookHorizontal;
+        private string _lookOwnerKey = "";
 
         public EveUnityPlayableWorldClientHost? Host
         {
             get => host;
-            set => host = value;
+            set
+            {
+                if (ReferenceEquals(host, value)) return;
+                host = value;
+                ResetLookState();
+            }
         }
 
         public Transform? CameraTransform
@@ -104,14 +111,17 @@ namespace GameCult.Eve.UnityScene
         {
             var resolvedHost = ResolveHost();
             var world = resolvedHost?.ActiveWorld;
-            if (world == null || string.IsNullOrWhiteSpace(world.LookCommand) ||
+            if (world == null || !string.Equals(world.LookModel, "planar-yaw.v1", StringComparison.Ordinal) ||
+                string.IsNullOrWhiteSpace(world.LookCommand) ||
                 Mathf.Abs(horizontalDelta) <= 0.0001f)
                 return null;
 
-            if (!_hasLookYaw)
+            var ownerKey = $"{resolvedHost!.ConnectionEpoch}\n{world.WorldRootId}\n{world.PlayerEntityId}";
+            if (!_hasLookYaw || !string.Equals(_lookOwnerKey, ownerKey, StringComparison.Ordinal))
             {
                 _lookYawRadians = ResolveControlledYawRadians(resolvedHost!, world.PlayerEntityId);
                 _hasLookYaw = true;
+                _lookOwnerKey = ownerKey;
             }
             var sensitivity = Mathf.Abs(world.LookSensitivityRadians) > 0.000001f
                 ? world.LookSensitivityRadians
@@ -124,6 +134,15 @@ namespace GameCult.Eve.UnityScene
                 0f,
                 direction.DirectionZ,
                 issuedAt);
+        }
+
+        public void QueueLookInput(float horizontalDelta) => _pendingLookHorizontal += horizontalDelta;
+
+        public EveSurfaceCommandRequest? SubmitPendingLookInput(DateTimeOffset? issuedAt = null)
+        {
+            var pending = _pendingLookHorizontal;
+            _pendingLookHorizontal = 0f;
+            return SubmitLookInput(pending, issuedAt);
         }
 
         public static string ResolvePrimaryActionId(EveInputCapabilityDocument? capability)
@@ -148,13 +167,17 @@ namespace GameCult.Eve.UnityScene
 
         private void Update()
         {
-            if (!driveInUpdate || Time.unscaledTime < _nextCommandAt)
+            if (!driveInUpdate)
+                return;
+
+            if (!string.IsNullOrWhiteSpace(lookHorizontalAxis))
+                QueueLookInput(Input.GetAxisRaw(lookHorizontalAxis));
+            if (Time.unscaledTime < _nextCommandAt)
                 return;
 
             _nextCommandAt = Time.unscaledTime + Math.Max(0.01f, commandIntervalSeconds);
             SubmitMoveVectorInput(Input.GetAxisRaw(horizontalAxis), Input.GetAxisRaw(verticalAxis));
-            if (!string.IsNullOrWhiteSpace(lookHorizontalAxis))
-                SubmitLookInput(Input.GetAxisRaw(lookHorizontalAxis));
+            SubmitPendingLookInput();
 
             if (!string.IsNullOrWhiteSpace(actionButton) && Input.GetButtonDown(actionButton))
                 SubmitPrimaryAction();
@@ -175,6 +198,14 @@ namespace GameCult.Eve.UnityScene
                 if (string.Equals(marker.EntityId, entityId, StringComparison.Ordinal))
                     return marker.transform.eulerAngles.y * Mathf.Deg2Rad;
             return 0f;
+        }
+
+        private void ResetLookState()
+        {
+            _lookYawRadians = 0f;
+            _hasLookYaw = false;
+            _pendingLookHorizontal = 0f;
+            _lookOwnerKey = "";
         }
     }
 

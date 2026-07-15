@@ -20,6 +20,7 @@ namespace GameCult.Eve.UnityScene
         [SerializeField] private float yawDegrees = 35f;
         [SerializeField] private float followDamping = 12f;
         private IEveUnityCameraRenderPolicySource? _renderPolicySource;
+        private EveUnityPlayableWorldClientHost? _cameraHost;
         private bool _ownsAmbientEnvironment;
         private AmbientMode _previousAmbientMode;
         private Color _previousAmbientLight;
@@ -27,7 +28,12 @@ namespace GameCult.Eve.UnityScene
         public EveUnityPlayableWorldClientHost? Host
         {
             get => host;
-            set => host = value;
+            set
+            {
+                if (ReferenceEquals(host, value)) return;
+                ReleaseCamera();
+                host = value;
+            }
         }
 
         public Transform? CameraTransform
@@ -42,7 +48,11 @@ namespace GameCult.Eve.UnityScene
             set => _renderPolicySource = value;
         }
 
-        public void ReleaseRig() => RestoreAmbientEnvironment();
+        public void ReleaseRig()
+        {
+            ReleaseCamera();
+            RestoreAmbientEnvironment();
+        }
 
         public bool ApplyRig(float deltaTime)
         {
@@ -50,12 +60,14 @@ namespace GameCult.Eve.UnityScene
             var activeWorld = resolvedHost?.ActiveWorld;
             if (resolvedHost == null || activeWorld == null)
             {
+                ReleaseCamera();
                 RestoreAmbientEnvironment();
                 return false;
             }
 
             if (activeWorld.CameraRig == "planar.top-down-follow.v1" && !HasValidPlanarContract(activeWorld))
             {
+                ReleaseCamera();
                 RestoreAmbientEnvironment();
                 return false;
             }
@@ -69,6 +81,7 @@ namespace GameCult.Eve.UnityScene
                 activeWorld.CameraRig != "arpg.orbital-follow.v1" &&
                 activeWorld.CameraRig != "third-person-orbit")
             {
+                ReleaseCamera();
                 return false;
             }
 
@@ -78,7 +91,12 @@ namespace GameCult.Eve.UnityScene
                 : activeWorld.CameraTargetEntityId;
             var player = FindEntity(resolvedHost, targetEntityId);
             if (player == null)
+            {
+                ReleaseCamera();
                 return false;
+            }
+            resolvedHost.ClaimWorldCamera(this, camera);
+            _cameraHost = resolvedHost;
 
             var cameraComponent = camera.GetComponent<Camera>();
             if (cameraComponent != null && _renderPolicySource != null)
@@ -184,6 +202,12 @@ namespace GameCult.Eve.UnityScene
             RenderSettings.ambientMode = _previousAmbientMode;
             RenderSettings.ambientLight = _previousAmbientLight;
             _ownsAmbientEnvironment = false;
+        }
+
+        private void ReleaseCamera()
+        {
+            _cameraHost?.ReleaseWorldCamera(this);
+            _cameraHost = null;
         }
 
         private static Bounds? CalculateVisualBounds(Transform player, int cullingMask)

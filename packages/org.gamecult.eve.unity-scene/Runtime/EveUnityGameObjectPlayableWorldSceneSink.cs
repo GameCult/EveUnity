@@ -20,7 +20,8 @@ namespace GameCult.Eve.UnityScene
     public sealed class EveUnityGameObjectPlayableWorldSceneSink :
         IEveUnityPlayableWorldSceneSink,
         IEveUnityEntityGenerationSink,
-        IEveUnityPresentedEntityRegistry
+        IEveUnityPresentedEntityRegistry,
+        IDisposable
     {
         private readonly Transform _root;
         private readonly IEveUnityGameObjectAssetProvider _assetProvider;
@@ -177,6 +178,17 @@ namespace GameCult.Eve.UnityScene
             _instances.Remove(entityId);
             if (instance != null)
                 DestroyInstance(instance);
+        }
+
+        public void Dispose()
+        {
+            foreach (var instance in _instances.Values)
+                if (instance != null)
+                    DestroyInstance(instance);
+            _instances.Clear();
+            _presentedById = new Dictionary<string, EveUnityPresentedEntityHandle>(StringComparer.Ordinal);
+            _presentedByIndex = new Dictionary<int, EveUnityPresentedEntityHandle>();
+            CurrentGeneration = null;
         }
 
         private GameObject InstantiateEntity(

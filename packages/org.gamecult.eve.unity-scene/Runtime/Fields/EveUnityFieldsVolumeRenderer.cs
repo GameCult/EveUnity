@@ -116,7 +116,7 @@ namespace GameCult.Eve.UnityScene.Fields
             _commands.SetRenderTarget(BuiltinRenderTextureType.CameraTarget);
             _commands.SetViewport(camera.pixelRect);
             _commands.DrawProcedural(Matrix4x4.identity, _material!, compositePass, MeshTopology.Triangles, 3, 1);
-            context.ExecuteCommandBuffer(_commands);
+            Graphics.ExecuteCommandBuffer(_commands);
             CompositeCount++;
         }
 

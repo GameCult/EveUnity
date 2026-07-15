@@ -1,7 +1,7 @@
 {
     "name": "org.gamecult.eve.unity-scene",
     "displayName": "Eve Unity Scene Lowering",
-    "version": "0.3.35",
+    "version": "0.3.36",
     "unity": "2021.3",
     "description": "Provider-agnostic Unity scene shell for gamecult.eve.surface.v1 interactive world surfaces.",
     "dependencies": {

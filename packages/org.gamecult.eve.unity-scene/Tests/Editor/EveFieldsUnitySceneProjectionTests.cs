@@ -131,6 +131,49 @@ namespace GameCult.Eve.UnityScene.Tests
             UnityEngine.Object.DestroyImmediate(host);
         }
 
+        [Test]
+        public void RasterizerLowersPortablePowerPulseParameters()
+        {
+            var document = new EveFieldsSplatsDocument
+            {
+                Viewport = new EveFieldsViewport { MinX = -1, MinY = -1, MaxX = 1, MaxY = 1 },
+                Splats = new EveFieldsSplatSoa
+                {
+                    Count = 1,
+                    CenterX = new[] { 0d },
+                    CenterY = new[] { 0d },
+                    HalfExtentX = new[] { 1d },
+                    HalfExtentY = new[] { 1d },
+                    RotationCos = new[] { 1d },
+                    RotationSin = new[] { 0d },
+                    Channel = new[] { 0 },
+                    Falloff = new[] { EveFieldsSplatFalloffs.PowerPulse },
+                    FalloffScale = new[] { 2d },
+                    FalloffExponent = new[] { 1d },
+                    ValueR = new[] { 1d },
+                    ValueA = new[] { 1d },
+                    LayerIndex = new[] { 0 },
+                    SourceKind = new[] { EveFieldsSplatSourceKinds.Constant }
+                }
+            };
+            var host = new GameObject("eve-fields-power-pulse");
+            var rasterizer = host.AddComponent<EveFieldsSplatRasterizer>();
+            var output = rasterizer.Render(document, 128, 128);
+            var previous = RenderTexture.active;
+            RenderTexture.active = output;
+            var readback = new Texture2D(128, 128, TextureFormat.RGBAFloat, false, true);
+            readback.ReadPixels(new Rect(0, 0, 128, 128), 0, 0);
+            readback.Apply();
+            RenderTexture.active = previous;
+
+            Assert.That(readback.GetPixel(64, 64).r, Is.GreaterThan(0.95f));
+            Assert.That(readback.GetPixel(80, 64).r, Is.InRange(0.65f, 0.85f));
+            Assert.That(readback.GetPixel(96, 64).r, Is.LessThan(0.02f));
+
+            UnityEngine.Object.DestroyImmediate(readback);
+            UnityEngine.Object.DestroyImmediate(host);
+        }
+
         private sealed class CaptureDocument : IEveFieldsSplatsDocument
         {
             public string Schema => EveFieldsSchemas.Splats;
@@ -188,6 +231,8 @@ namespace GameCult.Eve.UnityScene.Tests
             public IReadOnlyList<double> PhaseY => Zero;
             public IReadOnlyList<double> AnimationSpeed => Zero;
             public IReadOnlyList<double> SourceFlags => Zero;
+            public IReadOnlyList<double> FalloffScale => One;
+            public IReadOnlyList<double> FalloffExponent => One;
         }
     }
 }

@@ -12,7 +12,7 @@ namespace GameCult.Eve.UnityScene.Fields
         public const string ViewportToClipPropertyName = "_EveFieldsViewportToClip";
         public const string ChannelFilterPropertyName = "_EveFieldsChannelFilter";
 
-        private const int SplatStrideBytes = 80;
+        private const int SplatStrideBytes = 96;
         private EveFieldsGpuSplat[] splats = Array.Empty<EveFieldsGpuSplat>();
         private GraphicsBuffer buffer;
         private int capacity;
@@ -54,6 +54,7 @@ namespace GameCult.Eve.UnityScene.Fields
                     RotationChannelFalloff = new Vector4((float)Read(source.RotationCos, index, 1), (float)Read(source.RotationSin, index, 0), channel, Read(source.Falloff, index, EveFieldsSplatFalloffs.Smooth)),
                     LayerSource = new Vector4(layer, Read(source.SourceKind, index, EveFieldsSplatSourceKinds.Constant), (float)Read(source.AnimationSpeed, index, 0), (float)Read(source.SourceFlags, index, 0)),
                     SourceFrequencyPhase = new Vector4((float)Read(source.FrequencyX, index, 1), (float)Read(source.FrequencyY, index, 1), (float)Read(source.PhaseX, index, 0), (float)Read(source.PhaseY, index, 0)),
+                    FalloffParameters = new Vector4((float)Read(source.FalloffScale, index, 1), (float)Read(source.FalloffExponent, index, 1), 0, 0),
                     Value = new Vector4((float)Read(source.ValueR, index, 0), (float)Read(source.ValueG, index, 0), (float)Read(source.ValueB, index, 0), (float)Read(source.ValueA, index, 1))
                 };
             }
@@ -99,6 +100,7 @@ namespace GameCult.Eve.UnityScene.Fields
             public Vector4 RotationChannelFalloff;
             public Vector4 LayerSource;
             public Vector4 SourceFrequencyPhase;
+            public Vector4 FalloffParameters;
             public Vector4 Value;
         }
     }

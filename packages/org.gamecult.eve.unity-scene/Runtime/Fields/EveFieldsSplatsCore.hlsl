@@ -7,6 +7,7 @@ struct EveFieldsSplat
     float4 rotationChannelFalloff;
     float4 layerSource;
     float4 sourceFrequencyPhase;
+    float4 falloffParameters;
     float4 value;
 };
 
@@ -58,12 +59,17 @@ Varyings Vert(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID)
     return output;
 }
 
-float ResolveFalloff(float2 localUv, int falloff)
+float ResolveFalloff(float2 localUv, int falloff, float scale, float exponent)
 {
     float distance01 = saturate(length(localUv));
     if (falloff == 0) return 1;
     if (falloff == 1) return saturate(1 - distance01);
     if (falloff == 3) return smoothstep(0, 1, distance01);
+    if (falloff == 4)
+    {
+        float pulseDistance = distance01 * max(0, scale);
+        return pow(saturate(1 - pulseDistance * pulseDistance), max(0.0001, exponent));
+    }
     return 1 - smoothstep(0, 1, distance01);
 }
 
@@ -72,7 +78,11 @@ float4 Frag(Varyings input) : SV_Target
     EveFieldsSplat splat = _EveFieldsSplats[input.instanceId];
     int channel = (int)round(splat.rotationChannelFalloff.z);
     if (_EveFieldsChannelFilter >= 0 && channel != _EveFieldsChannelFilter) discard;
-    float alpha = ResolveFalloff(input.localUv, (int)round(splat.rotationChannelFalloff.w));
+    float alpha = ResolveFalloff(
+        input.localUv,
+        (int)round(splat.rotationChannelFalloff.w),
+        splat.falloffParameters.x,
+        splat.falloffParameters.y);
     clip(alpha - 0.0001);
     int sourceKind = (int)round(splat.layerSource.y);
     float source = 1;

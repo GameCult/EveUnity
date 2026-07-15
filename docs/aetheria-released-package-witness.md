@@ -4,10 +4,10 @@
 
 The warm-cache released-package witness passes with:
 
-- `org.gamecult.eve.unity-scene` `0.3.41`, commit
-  `f0883e9644674849e03127d4d7a231905092f1de`;
-- `org.gamecult.eve.plugin-fields` `0.2.0`, commit
-  `382a23d8f8a07e4b5eef5f81f84655861a858367`;
+- `org.gamecult.eve.unity-scene` `0.3.42`, commit
+  `441471949a22a0183da1ecac4a4a1d0dc2a7618e`;
+- `org.gamecult.eve.plugin-fields` `0.2.1`, commit
+  `59924e324cd10f293c214c8e6bb2c794a32d39a0`;
 - `org.gamecult.eve.surface` `0.2.2`, commit
   `140e1bd963a0033e66777a3b2c5fe6e9c97dfe32`;
 - `org.gamecult.eve.unity-uitoolkit` `0.1.1`, commit
@@ -17,7 +17,7 @@ The warm-cache released-package witness passes with:
 - the generic `ReleaseConsumerProject` client connected directly to the
   Aetheria daemon.
 
-Evidence is in `artifacts/aetheria-daemon-gravity-fog-convergence-facts`. The PlayMode test
+Evidence is in `artifacts/aetheria-daemon-gravity-fog-power-pulse`. The PlayMode test
 passed and recorded provider-owned reconciled movement, look, targeting,
 tractor press, tractor release, contact-gated cargo collection, and action
 receipts. The daemon-owned look direction reached the SoA body rotation,
@@ -50,7 +50,7 @@ Fields splat layers. Its surface contract contains logical ports such as
 names or pass indices. The selected `unity-scene` provider asset variant owns
 that concrete shader ABI through `unity.volume.*` metadata. The released
 generic lowerer resolved the provider shader and dither texture, rasterized all
-four layers, and composited `21` pilot-camera frames from daemon frame `220`.
+four layers, and composited `22` pilot-camera frames from daemon frame `223`.
 The provider variant advertises the fossil shader's raymarch, temporal-history,
 and composite passes plus their logical ports. EveUnity allocates and resets the
 history targets generically; a partial temporal ABI fails closed.
@@ -65,10 +65,10 @@ Camera-channel facts:
 
 - provider-authored player renderers: `13`, including the lowered tractor effect;
 - pilot changed pixels: `230,400`;
-- pilot average luminance: `0.1912306`;
-- pilot bright pixels: `13,715`;
+- pilot average luminance: `0.0910102`;
+- pilot bright pixels: `969`;
 - map-channel renderers: `11`;
-- map changed pixels: `4,867`;
+- map changed pixels: `4,850`;
 - native cockpit progress bars: `7`;
 - daemon tractor power at capture: `1.0` after the held input completed its
   authored ramp;
@@ -87,18 +87,19 @@ Visual inspection confirms that map glyphs are absent from the pilot frame and
 present in the map-only frame. Correcting the fossil camera mode removed the
 false top-down dark disk, but the active volume now resolves as a nearly uniform
 saturated orange horizon rather than the fossil's blue gravity-shaped fog sea.
-This is transport and lowering proof, not visual parity. Release `0.3.41` now
-derives dither sampling coordinates from the active viewport and provider
-texture dimensions through a generic logical-port relation and solves the
-advertised finite aim look-at exactly. The camera (`6.57,-13.83,1.44`), player
-(`-3.20,0,38.77`), and aim (`-46.55,0,119.19`) all lie inside the advertised
-field viewport, but the resulting raymarch remains nearly flat orange
-(`R 0.8896-0.8960`, `G 0.5493-0.5532`, `B 0.3096-0.3118`, alpha `0`). The
-remaining cause is now isolated to the daemon's field document: it flattened
-the fossil radial gravity terrain into a full-viewport solid height splat, so
-the first ray sample saturates floor density. EveUnity must not compensate with
-Aetheria-specific lighting or fog rules; the document must publish the actual
-portable radial falloff.
+This is transport and lowering proof, not visual parity. Release `0.3.42`
+adds the generic Eve Fields `PowerPulse` GPU falloff to the existing dither-scale,
+temporal-history, and finite-look-at lowerers. Aetheria now publishes the fossil
+radial zone/body brushes instead of a viewport-sized solid slab, keeps negative
+`gravity.height` separate from positive `fog.surface_height`, and derives entity
+altitude as fossil terrain height plus hull grid offset after each Ymir XZ step.
+The witness records player Y `-92.82` and camera Y `-109.97`; Unity does not
+sample terrain to invent either value. The volume is no longer a flat saturated
+orange: temporal cloud RGB spans `0.325-0.537`, `0.201-0.332`, `0.113-0.187`
+with decoded density `0.334-0.673`. Visual inspection still shows a dark brown,
+low-contrast field rather than the fossil's blue gravity-fog sea, so color,
+lighting, patch structure, and gravity-wave parity remain open. EveUnity must
+not compensate with Aetheria-specific lighting or fog rules.
 Substance is not part of this path; later texture baking belongs in Blender.
 Aetheria currently bundles ambientCG's 1K `Metal012` color, normal, and
 metalness maps under CC0. The same pre-generated maps now replace dead

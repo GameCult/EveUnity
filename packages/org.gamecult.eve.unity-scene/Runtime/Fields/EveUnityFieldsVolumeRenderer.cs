@@ -20,6 +20,8 @@ namespace GameCult.Eve.UnityScene.Fields
         private Material? _material;
         private Shader? _sourceShader;
         private IReadOnlyDictionary<string, string>? _programMetadata;
+        private readonly Dictionary<string, Texture> _assetTexturesByPort =
+            new Dictionary<string, Texture>(StringComparer.Ordinal);
         private RenderTexture? _raymarchTexture;
         private readonly RenderTexture?[] _historyTextures = new RenderTexture?[2];
         private int _historyTextureIndex = -1;
@@ -89,7 +91,7 @@ namespace GameCult.Eve.UnityScene.Fields
             ApplyFieldBindings(field, _document);
             camera.depthTextureMode |= DepthTextureMode.Depth;
             EnsureVolumeTextures(camera, field);
-            if (_raymarchTexture == null) return;
+            if (_raymarchTexture == null || !ApplyViewportTextureScaleBindings(field, camera)) return;
 
             var gpuProjection = GL.GetGPUProjectionMatrix(camera.projectionMatrix, true);
             var viewProjection = gpuProjection * camera.worldToCameraMatrix;
@@ -168,6 +170,7 @@ namespace GameCult.Eve.UnityScene.Fields
             _sourceShader = shader;
             _activeNodeId = field.NodeId;
             _material = new Material(shader) { hideFlags = HideFlags.DontSave };
+            _assetTexturesByPort.Clear();
             ResetTemporalHistory();
             foreach (var parameter in ParseBindings(Prop(field, "floatParameters")))
             {
@@ -180,7 +183,11 @@ namespace GameCult.Eve.UnityScene.Fields
                 var texture = provider.ResolveAsset(
                     new EveUnityPlayableWorldAssetBinding(binding.Key, "", "provider-asset-ref"),
                     typeof(Texture)) as Texture;
-                if (texture != null) SetTexturePort(binding.Value, texture);
+                if (texture != null)
+                {
+                    _assetTexturesByPort[binding.Value] = texture;
+                    SetTexturePort(binding.Value, texture);
+                }
             }
             var quality = Prop(field, "quality").Trim().ToLowerInvariant();
             if (TryProgramValue($"unity.volume.quality.{quality}.keyword", out var keyword) &&
@@ -262,6 +269,7 @@ namespace GameCult.Eve.UnityScene.Fields
             if (_material != null) { Destroy(_material); _material = null; }
             _sourceShader = null;
             _programMetadata = null;
+            _assetTexturesByPort.Clear();
             _activeNodeId = "";
             PresentedFrameId = -1;
             CompositeCount = 0;
@@ -275,6 +283,36 @@ namespace GameCult.Eve.UnityScene.Fields
         }
 
         private bool HasTemporalProgram() => ProgramPass("temporal") >= 0;
+
+        private bool ApplyViewportTextureScaleBindings(EveUnityFieldVolumeProjection field, Camera camera)
+        {
+            foreach (var binding in ParseBindings(Prop(field, "viewportTextureScaleBindings")))
+            {
+                if (string.IsNullOrWhiteSpace(ProgramPort("vector", binding.Key)) ||
+                    string.IsNullOrWhiteSpace(ProgramPort("texture", binding.Value)) ||
+                    !_assetTexturesByPort.TryGetValue(binding.Value, out var texture) ||
+                    !TryComputeViewportTextureScale(camera.pixelWidth, camera.pixelHeight, texture, out var scale))
+                    return false;
+                SetVectorPort(binding.Key, scale);
+            }
+            return true;
+        }
+
+        public static bool TryComputeViewportTextureScale(
+            int viewportWidth,
+            int viewportHeight,
+            Texture? texture,
+            out Vector4 scale)
+        {
+            scale = default;
+            if (texture == null || texture.width <= 0 || texture.height <= 0) return false;
+            scale = new Vector4(
+                (float)Math.Max(1, viewportWidth) / texture.width,
+                (float)Math.Max(1, viewportHeight) / texture.height,
+                0f,
+                0f);
+            return true;
+        }
 
         private static bool EnsureRenderTexture(ref RenderTexture? texture, int width, int height, string name)
         {

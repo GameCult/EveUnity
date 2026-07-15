@@ -74,6 +74,25 @@ namespace GameCult.Eve.UnityScene.Tests
         }
 
         [Test]
+        public void VolumeRendererDerivesViewportTextureScaleFromNativeDimensions()
+        {
+            var texture = new Texture2D(128, 64, TextureFormat.RGBA32, false);
+            try
+            {
+                Assert.That(EveUnityFieldsVolumeRenderer.TryComputeViewportTextureScale(
+                    640,
+                    360,
+                    texture,
+                    out var scale), Is.True);
+                Assert.That(scale, Is.EqualTo(new Vector4(5f, 5.625f, 0f, 0f)));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(texture);
+            }
+        }
+
+        [Test]
         public void PackageContainsGenericFieldsShader()
         {
             Assert.That(Shader.Find("Eve/Fields/Splats"), Is.Not.Null);

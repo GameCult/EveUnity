@@ -19,6 +19,7 @@ drivers, asset-provider hooks, package release, runtime tests, and captures.
 - provider asset-manifest documents
 - runtime-selected asset-variant metadata, including native rendering-program bindings
 - generic field-volume lifecycle declarations and logical texture/scalar/matrix ports
+- generic viewport-to-texture scale bindings between logical vector and texture ports
 - provider command receipts
 - semantic render-channel inclusion and exclusion policy
 - Unity input and local presentation assets
@@ -50,6 +51,13 @@ selected runtime asset variant. A native volume program that advertises a
 temporal pass must also advertise its current-sample, history,
 previous-view-projection, and reset-history ports; partial temporal programs fail
 closed.
+
+Viewport-sized shader inputs are likewise presentation state. A provider may
+relate a logical vector port to a logical native texture port through
+`viewportTextureScaleBindings`; EveUnity derives the vector from the active
+camera viewport and resolved texture dimensions on every render. A provider
+literal is not allowed to impersonate those runtime dimensions, and an
+unresolvable relation fails closed.
 
 The provider selects camera semantics and framing from its authoritative mode.
 `planar.top-down-follow.v1` derives a downward presentation from the advertised

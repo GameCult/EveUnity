@@ -1232,19 +1232,40 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
         private static void WriteFieldCloudCapture(GameObject root, string capturePath)
         {
             var renderer = root.GetComponent<EveUnityFieldsVolumeRenderer>();
-            var field = typeof(EveUnityFieldsVolumeRenderer).GetField(
-                "_cloudTexture",
+            if (renderer == null || string.IsNullOrWhiteSpace(capturePath)) return;
+            var raymarchField = typeof(EveUnityFieldsVolumeRenderer).GetField(
+                "_raymarchTexture",
                 System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
-            var texture = field?.GetValue(renderer) as RenderTexture;
-            if (texture == null || string.IsNullOrWhiteSpace(capturePath)) return;
+            var historyTexturesField = typeof(EveUnityFieldsVolumeRenderer).GetField(
+                "_historyTextures",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            var historyIndexField = typeof(EveUnityFieldsVolumeRenderer).GetField(
+                "_historyTextureIndex",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            var raymarchTexture = raymarchField?.GetValue(renderer) as RenderTexture;
+            var historyTextures = historyTexturesField?.GetValue(renderer) as RenderTexture[];
+            var historyIndex = historyIndexField?.GetValue(renderer) is int value ? value : -1;
+            var previous = RenderTexture.active;
+            var directory = Path.GetDirectoryName(Path.GetFullPath(capturePath));
+            WriteFloatTexture(raymarchTexture, Path.Combine(directory, "field-volume-raymarch.exr"));
+            var historyTexture = historyIndex >= 0 && historyTextures != null && historyIndex < historyTextures.Length
+                ? historyTextures[historyIndex]
+                : null;
+            WriteFloatTexture(historyTexture, Path.Combine(directory, "field-volume-history.exr"));
+            WriteFloatTexture(historyTexture ?? raymarchTexture, Path.Combine(directory, "field-volume-cloud.exr"));
+            RenderTexture.active = previous;
+        }
+
+        private static void WriteFloatTexture(RenderTexture texture, string path)
+        {
+            if (texture == null || string.IsNullOrWhiteSpace(path)) return;
             var previous = RenderTexture.active;
             RenderTexture.active = texture;
             var copy = new Texture2D(texture.width, texture.height, TextureFormat.RGBAFloat, false, true);
             copy.ReadPixels(new Rect(0, 0, texture.width, texture.height), 0, 0);
             copy.Apply();
             RenderTexture.active = previous;
-            var directory = Path.GetDirectoryName(Path.GetFullPath(capturePath));
-            File.WriteAllBytes(Path.Combine(directory, "field-volume-cloud.exr"), copy.EncodeToEXR());
+            File.WriteAllBytes(path, copy.EncodeToEXR());
             UnityEngine.Object.DestroyImmediate(copy);
         }
 

@@ -50,6 +50,8 @@ New-Item -ItemType Directory -Force -Path $outputRoot | Out-Null
 foreach ($priorArtifact in @($resultsPath, $capturePath, $mapCapturePath, $factsPath, $providerReadyPath, $witnessPath)) {
   if (Test-Path -LiteralPath $priorArtifact) { Remove-Item -LiteralPath $priorArtifact -Force }
 }
+Get-ChildItem -LiteralPath $outputRoot -Filter "field-*" -File -ErrorAction SilentlyContinue |
+  Remove-Item -Force
 if ($CacheState -eq "cold" -and (Test-Path -LiteralPath $assetCachePath)) {
   Remove-Item -LiteralPath $assetCachePath -Recurse -Force
 }

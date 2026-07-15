@@ -191,6 +191,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             WitnessReceipt movementReceipt = null;
             WitnessReceipt lookReceipt = null;
             WitnessReceipt focusReceipt = null;
+            WitnessReceipt tractorReceipt = null;
             WitnessReceipt actionReceipt = null;
             EveUnityShotReceipt observedShot = null;
             EveUnityCombatPresentation observedCombat = null;
@@ -200,6 +201,8 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             float movementDistance = 0f;
             float aimDotDistance = 0f;
             int cockpitProgressCount = 0;
+            float tractorBeamPower = 0f;
+            int tractorBeamParticleSystemCount = 0;
 
             try
             {
@@ -245,7 +248,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 var cockpit = loweredSurface.Q<VisualElement>("aetheria.daemon.game.cockpit");
                 Assert.That(cockpit, Is.Not.Null, "The provider did not publish a generic cockpit overlay.");
                 cockpitProgressCount = cockpit.Query<ProgressBar>().ToList().Count;
-                Assert.That(cockpitProgressCount, Is.GreaterThanOrEqualTo(6));
+                Assert.That(cockpitProgressCount, Is.GreaterThanOrEqualTo(7));
                 Assert.That(loweredSurface.Q<VisualElement>("aetheria.daemon.game.frame").style.display.value,
                     Is.EqualTo(DisplayStyle.None), "Daemon diagnostics leaked into the pilot UI.");
                 host.ShotAvailable += shot => observedShot = shot;
@@ -375,6 +378,44 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 lookReceipt = WitnessReceipt.From("look", runtime.LastReceipt);
                 var aimRenderer = root.GetComponent<EveUnityAimPresentationRenderer>();
                 Assert.That(aimRenderer, Is.Not.Null);
+
+                var beamPresentation = EveUnityBeamPresentation.FindAll(runtime.ActiveProjection).SingleOrDefault();
+                Assert.That(beamPresentation, Is.Not.Null,
+                    "The provider did not advertise its continuous beam presentation.");
+                Assert.That(beamPresentation.ActivationActionId, Is.Not.Empty,
+                    "The beam presentation does not name an advertised generic action.");
+                var tractorVersion = runtime.ActiveVersion;
+                var tractor = host.SubmitAdvertisedActionIntent(playerId, beamPresentation.ActivationActionId);
+                var tractorDeadline = Time.realtimeSinceStartup + 12f;
+                while (Time.realtimeSinceStartup < tractorDeadline &&
+                       (runtime.LastReceipt == null || runtime.LastReceipt.CommandId != tractor.CommandId ||
+                        !string.Equals(runtime.LastReceipt.State, "reconciled", StringComparison.OrdinalIgnoreCase) ||
+                        runtime.ActiveVersion < runtime.LastReceipt.SourceVersion ||
+                        EveUnityBeamPresentation.FindAll(runtime.ActiveProjection).Single().Power <=
+                            beamPresentation.ActivationThreshold))
+                {
+                    yield return new WaitForSecondsRealtime(0.1f);
+                    runtime.Refresh();
+                }
+                AssertReconciledProviderReceipt(runtime.LastReceipt, tractor.CommandId,
+                    provider.Selection.ProviderId, provider.Selection.SurfaceId, tractorVersion);
+                tractorReceipt = WitnessReceipt.From("beam", runtime.LastReceipt);
+                Assert.That(beamPresentation.SourceEntityId, Is.EqualTo(playerId),
+                    "The daemon beam source does not identify the presented player entity.");
+                Assert.That(host.PresentedEntities.TryGetByEntityId(beamPresentation.SourceEntityId, out _), Is.True,
+                    "The generic beam lowerer cannot resolve the advertised source entity.");
+                Assert.That(provider.ResolvePrefab(new EveUnityPlayableWorldAssetBinding(
+                        beamPresentation.AssetRole, beamPresentation.AssetRole, "provider-asset-ref")), Is.Not.Null,
+                    $"The provider asset catalog did not resolve beam role '{beamPresentation.AssetRole}'.");
+                var beamRenderer = root.GetComponent<EveUnityBeamPresentationRenderer>();
+                Assert.That(beamRenderer, Is.Not.Null);
+                beamRenderer.RefreshNow();
+                Assert.That(beamRenderer.ActiveBeamCount, Is.EqualTo(1));
+                Assert.That(beamRenderer.TryGetPower(beamPresentation.Id, out tractorBeamPower), Is.True);
+                Assert.That(tractorBeamPower, Is.GreaterThan(beamPresentation.ActivationThreshold));
+                tractorBeamParticleSystemCount = beamRenderer.ActiveParticleSystemCount;
+                Assert.That(tractorBeamParticleSystemCount, Is.GreaterThan(0),
+                    "The generic beam lowerer did not instantiate the provider-owned effect prefab.");
 
                 var focusVersion = runtime.ActiveVersion;
                 var inputDriver = root.GetComponent<EveUnityPlayableWorldInputDriver>() ??
@@ -573,6 +614,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     movementReceipt,
                     lookReceipt,
                     focusReceipt,
+                    tractorReceipt,
                     actionReceipt,
                     observedShot,
                     shieldRatioBefore,
@@ -588,6 +630,8 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     pilotAverageLuminance,
                     pilotBrightPixelCount,
                     cockpitProgressCount,
+                    tractorBeamPower,
+                    tractorBeamParticleSystemCount,
                     playerRendererFacts);
             }
             finally
@@ -620,6 +664,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             WitnessReceipt movement,
             WitnessReceipt look,
             WitnessReceipt targeting,
+            WitnessReceipt tractor,
             WitnessReceipt action,
             EveUnityShotReceipt shot,
             float shieldRatioBefore,
@@ -635,6 +680,8 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             float pilotAverageLuminance,
             int pilotBrightPixelCount,
             int cockpitProgressCount,
+            float tractorBeamPower,
+            int tractorBeamParticleSystemCount,
             RendererFact[] playerRendererFacts)
         {
             var path = Environment.GetEnvironmentVariable("EVEUNITY_WITNESS_FACTS_PATH");
@@ -647,6 +694,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 movement = movement != null,
                 aimPresentation = look != null && aimDotDistance >= 49.9f,
                 targeting = targeting != null,
+                beamPresentation = tractor != null && tractorBeamPower > 0.01f && tractorBeamParticleSystemCount > 0,
                 action = action != null,
                 combatPresentation = shot != null,
                 shotId = shot?.ShotId ?? "",
@@ -672,12 +720,14 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 pilotAverageLuminance = pilotAverageLuminance,
                 pilotBrightPixelCount = pilotBrightPixelCount,
                 cockpitProgressCount = cockpitProgressCount,
+                tractorBeamPower = tractorBeamPower,
+                tractorBeamParticleSystemCount = tractorBeamParticleSystemCount,
                 playerRenderers = playerRendererFacts,
                 mapChannelRendererCount = mapChannelRendererCount,
                 mapChangedPixels = mapChangedPixels,
                 pilotCameraExcludesMapChannel = pilotCameraExcludesMapChannel,
                 mapCameraIncludesMapChannel = mapCameraIncludesMapChannel,
-                receipts = new[] { movement, look, targeting, action }
+                receipts = new[] { movement, look, targeting, tractor, action }
             };
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path)));
             File.WriteAllText(path, JsonUtility.ToJson(document, true));
@@ -692,6 +742,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             public bool movement;
             public bool aimPresentation;
             public bool targeting;
+            public bool beamPresentation;
             public bool action;
             public bool combatPresentation;
             public string shotId;
@@ -717,6 +768,8 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             public float pilotAverageLuminance;
             public int pilotBrightPixelCount;
             public int cockpitProgressCount;
+            public float tractorBeamPower;
+            public int tractorBeamParticleSystemCount;
             public RendererFact[] playerRenderers;
             public int mapChannelRendererCount;
             public int mapChangedPixels;

@@ -4,8 +4,8 @@
 
 The warm-cache released-package witness passes with:
 
-- `org.gamecult.eve.unity-scene` `0.3.27`, commit
-  `63a41712c5a68ce835bc1820980fc4786c34eb7b`;
+- `org.gamecult.eve.unity-scene` `0.3.30`, commit
+  `f979cd425a9f8f951736c56051e8368b6d6ac2f3`;
 - `org.gamecult.eve.unity-uitoolkit` `0.1.1`, commit
   `4d0cbe0185bdc4fc65eb63503a7c5cb578539669`;
 - `org.gamecult.cultlib` `1.0.13`, commit
@@ -14,8 +14,8 @@ The warm-cache released-package witness passes with:
   Aetheria daemon.
 
 Evidence is in `artifacts/aetheria-daemon-native-0326-warm`. The PlayMode test
-passed and recorded provider-owned reconciled movement, look, targeting, and
-action receipts. The daemon-owned look direction reached the SoA body rotation,
+passed and recorded provider-owned reconciled movement, look, targeting,
+tractor, and action receipts. The daemon-owned look direction reached the SoA body rotation,
 and the generic aim presentation rendered at the advertised 50-unit minimum
 convergence distance. The advertised skybox material and reflection cubemap
 resolved from the provider bundle as their required native types and became the
@@ -43,13 +43,15 @@ daemon lock progress `1.0`; Unity does not manufacture or smooth that value.
 
 Camera-channel facts:
 
-- provider-authored player renderers: `12`;
-- pilot changed pixels: `230,189`;
-- pilot average luminance: `0.003343`;
-- pilot bright pixels: `1,227`;
+- provider-authored player renderers: `14`, including the lowered tractor effect;
+- pilot changed pixels: `230,255`;
+- pilot average luminance: `0.004634`;
+- pilot bright pixels: `1,542`;
 - map-channel renderers: `11`;
-- map changed pixels: `6,246`;
+- map changed pixels: `8,510`;
 - native cockpit progress bars: `7`;
+- daemon tractor power at capture: `0.24`;
+- provider tractor particle systems: `1`;
 - the pilot camera excludes the advertised map layer;
 - the player prefab's embedded layer-14 map icon contributes exactly `0` pilot
   pixels;
@@ -71,6 +73,14 @@ resolves textured native URP materials in `9` distinct player-material slots,
 up from `3`, without adding another texture payload. This is temporary provider
 art with recorded provenance, not a replacement texture pipeline.
 
+The tractor proof is structural, not yet a native-look victory lap. The daemon
+publishes `beam.presentation`, the generic client routes `pilot.scoop` through
+the advertised `SetTractorPower` operation and payload, and the provider-owned
+prefab is attached to the SoA-presented ship with nonzero daemon power. Its
+particle renderer contributes only one measured pilot pixel in this capture.
+Effect tuning remains provider art work; the runtime must not compensate with
+an Aetheria-specific beam.
+
 Primary artifacts:
 
 - `results.xml`: one passing PlayMode witness;
@@ -81,7 +91,9 @@ Primary artifacts:
 
 ## Cold delivery is not currently proven
 
-The current 46.1 MB Unity bundle times out from an empty cache. Its bytes are
+The current `46,133,487` byte Unity bundle (SHA-256
+`ff07aa7f71aa2da0e8e6fe2f4ed68900931d6e67c153b586777467316d4fb80f`)
+times out from an empty cache. Its bytes are
 still transported through batched snapshot records rather than the intended
 mapped/network body transport. Increasing the Unity timeout would hide the
 transport fault and is not an accepted fix.

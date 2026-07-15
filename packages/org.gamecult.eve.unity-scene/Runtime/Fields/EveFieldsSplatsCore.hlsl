@@ -176,6 +176,15 @@ float4 Frag(Varyings input) : SV_Target
             input.fieldWorld * splat.sourceFrequencyPhase.xy + splat.sourceFrequencyPhase.zw,
             _EveFieldsSimulationTimeSeconds * splat.layerSource.z);
     }
+    else if (sourceKind == 4)
+    {
+        float distance01 = length(input.localUv);
+        float radialExponent = max(0.0001, splat.sourceFrequencyPhase.y);
+        source = cos(
+            pow(distance01, radialExponent) * splat.sourceFrequencyPhase.x +
+            splat.sourceFrequencyPhase.z +
+            _EveFieldsSimulationTimeSeconds * splat.layerSource.z);
+    }
     if (((int)round(splat.layerSource.w) & 1) != 0) source = abs(source);
     return splat.value * (alpha * source * _ValueScale);
 }

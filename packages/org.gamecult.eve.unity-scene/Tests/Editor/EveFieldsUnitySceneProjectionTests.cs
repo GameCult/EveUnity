@@ -209,6 +209,54 @@ namespace GameCult.Eve.UnityScene.Tests
             Assert.That(Mathf.Abs(laterValue - firstValue), Is.GreaterThan(0.005f));
         }
 
+        [Test]
+        public void RasterizerLowersPortableAnimatedRadialCosine()
+        {
+            var initial = RadialCosineDocument(0);
+            var halfTurnLater = RadialCosineDocument(Math.PI);
+
+            var center = RenderFieldPixel(initial, 64, 64);
+            var radial = RenderFieldPixel(initial, 80, 64);
+            var laterCenter = RenderFieldPixel(halfTurnLater, 64, 64);
+            var localX = (80.5f / 128f) * 2f - 1f;
+            var localY = (64.5f / 128f) * 2f - 1f;
+            var expected = Mathf.Cos(Mathf.Pow(Mathf.Sqrt(localX * localX + localY * localY), 1.25f) * Mathf.PI * 2f);
+
+            Assert.That(center, Is.GreaterThan(0.98f));
+            Assert.That(radial, Is.EqualTo(expected).Within(0.04f));
+            Assert.That(laterCenter, Is.LessThan(-0.98f),
+                "radial phase animation must use provider-published simulation time");
+        }
+
+        private static EveFieldsSplatsDocument RadialCosineDocument(double simulationTime)
+        {
+            return new EveFieldsSplatsDocument
+            {
+                SimulationTimeSeconds = simulationTime,
+                Viewport = new EveFieldsViewport { MinX = -1, MinY = -1, MaxX = 1, MaxY = 1 },
+                Splats = new EveFieldsSplatSoa
+                {
+                    Count = 1,
+                    CenterX = new[] { 0d },
+                    CenterY = new[] { 0d },
+                    HalfExtentX = new[] { 1d },
+                    HalfExtentY = new[] { 1d },
+                    RotationCos = new[] { 1d },
+                    RotationSin = new[] { 0d },
+                    Channel = new[] { 0 },
+                    Falloff = new[] { EveFieldsSplatFalloffs.Solid },
+                    ValueR = new[] { 1d },
+                    ValueA = new[] { 1d },
+                    LayerIndex = new[] { 0 },
+                    SourceKind = new[] { EveFieldsSplatSourceKinds.AnimatedRadialCosine },
+                    FrequencyX = new[] { Math.PI * 2d },
+                    FrequencyY = new[] { 1.25d },
+                    PhaseX = new[] { 0d },
+                    AnimationSpeed = new[] { 1d }
+                }
+            };
+        }
+
         private static EveFieldsSplatsDocument ProceduralDocument(
             double min,
             double max,

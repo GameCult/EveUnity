@@ -2,6 +2,8 @@ using System;
 using System.IO;
 using System.Collections.Concurrent;
 using GameCult.Eve.Surface;
+using GameCult.Eve.PluginFields;
+using GameCult.Eve.UnityScene.Fields;
 using GameCult.Mesh;
 using UnityEngine;
 
@@ -17,6 +19,7 @@ namespace GameCult.Eve.UnityScene
         IEveUnitySceneCommandReceiptSource,
         IEveUnityProviderRefreshSource,
         IEveUnityEntitySoaViewDocumentSource,
+        IEveUnityFieldsSplatsDocumentSource,
         IEveUnityCameraRenderPolicySource,
         IEveUnityNativeAssetProvider,
         IEveUnityInputCapabilitySource
@@ -32,8 +35,11 @@ namespace GameCult.Eve.UnityScene
         private EveUnityCultMeshLiveProviderTransport? _transport;
         private EveUnitySceneLiveProviderBridge? _bridge;
         private readonly ConcurrentQueue<EntityViewLease> _pendingEntityViews = new ConcurrentQueue<EntityViewLease>();
+        private readonly ConcurrentQueue<EveFieldsSplatsDocument> _pendingFields = new ConcurrentQueue<EveFieldsSplatsDocument>();
 
         public event Action<EveEntitySoaViewDocument, ICultMeshBodyReadLease>? EntityViewAvailable;
+
+        public event Action<EveFieldsSplatsDocument>? FieldsSplatsAvailable;
 
         public EveUnityCultMeshProviderSelection? Selection { get; private set; }
 
@@ -129,6 +135,7 @@ namespace GameCult.Eve.UnityScene
             _bridge?.Dispose();
             _transport?.Dispose();
             while (_pendingEntityViews.TryDequeue(out var pending)) pending.Lease.Dispose();
+            while (_pendingFields.TryDequeue(out _)) { }
             _bridge = null;
             _transport = null;
             Selection = null;
@@ -137,6 +144,11 @@ namespace GameCult.Eve.UnityScene
         private void Update()
         {
             _transport?.PumpLiveEvents();
+            EveFieldsSplatsDocument? latestFields = null;
+            while (_pendingFields.TryDequeue(out var fields))
+                latestFields = fields;
+            if (latestFields != null)
+                FieldsSplatsAvailable?.Invoke(latestFields);
             EntityViewLease? latest = null;
             while (_pendingEntityViews.TryDequeue(out var next))
             {
@@ -181,6 +193,7 @@ namespace GameCult.Eve.UnityScene
                 Selection.SurfaceId,
                 runtimeId);
             _transport.EntityViewAvailable += (view, lease) => _pendingEntityViews.Enqueue(new EntityViewLease(view, lease));
+            _transport.FieldsSplatsAvailable += fields => _pendingFields.Enqueue(fields);
             _bridge = new EveUnitySceneLiveProviderBridge(_transport);
         }
 

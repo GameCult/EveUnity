@@ -4,6 +4,7 @@
   "references": [
     "GameCult.Eve.Surface",
     "GameCult.Eve.UnityScene",
+    "GameCult.Eve.PluginFields",
     "UnityEngine.AssetBundleModule"
   ],
   "includePlatforms": [],

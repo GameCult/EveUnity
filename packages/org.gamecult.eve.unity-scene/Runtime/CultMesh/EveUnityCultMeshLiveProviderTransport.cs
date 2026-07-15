@@ -5,7 +5,9 @@ using System.Linq;
 using System.Collections.Concurrent;
 using GameCult.Caching;
 using GameCult.Caching.MessagePack;
+using GameCult.Eve.PluginFields;
 using GameCult.Eve.Surface;
+using GameCult.Eve.UnityScene.Fields;
 using GameCult.Mesh;
 using GameCult.Networking;
 using UnityEngine;
@@ -30,6 +32,7 @@ namespace GameCult.Eve.UnityScene
             typeof(EveCommandReceiptDocument),
             typeof(EveAssetCatalogDocument),
             typeof(EveEntitySoaViewDocument),
+            typeof(EveFieldsSplatsDocument),
             typeof(CultMeshBodyPublicationDocument),
             typeof(CultMeshNetworkBodyDocument),
             typeof(CultMeshCdnArtifactManifest),
@@ -60,8 +63,10 @@ namespace GameCult.Eve.UnityScene
         private CultMeshBodyPublicationResolver? _bodyResolver;
         private DateTime _nextReceiptPollUtc;
         private DateTime _nextEntityViewPollUtc;
+        private DateTime _nextFieldsPollUtc;
         private long _lastQueuedEntityViewEpoch = -1;
         private long _lastQueuedEntityViewSequence = -1;
+        private readonly Dictionary<string, long> _lastFieldsFrameByRecord = new Dictionary<string, long>(StringComparer.Ordinal);
 
         public EveUnityCultMeshLiveProviderTransport(
             string replicaPath,
@@ -109,6 +114,8 @@ namespace GameCult.Eve.UnityScene
         public event Action<EveUnitySceneCommandReceipt>? CommandReceiptAvailable;
 
         public event Action<EveEntitySoaViewDocument, ICultMeshBodyReadLease>? EntityViewAvailable;
+
+        public event Action<EveFieldsSplatsDocument>? FieldsSplatsAvailable;
 
         private static CultMeshBodyPublicationHandle BodyPublicationHandle(EveEntitySoaViewDocument document)
         {
@@ -174,16 +181,47 @@ namespace GameCult.Eve.UnityScene
         public void PumpLiveEvents()
         {
             PollCurrentEntityView();
+            PollCurrentFields();
             while (_liveDocuments.TryDequeue(out var document))
             {
                 if (document is EveEntitySoaViewDocument entityView)
                     PublishEntityView(entityView);
+                else if (document is EveFieldsSplatsDocument fields)
+                    FieldsSplatsAvailable?.Invoke(fields);
                 else if (document is EveSurfaceDocument surface)
                     PublishSurface(surface);
                 else if (document is EveCommandReceiptDocument receipt)
                     PublishReceipt(receipt);
             }
             PollPendingReceipts();
+        }
+
+        private void PollCurrentFields()
+        {
+            if (DateTime.UtcNow < _nextFieldsPollUtc)
+                return;
+            _nextFieldsPollUtc = DateTime.UtcNow.AddMilliseconds(250);
+            var world = new EveUnitySceneSurfaceLowerer()
+                .Lower(CurrentSurfaceDocument.SurfaceDocument, CurrentSurfaceDocument.AdvertisedSurface)
+                .PlayableWorld;
+            if (world == null)
+                return;
+            foreach (var recordRef in world.FieldVolumes
+                         .Select(field => field.DocumentRef)
+                         .Where(value => !string.IsNullOrWhiteSpace(value))
+                         .Distinct(StringComparer.Ordinal))
+            {
+                var current = _snapshot!
+                    .FetchDocumentsAsync<EveFieldsSplatsDocument>(
+                        recordKeys: new[] { recordRef },
+                        schemaIds: new[] { EveFieldsSchemas.Splats })
+                    .GetAwaiter().GetResult().FirstOrDefault();
+                if (current == null ||
+                    (_lastFieldsFrameByRecord.TryGetValue(recordRef, out var frame) && current.FrameId <= frame))
+                    continue;
+                _lastFieldsFrameByRecord[recordRef] = current.FrameId;
+                _liveDocuments.Enqueue(current);
+            }
         }
 
         private void PollCurrentEntityView()
@@ -289,6 +327,7 @@ namespace GameCult.Eve.UnityScene
             _replicaShard = null;
             _pendingCommandIds.Clear();
             _publishedReceiptIds.Clear();
+            _lastFieldsFrameByRecord.Clear();
         }
 
         public GameObject? ResolvePrefab(EveUnityPlayableWorldAssetBinding asset)

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using GameCult.Eve.PluginFields;
 using GameCult.Eve.Surface;
 using GameCult.Mesh;
 
@@ -103,10 +104,13 @@ namespace GameCult.Eve.UnityScene
                 return null;
 
             var entities = new List<EveUnityPlayableWorldEntity>();
+            var fieldVolumes = new List<EveUnityFieldVolumeProjection>();
             foreach (var component in Flatten(worldRoot))
             {
                 if (string.Equals(component.Kind, "world.entity3d", StringComparison.Ordinal))
                     entities.Add(BuildPlayableEntity(component));
+                else if (string.Equals(component.Kind, "field.volume3d", StringComparison.Ordinal))
+                    fieldVolumes.Add(BuildFieldVolume(component));
             }
 
             return new EveUnityPlayableWorldProjection(
@@ -145,8 +149,20 @@ namespace GameCult.Eve.UnityScene
                 ParseFloat(worldRoot.GetProp("reflectionIntensity"), 1f),
                 ParseVector3(worldRoot.GetProp("keyLightDirection")),
                 ParseVector3(worldRoot.GetProp("keyLightColor")),
-                ParseFloat(worldRoot.GetProp("keyLightIntensity"), 0f));
+                ParseFloat(worldRoot.GetProp("keyLightIntensity"), 0f),
+                fieldVolumes);
         }
+
+        private static EveUnityFieldVolumeProjection BuildFieldVolume(EveSurfaceComponent component) =>
+            new EveUnityFieldVolumeProjection(
+                component.Id,
+                component.GetProp("documentRef"),
+                component.GetProp("documentSchema", EveFieldsSchemas.Splats),
+                component.GetProp("materialAssetRef"),
+                component.GetProp("renderChannel", "world.transparent"),
+                component.GetProp("compositeMode", "premultiplied-alpha"),
+                component.GetProp("quality", "normal"),
+                component.Props);
 
         private static EveUnityPlayableWorldEntity BuildPlayableEntity(EveSurfaceComponent component)
         {
@@ -375,7 +391,8 @@ namespace GameCult.Eve.UnityScene
             float reflectionIntensity = 1f,
             (float x, float y, float z) keyLightDirection = default,
             (float r, float g, float b) keyLightColor = default,
-            float keyLightIntensity = 0f)
+            float keyLightIntensity = 0f,
+            IReadOnlyList<EveUnityFieldVolumeProjection>? fieldVolumes = null)
         {
             WorldRootId = worldRootId ?? "";
             StatePointerId = statePointerId ?? "";
@@ -419,6 +436,7 @@ namespace GameCult.Eve.UnityScene
             KeyLightColorG = keyLightColor.g;
             KeyLightColorB = keyLightColor.b;
             KeyLightIntensity = keyLightIntensity;
+            FieldVolumes = fieldVolumes ?? Array.Empty<EveUnityFieldVolumeProjection>();
         }
 
         public string WorldRootId { get; }
@@ -506,6 +524,40 @@ namespace GameCult.Eve.UnityScene
         public int EntityCount => Entities.Count;
 
         public IReadOnlyList<EveUnityPlayableWorldEntity> Entities { get; }
+
+        public IReadOnlyList<EveUnityFieldVolumeProjection> FieldVolumes { get; }
+    }
+
+    public sealed class EveUnityFieldVolumeProjection
+    {
+        public EveUnityFieldVolumeProjection(
+            string nodeId,
+            string documentRef,
+            string documentSchema,
+            string materialAssetRef,
+            string renderChannel,
+            string compositeMode,
+            string quality,
+            IReadOnlyDictionary<string, string>? props = null)
+        {
+            NodeId = nodeId ?? "";
+            DocumentRef = documentRef ?? "";
+            DocumentSchema = documentSchema ?? "";
+            MaterialAssetRef = materialAssetRef ?? "";
+            RenderChannel = renderChannel ?? "";
+            CompositeMode = compositeMode ?? "";
+            Quality = quality ?? "";
+            Props = props ?? new Dictionary<string, string>(StringComparer.Ordinal);
+        }
+
+        public string NodeId { get; }
+        public string DocumentRef { get; }
+        public string DocumentSchema { get; }
+        public string MaterialAssetRef { get; }
+        public string RenderChannel { get; }
+        public string CompositeMode { get; }
+        public string Quality { get; }
+        public IReadOnlyDictionary<string, string> Props { get; }
     }
 
     public sealed class EveUnityPlayableWorldEntity

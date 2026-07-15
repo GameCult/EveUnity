@@ -24,6 +24,24 @@ namespace GameCult.Eve.UnityScene.Tests
         }
 
         [Test]
+        public void CanonicalFieldsPackageOwnsTheCultMeshWireDocument()
+        {
+            Assert.That(typeof(EveFieldsSplatsDocument).GetCustomAttributes(false)
+                .Any(attribute => attribute.GetType().Name == "CultDocumentAttribute"), Is.True);
+            Assert.That(new EveFieldsSplatsDocument().Schema, Is.EqualTo(EveFieldsSchemas.Splats));
+            Assert.That(typeof(EveFieldsSplatsDocument).Assembly.GetReferencedAssemblies()
+                .Any(assembly => assembly.Name?.Contains("Aetheria", StringComparison.OrdinalIgnoreCase) == true), Is.False);
+        }
+
+        [Test]
+        public void VolumeRendererConsumesCanonicalFieldsWithoutProviderCode()
+        {
+            Assert.That(typeof(EveUnityFieldsVolumeRenderer).Assembly.GetReferencedAssemblies()
+                .Any(assembly => assembly.Name?.Contains("Aetheria", StringComparison.OrdinalIgnoreCase) == true), Is.False);
+            Assert.That(typeof(IEveUnityFieldsSplatsDocumentSource).GetEvent("FieldsSplatsAvailable"), Is.Not.Null);
+        }
+
+        [Test]
         public void PackageContainsGenericFieldsShader()
         {
             Assert.That(Shader.Find("Eve/Fields/Splats"), Is.Not.Null);

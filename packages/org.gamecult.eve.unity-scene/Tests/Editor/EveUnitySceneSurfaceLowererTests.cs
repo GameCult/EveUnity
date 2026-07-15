@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using GameCult.Caching;
+using GameCult.Eve.PluginFields;
 using GameCult.Eve.Surface;
 using GameCult.Mesh;
 using NUnit.Framework;
@@ -421,6 +422,10 @@ namespace GameCult.Eve.UnityScene.Tests
             Assert.That(projection.PlayableWorld.FocusCommand, Is.EqualTo("aetheria.daemon.focus"));
             Assert.That(projection.PlayableWorld.TargetCommand, Is.EqualTo("aetheria.daemon.target"));
             Assert.That(projection.PlayableWorld.EntityCount, Is.EqualTo(3));
+            Assert.That(projection.PlayableWorld.FieldVolumes.Count, Is.EqualTo(1));
+            Assert.That(projection.PlayableWorld.FieldVolumes[0].DocumentRef, Is.EqualTo("cultmesh://aetheria/world/fog-splats"));
+            Assert.That(projection.PlayableWorld.FieldVolumes[0].MaterialAssetRef, Is.EqualTo("shader.environment.gravity-fog"));
+            Assert.That(projection.PlayableWorld.FieldVolumes[0].RenderChannel, Is.EqualTo("world.transparent"));
 
             var player = FindEntity(projection.PlayableWorld, "player-vanguard");
             Assert.That(player.EntityKind, Is.EqualTo("player"));
@@ -1861,6 +1866,21 @@ namespace GameCult.Eve.UnityScene.Tests
                     ["bind"] = "aetheria.daemon.soaView.flowField3d",
                     ["visualizer"] = "particles",
                     ["bounds"] = "-32,0,-32,32,24,32"
+                },
+                Array.Empty<EveSurfaceComponent>()));
+
+            playableChildren.Add(new EveSurfaceComponent(
+                "aetheria.daemon.game.gravity-fog",
+                "field.volume3d",
+                new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["documentRef"] = "cultmesh://aetheria/world/fog-splats",
+                    ["documentSchema"] = EveFieldsSchemas.Splats,
+                    ["materialAssetRef"] = "shader.environment.gravity-fog",
+                    ["renderChannel"] = "world.transparent",
+                    ["compositeMode"] = "premultiplied-alpha",
+                    ["quality"] = "normal",
+                    ["layerBindings"] = "fog.surface_height=_NebulaSurfaceHeight;fog.tint=_NebulaTint"
                 },
                 Array.Empty<EveSurfaceComponent>()));
 

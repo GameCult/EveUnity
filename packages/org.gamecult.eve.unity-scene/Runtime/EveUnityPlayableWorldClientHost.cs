@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using GameCult.Eve.Surface;
+using GameCult.Eve.UnityScene.Fields;
 using UnityEngine;
 
 #nullable enable
@@ -111,6 +112,9 @@ namespace GameCult.Eve.UnityScene
             if (thermalHud == null) thermalHud = gameObject.AddComponent<EveUnityThermalHudSink>();
             if (thermal == null) thermal = gameObject.AddComponent<EveUnityThermalPresenter>();
             thermal.Bind(this, Runtime.GameObjectAssetProvider as IEveUnityNativeAssetProvider);
+            var fieldVolume = GetComponent<EveUnityFieldsVolumeRenderer>();
+            if (fieldVolume == null) fieldVolume = gameObject.AddComponent<EveUnityFieldsVolumeRenderer>();
+            fieldVolume.Bind(this, providerSurfaceDocuments as IEveUnityFieldsSplatsDocumentSource);
 
             var presentation = Runtime.Connect();
             ConnectionEpoch++;

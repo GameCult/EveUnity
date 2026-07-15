@@ -8,6 +8,7 @@ using GameCult.Caching.MessagePack;
 using GameCult.Eve.Surface;
 using GameCult.Eve.UnityUIToolkit;
 using GameCult.Eve.UnityScene;
+using GameCult.Eve.UnityScene.Fields;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
@@ -666,6 +667,14 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 Assert.That(beamRenderer.TryGetPower(beamPresentation.Id, out tractorReleasedPower), Is.True);
                 Assert.That(tractorReleasedPower, Is.Zero,
                     "Released held input did not return the daemon-authored tractor presentation to zero.");
+                var fieldVolume = root.GetComponent<EveUnityFieldsVolumeRenderer>();
+                Assert.That(fieldVolume, Is.Not.Null, "The generic client did not install its Fields volume lowerer.");
+                Assert.That(fieldVolume.PresentedFrameId, Is.GreaterThanOrEqualTo(0),
+                    "The advertised Fields splat document never reached the generic volume lowerer.");
+                Assert.That(fieldVolume.PresentedLayerCount, Is.GreaterThan(0),
+                    "The generic volume lowerer did not rasterize any advertised Fields layers.");
+                Assert.That(fieldVolume.CompositeCount, Is.GreaterThan(0),
+                    "The generic volume lowerer never composited into the pilot camera.");
                 WriteWitnessFacts(
                     initialVersion,
                     runtime.ActiveVersion,
@@ -677,6 +686,9 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     (camera.cullingMask & (1 << mapLayer)) == 0,
                     (mapCamera.cullingMask & (1 << mapLayer)) != 0,
                     environmentPresentation,
+                    fieldVolume.PresentedFrameId,
+                    fieldVolume.PresentedLayerCount,
+                    fieldVolume.CompositeCount,
                     movementReceipt,
                     lookReceipt,
                     focusReceipt,
@@ -733,6 +745,9 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             bool pilotCameraExcludesMapChannel,
             bool mapCameraIncludesMapChannel,
             bool environmentPresentation,
+            long fieldVolumeFrameId,
+            int fieldVolumeLayerCount,
+            long fieldVolumeCompositeCount,
             WitnessReceipt movement,
             WitnessReceipt look,
             WitnessReceipt targeting,
@@ -769,6 +784,9 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 providerAdvertisement = true,
                 providerAssets = true,
                 environmentPresentation = environmentPresentation,
+                fieldVolumeFrameId = fieldVolumeFrameId,
+                fieldVolumeLayerCount = fieldVolumeLayerCount,
+                fieldVolumeCompositeCount = fieldVolumeCompositeCount,
                 movement = movement != null,
                 aimPresentation = look != null && aimDotDistance >= 49.9f,
                 targeting = targeting != null,
@@ -828,6 +846,9 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             public bool providerAdvertisement;
             public bool providerAssets;
             public bool environmentPresentation;
+            public long fieldVolumeFrameId;
+            public int fieldVolumeLayerCount;
+            public long fieldVolumeCompositeCount;
             public bool movement;
             public bool aimPresentation;
             public bool targeting;

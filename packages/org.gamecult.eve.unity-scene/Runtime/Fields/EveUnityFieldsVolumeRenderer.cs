@@ -25,6 +25,7 @@ namespace GameCult.Eve.UnityScene.Fields
 
         public long PresentedFrameId { get; private set; } = -1;
         public int PresentedLayerCount => _targets.Count(target => target.TargetTexture != null);
+        public long CompositeCount { get; private set; }
 
         public void Bind(EveUnityPlayableWorldClientHost host, IEveUnityFieldsSplatsDocumentSource? source)
         {
@@ -77,6 +78,7 @@ namespace GameCult.Eve.UnityScene.Fields
             if (_host == null || _document == null || camera == null ||
                 _host.ActiveCameraTransform != camera.transform)
                 return;
+            if (PresentedLayerCount == 0) RenderLayers(_document);
             var field = ActiveField();
             if (field == null || !EnsureMaterial(field)) return;
             ApplyFieldBindings(field, _document);
@@ -113,6 +115,7 @@ namespace GameCult.Eve.UnityScene.Fields
             _commands.SetRenderTarget(BuiltinRenderTextureType.CameraTarget);
             _commands.DrawProcedural(Matrix4x4.identity, _material!, compositePass, MeshTopology.Triangles, 3, 1);
             context.ExecuteCommandBuffer(_commands);
+            CompositeCount++;
         }
 
         private EveUnityFieldVolumeProjection? ActiveField() =>
@@ -218,6 +221,7 @@ namespace GameCult.Eve.UnityScene.Fields
             _sourceShader = null;
             _activeNodeId = "";
             PresentedFrameId = -1;
+            CompositeCount = 0;
         }
 
         private void SetMatrix(EveUnityFieldVolumeProjection field, string propKey, Matrix4x4 value)

@@ -456,6 +456,19 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 cameraRig.CameraTransform = camera.transform;
                 cameraRig.RenderPolicySource = provider;
                 Assert.That(cameraRig.ApplyRig(0f), Is.True);
+                var skybox = provider.ResolveAsset(new EveUnityPlayableWorldAssetBinding(
+                    runtime.ActiveWorld.SkyboxAssetRef, "", "provider-asset-ref"), typeof(Material)) as Material;
+                var reflection = provider.ResolveAsset(new EveUnityPlayableWorldAssetBinding(
+                    runtime.ActiveWorld.ReflectionAssetRef, "", "provider-asset-ref"), typeof(Cubemap)) as Cubemap;
+                Assert.That(runtime.ActiveWorld.SkyboxAssetRef, Is.Not.Empty);
+                Assert.That(runtime.ActiveWorld.ReflectionAssetRef, Is.Not.Empty);
+                Assert.That(skybox, Is.Not.Null);
+                Assert.That(reflection, Is.Not.Null);
+                Assert.That(RenderSettings.skybox, Is.SameAs(skybox));
+                Assert.That(RenderSettings.customReflectionTexture, Is.SameAs(reflection));
+                Assert.That(camera.clearFlags, Is.EqualTo(CameraClearFlags.Skybox));
+                var environmentPresentation = RenderSettings.skybox == skybox &&
+                    RenderSettings.customReflectionTexture == reflection;
                 aimRenderer.RefreshNow();
                 Assert.That(aimRenderer.ViewDotVisible, Is.True);
                 aimDotDistance = Vector3.Distance(playerMarker.transform.position, aimRenderer.ViewDotPosition);
@@ -515,6 +528,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     mapChangedPixels,
                     (camera.cullingMask & (1 << mapLayer)) == 0,
                     (mapCamera.cullingMask & (1 << mapLayer)) != 0,
+                    environmentPresentation,
                     movementReceipt,
                     lookReceipt,
                     focusReceipt,
@@ -554,6 +568,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             int mapChangedPixels,
             bool pilotCameraExcludesMapChannel,
             bool mapCameraIncludesMapChannel,
+            bool environmentPresentation,
             WitnessReceipt movement,
             WitnessReceipt look,
             WitnessReceipt targeting,
@@ -572,6 +587,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             {
                 providerAdvertisement = true,
                 providerAssets = true,
+                environmentPresentation = environmentPresentation,
                 movement = movement != null,
                 aimPresentation = look != null && aimDotDistance >= 49.9f,
                 targeting = targeting != null,
@@ -608,6 +624,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
         {
             public bool providerAdvertisement;
             public bool providerAssets;
+            public bool environmentPresentation;
             public bool movement;
             public bool aimPresentation;
             public bool targeting;

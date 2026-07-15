@@ -6,6 +6,8 @@ The warm-cache released-package witness passes with:
 
 - `org.gamecult.eve.unity-scene` `0.3.27`, commit
   `63a41712c5a68ce835bc1820980fc4786c34eb7b`;
+- `org.gamecult.eve.unity-uitoolkit` `0.1.1`, commit
+  `4d0cbe0185bdc4fc65eb63503a7c5cb578539669`;
 - `org.gamecult.cultlib` `1.0.13`, commit
   `feb5c71513e71d681699f462fe3682b3168c6f73`;
 - the generic `ReleaseConsumerProject` client connected directly to the
@@ -25,15 +27,28 @@ Aetheria also advertises the original `ARPG.unity` follow-camera composition:
 `70` unit distance, `60` degree vertical field of view, target screen position
 `0.66,0.55`, and position damping `2`. The generic camera rig lowers those
 values without Aetheria-specific camera code.
+Aetheria's pilot surface also publishes a transparent cockpit overlay. The
+released generic UI Toolkit lowerer produced six native `ProgressBar` elements
+for hull, shield, capacitor, weapon cooldown, and target state. Daemon frame,
+player, and command diagnostics remain available in the document but lower
+with `display: none` in the pilot presentation. The runnable generic-client
+launcher mounts the same advertised document and forwards its typed commands;
+it contains no Aetheria gameplay or client-authored world light.
+
+The two PNGs below are deliberate camera-channel captures, not a composited
+screen capture, so they prove world/map isolation rather than HUD pixels. The
+native cockpit proof is the asserted UI Toolkit visual tree recorded as
+`cockpitProgressCount: 6` in the witness facts.
 
 Camera-channel facts:
 
 - provider-authored player renderers: `12`;
-- pilot changed pixels: `230,169`;
-- pilot average luminance: `0.003425`;
-- pilot bright pixels: `1,242`;
+- pilot changed pixels: `230,229`;
+- pilot average luminance: `0.003307`;
+- pilot bright pixels: `1,289`;
 - map-channel renderers: `11`;
-- map changed pixels: `5,153`;
+- map changed pixels: `5,396`;
+- native cockpit progress bars: `6`;
 - the pilot camera excludes the advertised map layer;
 - the player prefab's embedded layer-14 map icon contributes exactly `0` pilot
   pixels;

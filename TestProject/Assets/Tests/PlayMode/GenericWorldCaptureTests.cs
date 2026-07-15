@@ -6,10 +6,12 @@ using System.Linq;
 using GameCult.Caching;
 using GameCult.Caching.MessagePack;
 using GameCult.Eve.Surface;
+using GameCult.Eve.UnityUIToolkit;
 using GameCult.Eve.UnityScene;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
+using UnityEngine.UIElements;
 
 namespace GameCult.EveUnity.GenericClient.PlayModeTests
 {
@@ -197,6 +199,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             long initialVersion = 0;
             float movementDistance = 0f;
             float aimDotDistance = 0f;
+            int cockpitProgressCount = 0;
 
             try
             {
@@ -236,6 +239,15 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     provider,
                     provider);
                 host.Connect();
+                var loweredSurface = new EveUiToolkitSurfaceLowerer().Lower(
+                    provider.CurrentDocument.SurfaceDocument,
+                    provider.Submit);
+                var cockpit = loweredSurface.Q<VisualElement>("aetheria.daemon.game.cockpit");
+                Assert.That(cockpit, Is.Not.Null, "The provider did not publish a generic cockpit overlay.");
+                cockpitProgressCount = cockpit.Query<ProgressBar>().ToList().Count;
+                Assert.That(cockpitProgressCount, Is.GreaterThanOrEqualTo(6));
+                Assert.That(loweredSurface.Q<VisualElement>("aetheria.daemon.game.frame").style.display.value,
+                    Is.EqualTo(DisplayStyle.None), "Daemon diagnostics leaked into the pilot UI.");
                 host.ShotAvailable += shot => observedShot = shot;
                 runtime = host.Runtime;
                 Assert.That(runtime, Is.Not.Null);
@@ -575,6 +587,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     directionalLightIntensity,
                     pilotAverageLuminance,
                     pilotBrightPixelCount,
+                    cockpitProgressCount,
                     playerRendererFacts);
             }
             finally
@@ -621,6 +634,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             float directionalLightIntensity,
             float pilotAverageLuminance,
             int pilotBrightPixelCount,
+            int cockpitProgressCount,
             RendererFact[] playerRendererFacts)
         {
             var path = Environment.GetEnvironmentVariable("EVEUNITY_WITNESS_FACTS_PATH");
@@ -657,6 +671,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 pilotChangedPixels = pilotChangedPixels,
                 pilotAverageLuminance = pilotAverageLuminance,
                 pilotBrightPixelCount = pilotBrightPixelCount,
+                cockpitProgressCount = cockpitProgressCount,
                 playerRenderers = playerRendererFacts,
                 mapChannelRendererCount = mapChannelRendererCount,
                 mapChangedPixels = mapChangedPixels,
@@ -701,6 +716,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             public int pilotChangedPixels;
             public float pilotAverageLuminance;
             public int pilotBrightPixelCount;
+            public int cockpitProgressCount;
             public RendererFact[] playerRenderers;
             public int mapChannelRendererCount;
             public int mapChangedPixels;

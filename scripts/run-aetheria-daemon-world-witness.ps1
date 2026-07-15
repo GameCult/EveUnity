@@ -14,6 +14,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $expectedEveUnityCommit = "63a41712c5a68ce835bc1820980fc4786c34eb7b"
+$expectedEveUnityUiToolkitCommit = "4d0cbe0185bdc4fc65eb63503a7c5cb578539669"
 $expectedCultLibCommit = "feb5c71513e71d681699f462fe3682b3168c6f73"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $projectRoot = $ClientProject
@@ -188,14 +189,17 @@ try {
   $releaseLock = Get-Content -LiteralPath (Join-Path $repoRoot "ReleaseConsumerProject\Packages\packages-lock.json") -Raw | ConvertFrom-Json
   $releasedPackageClient = $projectRoot -eq "ReleaseConsumerProject"
   $sceneLock = $releaseLock.dependencies.'org.gamecult.eve.unity-scene'
+  $uiToolkitLock = $releaseLock.dependencies.'org.gamecult.eve.unity-uitoolkit'
   $cultLibLock = $releaseLock.dependencies.'org.gamecult.cultlib'
   if (-not $releasedPackageClient) { throw "Released witness must run ReleaseConsumerProject, got '$projectRoot'." }
-  if ($sceneLock.source -ne "git" -or $cultLibLock.source -ne "git" -or
-      $sceneLock.version -like "file:*" -or $cultLibLock.version -like "file:*") {
+  if ($sceneLock.source -ne "git" -or $uiToolkitLock.source -ne "git" -or $cultLibLock.source -ne "git" -or
+      $sceneLock.version -like "file:*" -or $uiToolkitLock.version -like "file:*" -or $cultLibLock.version -like "file:*") {
     throw "Released witness resolved a non-git/local package dependency."
   }
-  if ($sceneLock.hash -ne $expectedEveUnityCommit -or $cultLibLock.hash -ne $expectedCultLibCommit) {
-    throw "Released package commits do not match the witnessed releases. scene=$($sceneLock.hash) cultlib=$($cultLibLock.hash)"
+  if ($sceneLock.hash -ne $expectedEveUnityCommit -or
+      $uiToolkitLock.hash -ne $expectedEveUnityUiToolkitCommit -or
+      $cultLibLock.hash -ne $expectedCultLibCommit) {
+    throw "Released package commits do not match the witnessed releases. scene=$($sceneLock.hash) uitoolkit=$($uiToolkitLock.hash) cultlib=$($cultLibLock.hash)"
   }
   $finalBodies = @(Get-ChildItem -LiteralPath $assetCachePath -Filter *.body -File -Recurse -ErrorAction SilentlyContinue)
   $finalPartials = @(Get-ChildItem -LiteralPath $assetCachePath -Filter *.partial -File -Recurse -ErrorAction SilentlyContinue)
@@ -215,6 +219,7 @@ try {
   $facts | Add-Member -NotePropertyName releasedPackageClient -NotePropertyValue $releasedPackageClient
   $facts | Add-Member -NotePropertyName clientProject -NotePropertyValue $projectRoot
   $facts | Add-Member -NotePropertyName eveUnityPackageCommit -NotePropertyValue $sceneLock.hash
+  $facts | Add-Member -NotePropertyName eveUnityUiToolkitPackageCommit -NotePropertyValue $uiToolkitLock.hash
   $facts | Add-Member -NotePropertyName cultLibPackageCommit -NotePropertyValue $cultLibLock.hash
   $facts | Add-Member -NotePropertyName contentDelivery -NotePropertyValue ([ordered]@{
     initialBodyCount = $initialBodyCount
@@ -222,7 +227,7 @@ try {
     finalBodyCount = $finalBodies.Count
     finalPartialCount = $finalPartials.Count
     contentHash = $bodyHash
-    sizeBytes = $finalBodies[0].Length
+    sizeBytes = $promotedBundleBodies[0].Length
   })
   $capture = Get-Item -LiteralPath $capturePath
   $mapCapture = Get-Item -LiteralPath $mapCapturePath

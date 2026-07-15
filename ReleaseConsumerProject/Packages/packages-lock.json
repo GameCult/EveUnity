@@ -154,13 +154,13 @@
       "hash": "63a41712c5a68ce835bc1820980fc4786c34eb7b"
     },
     "org.gamecult.eve.unity-uitoolkit": {
-      "version": "https://github.com/GameCult/EveUnity.git?path=/packages/org.gamecult.eve.unity-uitoolkit#eveunity-uitoolkit-v0.1.0",
+      "version": "https://github.com/GameCult/EveUnity.git?path=/packages/org.gamecult.eve.unity-uitoolkit#eveunity-uitoolkit-v0.1.1",
       "depth": 0,
       "source": "git",
       "dependencies": {
         "org.gamecult.eve.surface": "0.1.0"
       },
-      "hash": "e10821f1cc81f619479c6507438f6a097d1f0ce2"
+      "hash": "4d0cbe0185bdc4fc65eb63503a7c5cb578539669"
     },
     "com.unity.modules.assetbundle": {
       "version": "1.0.0",

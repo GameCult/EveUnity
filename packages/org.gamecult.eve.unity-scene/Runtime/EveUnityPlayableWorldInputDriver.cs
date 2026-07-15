@@ -100,7 +100,7 @@ namespace GameCult.Eve.UnityScene
             if (string.IsNullOrWhiteSpace(resolvedActionId))
                 return null;
 
-            return resolvedHost.SubmitActionIntent(
+            return resolvedHost.SubmitAdvertisedActionIntent(
                 resolvedHost.ActiveWorld.PlayerEntityId,
                 resolvedActionId);
         }

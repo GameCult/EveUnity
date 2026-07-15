@@ -121,6 +121,14 @@ namespace GameCult.Eve.UnityScene
             return _connection.SubmitActionIntent(entityId, actionId, issuedAt);
         }
 
+        public EveSurfaceCommandRequest SubmitCommandIntent(
+            string commandId,
+            IReadOnlyDictionary<string, string>? payload = null,
+            DateTimeOffset? issuedAt = null)
+        {
+            return _connection.SubmitCommandIntent(commandId, payload, issuedAt);
+        }
+
         public void Disconnect()
         {
             if (_connected)

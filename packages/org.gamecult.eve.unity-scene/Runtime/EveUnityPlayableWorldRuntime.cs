@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using GameCult.Eve.Surface;
 using UnityEngine;
 
@@ -176,6 +177,14 @@ namespace GameCult.Eve.UnityScene
             DateTimeOffset? issuedAt = null)
         {
             return _client.SubmitActionIntent(entityId, actionId, issuedAt);
+        }
+
+        public EveSurfaceCommandRequest SubmitCommandIntent(
+            string commandId,
+            IReadOnlyDictionary<string, string>? payload = null,
+            DateTimeOffset? issuedAt = null)
+        {
+            return _client.SubmitCommandIntent(commandId, payload, issuedAt);
         }
 
         public void Disconnect()

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using GameCult.Eve.Surface;
 
 #nullable enable
@@ -252,6 +253,14 @@ namespace GameCult.Eve.UnityScene
             DateTimeOffset? issuedAt = null)
         {
             return Submit(_session.CreateActionIntent(entityId, actionId, issuedAt));
+        }
+
+        public EveSurfaceCommandRequest SubmitCommandIntent(
+            string commandId,
+            IReadOnlyDictionary<string, string>? payload = null,
+            DateTimeOffset? issuedAt = null)
+        {
+            return Submit(_session.CreatePlayableWorldIntent(commandId, payload, issuedAt));
         }
 
         public void Disconnect()

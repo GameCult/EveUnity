@@ -136,7 +136,9 @@ namespace GameCult.Eve.UnityScene
                 ParseVector3(worldRoot.GetProp("ambientLightColor")),
                 ParseFloat(worldRoot.GetProp("ambientLightIntensity"), 1f),
                 ParseFloat(worldRoot.GetProp("cameraNearClipPlane"), 0f),
-                ParseFloat(worldRoot.GetProp("cameraFarClipPlane"), 0f));
+                ParseFloat(worldRoot.GetProp("cameraFarClipPlane"), 0f),
+                worldRoot.GetProp("lookCommand"),
+                ParseFloat(worldRoot.GetProp("lookSensitivityRadians"), 0f));
         }
 
         private static EveUnityPlayableWorldEntity BuildPlayableEntity(EveSurfaceComponent component)
@@ -357,7 +359,9 @@ namespace GameCult.Eve.UnityScene
             (float r, float g, float b) ambientLightColor = default,
             float ambientLightIntensity = 1f,
             float cameraNearClipPlane = 0f,
-            float cameraFarClipPlane = 0f)
+            float cameraFarClipPlane = 0f,
+            string lookCommand = "",
+            float lookSensitivityRadians = 0f)
         {
             WorldRootId = worldRootId ?? "";
             StatePointerId = statePointerId ?? "";
@@ -388,6 +392,8 @@ namespace GameCult.Eve.UnityScene
             AmbientLightIntensity = ambientLightIntensity;
             CameraNearClipPlane = cameraNearClipPlane;
             CameraFarClipPlane = cameraFarClipPlane;
+            LookCommand = lookCommand ?? "";
+            LookSensitivityRadians = lookSensitivityRadians;
         }
 
         public string WorldRootId { get; }
@@ -437,6 +443,10 @@ namespace GameCult.Eve.UnityScene
         public string PlayerEntityId { get; }
 
         public string MovementCommand { get; }
+
+        public string LookCommand { get; }
+
+        public float LookSensitivityRadians { get; }
 
         public string FocusCommand { get; }
 

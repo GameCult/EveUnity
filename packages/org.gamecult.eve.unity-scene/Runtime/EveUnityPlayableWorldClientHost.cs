@@ -95,6 +95,9 @@ namespace GameCult.Eve.UnityScene
             var combatPresentation = GetComponent<EveUnityCombatPresentationRenderer>();
             if (combatPresentation == null) combatPresentation = gameObject.AddComponent<EveUnityCombatPresentationRenderer>();
             combatPresentation.Bind(this);
+            var aimPresentation = GetComponent<EveUnityAimPresentationRenderer>();
+            if (aimPresentation == null) aimPresentation = gameObject.AddComponent<EveUnityAimPresentationRenderer>();
+            aimPresentation.Bind(this);
             var thermal = GetComponent<EveUnityThermalPresenter>();
             var thermalHud = GetComponent<EveUnityThermalHudSink>();
             if (thermalHud == null) thermalHud = gameObject.AddComponent<EveUnityThermalHudSink>();
@@ -133,6 +136,16 @@ namespace GameCult.Eve.UnityScene
             DateTimeOffset? issuedAt = null)
         {
             return RequireRuntime().SubmitMoveVectorIntent(entityId, directionX, directionY, scalarValue, issuedAt);
+        }
+
+        public EveSurfaceCommandRequest SubmitLookDirectionIntent(
+            string entityId,
+            float directionX,
+            float directionY,
+            float directionZ,
+            DateTimeOffset? issuedAt = null)
+        {
+            return RequireRuntime().SubmitLookDirectionIntent(entityId, directionX, directionY, directionZ, issuedAt);
         }
 
         public EveSurfaceCommandRequest SubmitFocusIntent(

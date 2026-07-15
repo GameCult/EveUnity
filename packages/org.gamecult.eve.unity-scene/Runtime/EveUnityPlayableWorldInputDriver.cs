@@ -20,12 +20,16 @@ namespace GameCult.Eve.UnityScene
         [SerializeField] private string horizontalAxis = "Horizontal";
         [SerializeField] private string verticalAxis = "Vertical";
         [SerializeField] private string actionButton = "Fire1";
+        [SerializeField] private string lookHorizontalAxis = "Mouse X";
+        [SerializeField] private float defaultLookSensitivityRadians = 0.001f;
         [SerializeField] private float deadZone = 0.01f;
         [SerializeField] private float commandIntervalSeconds = 0.05f;
         [SerializeField] private bool submitZeroOnRelease = true;
 
         private float _nextCommandAt;
         private bool _wasMoving;
+        private float _lookYawRadians;
+        private bool _hasLookYaw;
 
         public EveUnityPlayableWorldClientHost? Host
         {
@@ -94,6 +98,34 @@ namespace GameCult.Eve.UnityScene
                 resolvedActionId);
         }
 
+        public EveSurfaceCommandRequest? SubmitLookInput(
+            float horizontalDelta,
+            DateTimeOffset? issuedAt = null)
+        {
+            var resolvedHost = ResolveHost();
+            var world = resolvedHost?.ActiveWorld;
+            if (world == null || string.IsNullOrWhiteSpace(world.LookCommand) ||
+                Mathf.Abs(horizontalDelta) <= 0.0001f)
+                return null;
+
+            if (!_hasLookYaw)
+            {
+                _lookYawRadians = ResolveControlledYawRadians(resolvedHost!, world.PlayerEntityId);
+                _hasLookYaw = true;
+            }
+            var sensitivity = Mathf.Abs(world.LookSensitivityRadians) > 0.000001f
+                ? world.LookSensitivityRadians
+                : defaultLookSensitivityRadians;
+            _lookYawRadians += horizontalDelta * sensitivity;
+            var direction = EveUnityPlayableWorldLookDirection.FromPlanarYaw(_lookYawRadians);
+            return resolvedHost!.SubmitLookDirectionIntent(
+                world.PlayerEntityId,
+                direction.DirectionX,
+                0f,
+                direction.DirectionZ,
+                issuedAt);
+        }
+
         public static string ResolvePrimaryActionId(EveInputCapabilityDocument? capability)
         {
             if (capability == null)
@@ -121,6 +153,8 @@ namespace GameCult.Eve.UnityScene
 
             _nextCommandAt = Time.unscaledTime + Math.Max(0.01f, commandIntervalSeconds);
             SubmitMoveVectorInput(Input.GetAxisRaw(horizontalAxis), Input.GetAxisRaw(verticalAxis));
+            if (!string.IsNullOrWhiteSpace(lookHorizontalAxis))
+                SubmitLookInput(Input.GetAxisRaw(lookHorizontalAxis));
 
             if (!string.IsNullOrWhiteSpace(actionButton) && Input.GetButtonDown(actionButton))
                 SubmitPrimaryAction();
@@ -134,6 +168,29 @@ namespace GameCult.Eve.UnityScene
             host = GetComponent<EveUnityPlayableWorldClientHost>();
             return host;
         }
+
+        private static float ResolveControlledYawRadians(EveUnityPlayableWorldClientHost host, string entityId)
+        {
+            foreach (var marker in host.SceneRoot.GetComponentsInChildren<EveUnityPlayableWorldEntityMarker>(true))
+                if (string.Equals(marker.EntityId, entityId, StringComparison.Ordinal))
+                    return marker.transform.eulerAngles.y * Mathf.Deg2Rad;
+            return 0f;
+        }
+    }
+
+    public readonly struct EveUnityPlayableWorldLookDirection
+    {
+        public EveUnityPlayableWorldLookDirection(float directionX, float directionZ)
+        {
+            DirectionX = directionX;
+            DirectionZ = directionZ;
+        }
+
+        public float DirectionX { get; }
+        public float DirectionZ { get; }
+
+        public static EveUnityPlayableWorldLookDirection FromPlanarYaw(float yawRadians) =>
+            new EveUnityPlayableWorldLookDirection(Mathf.Sin(yawRadians), Mathf.Cos(yawRadians));
     }
 
     public readonly struct EveUnityPlayableWorldMoveVector

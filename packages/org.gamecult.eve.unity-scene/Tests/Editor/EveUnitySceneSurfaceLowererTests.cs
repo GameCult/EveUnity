@@ -512,6 +512,18 @@ namespace GameCult.Eve.UnityScene.Tests
             Assert.That(moveVectorIntent.Payload.GetString("directionX"), Is.EqualTo("0.25"));
             Assert.That(moveVectorIntent.Payload.GetString("directionY"), Is.EqualTo("0.75"));
             Assert.That(moveVectorIntent.Payload.GetString("scalarValue"), Is.EqualTo("0.8"));
+
+            var lookIntent = session.CreateLookDirectionIntent(
+                "player-vanguard",
+                0.6f,
+                0f,
+                0.8f,
+                DateTimeOffset.Parse("2026-07-09T00:00:02Z"));
+            Assert.That(lookIntent.Payload.GetString("commandId"), Is.EqualTo("aetheria.daemon.look_intent"));
+            Assert.That(lookIntent.Payload.GetString("entityId"), Is.EqualTo("player-vanguard"));
+            Assert.That(lookIntent.Payload.GetString("directionX"), Is.EqualTo("0.6"));
+            Assert.That(lookIntent.Payload.GetString("directionY"), Is.EqualTo("0"));
+            Assert.That(lookIntent.Payload.GetString("directionZ"), Is.EqualTo("0.8"));
         }
 
         [Test]
@@ -977,6 +989,16 @@ namespace GameCult.Eve.UnityScene.Tests
                 Assert.That(request.Payload.GetDouble("directionX", 0), Is.EqualTo(1f).Within(0.0001f));
                 Assert.That(request.Payload.GetDouble("directionY", 0), Is.EqualTo(0f).Within(0.0001f));
                 Assert.That(request.Payload.GetDouble("scalarValue", 0), Is.EqualTo(1f).Within(0.0001f));
+
+                var controlledYaw = rootObject.GetComponentsInChildren<EveUnityPlayableWorldEntityMarker>(true)
+                    .Single(marker => marker.EntityId == "player-vanguard")
+                    .transform.eulerAngles.y * Mathf.Deg2Rad;
+                var look = driver.SubmitLookInput(1000f);
+                Assert.That(look, Is.Not.Null);
+                Assert.That(provider.Submitted.Count, Is.EqualTo(2));
+                Assert.That(look!.Payload.GetString("commandId"), Is.EqualTo("aetheria.daemon.look_intent"));
+                Assert.That(look.Payload.GetDouble("directionX", 0), Is.EqualTo(Mathf.Sin(controlledYaw - 1f)).Within(0.0001f));
+                Assert.That(look.Payload.GetDouble("directionZ", 0), Is.EqualTo(Mathf.Cos(controlledYaw - 1f)).Within(0.0001f));
 
                 var movement = EveUnityPlayableWorldMoveVector.FromCameraRelativeInput(1f, 1f, null);
                 Assert.That(movement.HasInput, Is.True);
@@ -1752,6 +1774,8 @@ namespace GameCult.Eve.UnityScene.Tests
                                     ["excludedRenderChannels"] = "map",
                                     ["playerEntityId"] = "player-vanguard",
                                     ["movementCommand"] = "aetheria.daemon.move_intent",
+                                    ["lookCommand"] = "aetheria.daemon.look_intent",
+                                    ["lookSensitivityRadians"] = "-0.001",
                                     ["focusCommand"] = "aetheria.daemon.focus",
                                     ["targetCommand"] = "aetheria.daemon.target",
                                     ["actionCommand"] = "aetheria.daemon.use_equipment"

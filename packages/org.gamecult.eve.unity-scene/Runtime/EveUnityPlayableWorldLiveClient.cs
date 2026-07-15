@@ -88,6 +88,16 @@ namespace GameCult.Eve.UnityScene
             return _connection.SubmitMoveVectorIntent(entityId, directionX, directionY, scalarValue, issuedAt);
         }
 
+        public EveSurfaceCommandRequest SubmitLookDirectionIntent(
+            string entityId,
+            float directionX,
+            float directionY,
+            float directionZ,
+            DateTimeOffset? issuedAt = null)
+        {
+            return _connection.SubmitLookDirectionIntent(entityId, directionX, directionY, directionZ, issuedAt);
+        }
+
         public EveSurfaceCommandRequest SubmitFocusIntent(
             string entityId,
             DateTimeOffset? issuedAt = null)

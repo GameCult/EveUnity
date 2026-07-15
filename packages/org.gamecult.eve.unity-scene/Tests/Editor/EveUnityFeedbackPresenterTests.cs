@@ -29,14 +29,51 @@ namespace GameCult.Eve.UnityScene.Tests
             Assert.That(emitted.Count, Is.EqualTo(1));
         }
 
+        [Test]
+        public void FeedbackEventPreservesProviderOwnedCargoDeltaAndReason()
+        {
+            var node = Event("pickup", "pickup.collected", 9, new Dictionary<string, string>
+            {
+                ["itemKey"] = "scrap-metal",
+                ["scalarValue"] = "1",
+                ["auxiliaryValue"] = "0",
+                ["cargoQuantityBefore"] = "0",
+                ["cargoQuantityAfter"] = "1",
+                ["reason"] = ""
+            });
+
+            var value = new EveUnityFeedbackEvent(node);
+
+            Assert.That(value.ItemKey, Is.EqualTo("scrap-metal"));
+            Assert.That(value.ScalarValue, Is.EqualTo(1));
+            Assert.That(value.AuxiliaryValue, Is.Zero);
+            Assert.That(value.CargoQuantityBefore, Is.Zero);
+            Assert.That(value.CargoQuantityAfter, Is.EqualTo(1));
+            Assert.That(value.Reason, Is.Empty);
+        }
+
         private static EveUnitySceneProjection Projection(params EveUnitySceneNode[] events) =>
             new EveUnitySceneProjection("provider", "surface", "world", "commands", "receipt", "provider", null,
                 Node("root", "surface", Node("feedback", "feedback.stream", events)));
 
-        private static EveUnitySceneNode Event(string id, string kind, long frame) =>
+        private static EveUnitySceneNode Event(
+            string id,
+            string kind,
+            long frame,
+            IReadOnlyDictionary<string, string>? extra = null)
+        {
+            var props = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["eventId"] = id,
+                ["eventKind"] = kind,
+                ["frameId"] = frame.ToString()
+            };
+            foreach (var pair in extra ?? Empty()) props[pair.Key] = pair.Value;
+            return
             new EveUnitySceneNode(id, "feedback.event", "scene-node",
-                new Dictionary<string, string>(StringComparer.Ordinal) { ["eventId"] = id, ["eventKind"] = kind, ["frameId"] = frame.ToString() },
+                props,
                 Empty(), Empty(), 0, 0, Array.Empty<EveUnitySceneEmbeddedDocumentSlot>(), null, Array.Empty<EveUnitySceneNode>());
+        }
 
         private static EveUnitySceneNode Node(string id, string kind, params EveUnitySceneNode[] children) =>
             new EveUnitySceneNode(id, kind, "scene-node", Empty(), Empty(), Empty(), 0, 0,

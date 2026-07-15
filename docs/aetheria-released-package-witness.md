@@ -29,11 +29,11 @@ values without Aetheria-specific camera code.
 Camera-channel facts:
 
 - provider-authored player renderers: `12`;
-- pilot changed pixels: `230,248`;
-- pilot average luminance: `0.003696`;
-- pilot bright pixels: `1,319`;
+- pilot changed pixels: `230,169`;
+- pilot average luminance: `0.003425`;
+- pilot bright pixels: `1,242`;
 - map-channel renderers: `11`;
-- map changed pixels: `4,975`;
+- map changed pixels: `5,153`;
 - the pilot camera excludes the advertised map layer;
 - the player prefab's embedded layer-14 map icon contributes exactly `0` pilot
   pixels;
@@ -47,6 +47,11 @@ remains dark. Renderer-isolation facts prove that the hull draws under the
 provider-owned light, so the next native-art work is available pre-generated
 provider textures, not a client-side lighting fallback.
 Substance is not part of this path; later texture baking belongs in Blender.
+Aetheria currently bundles ambientCG's 1K `Metal012` color, normal, and
+metalness maps for its brushed-aluminium material under CC0. The released
+witness resolves four native textures on that generated URP material. This is
+temporary provider art with recorded provenance, not a replacement texture
+pipeline.
 
 Primary artifacts:
 
@@ -58,7 +63,7 @@ Primary artifacts:
 
 ## Cold delivery is not currently proven
 
-The current 45.2 MB Unity bundle times out from an empty cache. Its bytes are
+The current 46.1 MB Unity bundle times out from an empty cache. Its bytes are
 still transported through batched snapshot records rather than the intended
 mapped/network body transport. Increasing the Unity timeout would hide the
 transport fault and is not an accepted fix.

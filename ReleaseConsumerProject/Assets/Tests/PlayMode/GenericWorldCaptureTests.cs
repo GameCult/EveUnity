@@ -484,6 +484,8 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     .Where(material => material != null)
                     .Distinct()
                     .Count(HasAnyTexture);
+                Assert.That(texturedPlayerMaterialCount, Is.GreaterThanOrEqualTo(3),
+                    "The provider bundle must retain its advertised native material textures.");
                 var directionalLightIntensity = UnityEngine.Object.FindObjectsOfType<Light>()
                     .Where(light => light != null && light.enabled && light.type == LightType.Directional)
                     .Sum(light => light.intensity);

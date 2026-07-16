@@ -24,6 +24,7 @@ namespace GameCult.Eve.UnityScene
         private LineRenderer? _hitB;
         private Material? _material;
         private float _hitUntil;
+        private float _pendingHitDuration;
         private EveUnityCombatPresentation? _lastPresentation;
         private Vector3 _lastCenter;
         private Vector3 _lastRight;
@@ -55,6 +56,11 @@ namespace GameCult.Eve.UnityScene
 
         public void RefreshNow()
         {
+            if (_pendingHitDuration > 0)
+            {
+                _hitUntil = Time.unscaledTime + _pendingHitDuration;
+                _pendingHitDuration = 0;
+            }
             Current = EveUnityCombatPresentation.Find(_host?.ActiveProjection);
             if (Current == null || string.IsNullOrWhiteSpace(Current.SelectedTargetEntityId))
             {
@@ -138,7 +144,7 @@ namespace GameCult.Eve.UnityScene
                 _lastUp = up;
                 _lastRadius = Math.Max(0.8f, _lastRadius);
                 _hasLastTarget = true;
-                _hitUntil = Time.unscaledTime + presentation.HitMarkerDurationSeconds;
+                _pendingHitDuration = Math.Max(_pendingHitDuration, presentation.HitMarkerDurationSeconds);
             }
         }
 

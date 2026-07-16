@@ -54,6 +54,9 @@ namespace GameCult.Eve.UnityScene.Tests
                 typeof(EveUnityCombatPresentationRenderer)
                     .GetMethod("OnShotAvailable", BindingFlags.Instance | BindingFlags.NonPublic)!
                     .Invoke(renderer, new object[] { Shot(4, 9, true, 12, 0, "7.5,-3.25") });
+                typeof(EveUnityCombatPresentationRenderer)
+                    .GetField("_hitUntil", BindingFlags.Instance | BindingFlags.NonPublic)!
+                    .SetValue(renderer, Time.unscaledTime - 1f);
 
                 renderer.RefreshNow();
 

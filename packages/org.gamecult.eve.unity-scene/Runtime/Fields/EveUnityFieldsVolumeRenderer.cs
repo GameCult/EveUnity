@@ -237,6 +237,48 @@ namespace GameCult.Eve.UnityScene.Fields
                 (float)((viewport.MinY + viewport.MaxY) * 0.5),
                 (float)width,
                 (float)height));
+            foreach (var binding in ParseBindings(Prop(field, "documentFloatBindings")))
+            {
+                if (TryEvaluateDocumentFloatBinding(
+                        document,
+                        binding.Key,
+                        binding.Value,
+                        out var port,
+                        out var value))
+                    SetFloatPort(port, value);
+            }
+        }
+
+        public static bool TryEvaluateDocumentFloatBinding(
+            EveFieldsSplatsDocument? document,
+            string source,
+            string descriptor,
+            out string port,
+            out float value)
+        {
+            port = "";
+            value = 0f;
+            if (document == null) return false;
+            var values = (descriptor ?? "").Split(',');
+            if (values.Length != 3 ||
+                string.IsNullOrWhiteSpace(values[0]) ||
+                !TryFloat(values[1].Trim(), out var scale) ||
+                !TryFloat(values[2].Trim(), out var offset))
+                return false;
+
+            double sourceValue;
+            switch ((source ?? "").Trim())
+            {
+                case "simulationTimeSeconds":
+                    sourceValue = document.SimulationTimeSeconds;
+                    break;
+                default:
+                    return false;
+            }
+
+            port = values[0].Trim();
+            value = (float)(sourceValue * scale + offset);
+            return float.IsFinite(value);
         }
 
         private void EnsureTargets(EveUnityFieldVolumeProjection field)

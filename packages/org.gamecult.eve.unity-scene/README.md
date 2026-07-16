@@ -75,3 +75,7 @@ native scene and the provider volume through the same camera pipeline.
 Providers may advertise per-layer resolution scales, mipmap use, and filtering
 through `layerTargetDescriptors`; the Unity lowerer applies those native target
 requirements without assigning gameplay or product meaning to the layer keys.
+`documentFloatBindings` maps standard document scalars to logical float ports as
+`source=port,scale,offset`. This lets animated native programs consume
+provider-authoritative simulation time without making the client clock an
+authority.

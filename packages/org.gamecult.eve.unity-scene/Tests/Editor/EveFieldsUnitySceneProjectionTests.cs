@@ -138,6 +138,36 @@ namespace GameCult.Eve.UnityScene.Tests
         }
 
         [Test]
+        public void VolumeRendererBindsAuthoritativeDocumentTimeToLogicalPort()
+        {
+            var document = new EveFieldsSplatsDocument { SimulationTimeSeconds = 12.5 };
+
+            Assert.That(
+                EveUnityFieldsVolumeRenderer.TryEvaluateDocumentFloatBinding(
+                    document,
+                    "simulationTimeSeconds",
+                    "flowScroll,0.025,-0.1",
+                    out var port,
+                    out var value),
+                Is.True);
+            Assert.That(port, Is.EqualTo("flowScroll"));
+            Assert.That(value, Is.EqualTo(0.2125f).Within(0.00001f));
+        }
+
+        [Test]
+        public void VolumeRendererRejectsUnknownDocumentFloatSource()
+        {
+            Assert.That(
+                EveUnityFieldsVolumeRenderer.TryEvaluateDocumentFloatBinding(
+                    new EveFieldsSplatsDocument(),
+                    "unityTime",
+                    "flowScroll,1,0",
+                    out _,
+                    out _),
+                Is.False);
+        }
+
+        [Test]
         public void PackageContainsGenericFieldsShader()
         {
             Assert.That(Shader.Find("Eve/Fields/Splats"), Is.Not.Null);

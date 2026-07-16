@@ -82,6 +82,12 @@ the field textures it samples. A `world.scene3d` may also request
 quality, and sharpening values to URP TAA and restores the previous camera
 state when the world releases the camera.
 
+`field.particles3d` may advertise provider material textures, viewport-relative
+texture scales, and a logical render-frame index port. These are presentation
+inputs: EveUnity binds the selected provider assets and current display frame
+without assigning product meaning to the shader. Stateless simulation time and
+particle positions remain provider-document inputs.
+
 Providers may advertise per-layer resolution scales, mipmap use, and filtering
 through `layerTargetDescriptors`; the Unity lowerer applies those native target
 requirements without assigning gameplay or product meaning to the layer keys.

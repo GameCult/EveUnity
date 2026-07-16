@@ -27,6 +27,7 @@ namespace GameCult.Eve.UnityScene.Fields
         private IReadOnlyDictionary<string, string>? _computeMetadata;
         private IReadOnlyDictionary<string, string>? _materialMetadata;
         private readonly Dictionary<string, Texture> _assetTextures = new Dictionary<string, Texture>(StringComparer.Ordinal);
+        private readonly Dictionary<string, Texture> _materialAssetTextures = new Dictionary<string, Texture>(StringComparer.Ordinal);
         private ComputeBuffer? _particles;
         private ComputeBuffer? _quadPoints;
         private EveUnityFieldsParticlePass? _renderPass;
@@ -170,11 +171,22 @@ namespace GameCult.Eve.UnityScene.Fields
                 if (texture == null) return false;
                 resolvedTextures[binding.Value] = texture;
             }
+            var resolvedMaterialTextures = new Dictionary<string, Texture>(StringComparer.Ordinal);
+            foreach (var binding in ParseBindings(Prop(field, "materialAssetTextureBindings")))
+            {
+                var texture = provider.ResolveAsset(
+                    new EveUnityPlayableWorldAssetBinding(binding.Key, "", "provider-asset-ref"),
+                    typeof(Texture)) as Texture;
+                if (texture == null) return false;
+                resolvedMaterialTextures[binding.Value] = texture;
+            }
 
             if (ReferenceEquals(compute, _computeSource) && ReferenceEquals(material, _materialSource) &&
                 string.Equals(field.NodeId, _activeNodeId, StringComparison.Ordinal) && ProgramReady &&
                 resolvedTextures.Count == _assetTextures.Count && resolvedTextures.All(binding =>
-                    _assetTextures.TryGetValue(binding.Key, out var current) && ReferenceEquals(current, binding.Value)))
+                    _assetTextures.TryGetValue(binding.Key, out var current) && ReferenceEquals(current, binding.Value)) &&
+                resolvedMaterialTextures.Count == _materialAssetTextures.Count && resolvedMaterialTextures.All(binding =>
+                    _materialAssetTextures.TryGetValue(binding.Key, out var current) && ReferenceEquals(current, binding.Value)))
                 return true;
 
             ReleaseProgramsAndBuffers();
@@ -187,6 +199,12 @@ namespace GameCult.Eve.UnityScene.Fields
             _material = new Material(material) { hideFlags = HideFlags.DontSave };
             _assetTextures.Clear();
             foreach (var binding in resolvedTextures) _assetTextures[binding.Key] = binding.Value;
+            _materialAssetTextures.Clear();
+            foreach (var binding in resolvedMaterialTextures)
+            {
+                _materialAssetTextures[binding.Key] = binding.Value;
+                SetMaterialTexture(binding.Key, binding.Value);
+            }
             foreach (var feature in Prop(field, "features").Split(';'))
             {
                 var logical = feature.Trim();
@@ -259,6 +277,7 @@ namespace GameCult.Eve.UnityScene.Fields
                 if (!HasPort(computeMetadata, "texturePort", binding.Value)) return false;
             foreach (var binding in ParseBindingPairs(Prop(field, "assetTextureBindings")))
                 if (!HasPort(computeMetadata, "texturePort", binding.Value)) return false;
+            if (!TryValidateMaterialPresentationContract(field, materialMetadata, out _)) return false;
             foreach (var parameter in ParseBindingPairs(Prop(field, "floatParameters")))
                 if (!HasPort(computeMetadata, "floatPort", parameter.Key) ||
                     !TryFloat(parameter.Value, out _)) return false;
@@ -291,6 +310,30 @@ namespace GameCult.Eve.UnityScene.Fields
                    PositiveInt(field, "particleStrideBytes", 0) > 0 &&
                    PositiveInt(field, "textureWidth", 0) > 0 &&
                    PositiveInt(field, "textureHeight", 0) > 0;
+        }
+
+        public static bool TryValidateMaterialPresentationContract(
+            EveUnityFieldParticlesProjection field,
+            IReadOnlyDictionary<string, string>? materialMetadata,
+            out string error)
+        {
+            if (field == null || materialMetadata == null)
+                return Fail("Field-particle material presentation contract is missing.", out error);
+            var textures = ParseBindings(Prop(field, "materialAssetTextureBindings"));
+            foreach (var binding in textures)
+                if (!HasPort(materialMetadata, "texturePort", binding.Value))
+                    return Fail("Field-particle material texture binding has no native logical port.", out error);
+            foreach (var binding in ParseBindingPairs(Prop(field, "materialViewportTextureScaleBindings")))
+            {
+                if (!HasPort(materialMetadata, "vectorPort", binding.Key) ||
+                    !textures.Values.Contains(binding.Value))
+                    return Fail("Field-particle viewport texture-scale binding is incomplete.", out error);
+            }
+            var framePort = Prop(field, "materialRenderFrameIndexPort");
+            if (!string.IsNullOrWhiteSpace(framePort) && !HasPort(materialMetadata, "intPort", framePort))
+                return Fail("Field-particle render-frame binding has no native logical port.", out error);
+            error = "";
+            return true;
         }
 
         private static bool HasPort(
@@ -367,6 +410,20 @@ namespace GameCult.Eve.UnityScene.Fields
             TextureHandle depthTarget)
         {
             if (_host == null || _host.ActiveCameraTransform != camera.transform || !ProgramReady) return;
+            var field = ActiveField();
+            if (field == null) return;
+            foreach (var binding in ParseBindings(Prop(field, "materialViewportTextureScaleBindings")))
+            {
+                if (!_materialAssetTextures.TryGetValue(binding.Value, out var texture) ||
+                    texture.width <= 0 || texture.height <= 0) return;
+                SetMaterialVector(binding.Key, new Vector4(
+                    (float)Math.Max(1, camera.pixelWidth) / texture.width,
+                    (float)Math.Max(1, camera.pixelHeight) / texture.height,
+                    0f,
+                    0f));
+            }
+            var framePort = Prop(field, "materialRenderFrameIndexPort");
+            if (!string.IsNullOrWhiteSpace(framePort)) SetMaterialInt(framePort, Time.frameCount);
             if (depthTarget.IsValid()) commands.SetRenderTarget(colorTarget, depthTarget);
             else commands.SetRenderTarget(colorTarget);
             commands.SetViewport(camera.pixelRect);
@@ -471,6 +528,24 @@ namespace GameCult.Eve.UnityScene.Fields
                 _material!.SetBuffer(property, buffer);
         }
 
+        private void SetMaterialTexture(string logical, Texture texture)
+        {
+            if (TryMaterialProgramValue($"unity.particles.texturePort.{logical}", out var property))
+                _material!.SetTexture(property, texture);
+        }
+
+        private void SetMaterialVector(string logical, Vector4 value)
+        {
+            if (TryMaterialProgramValue($"unity.particles.vectorPort.{logical}", out var property))
+                _material!.SetVector(property, value);
+        }
+
+        private void SetMaterialInt(string logical, int value)
+        {
+            if (TryMaterialProgramValue($"unity.particles.intPort.{logical}", out var property))
+                _material!.SetInt(property, value);
+        }
+
         private void SetComputeFloat(string logical, float value)
         {
             if (TryComputeProgramValue($"unity.particles.floatPort.{logical}", out var property))
@@ -533,6 +608,7 @@ namespace GameCult.Eve.UnityScene.Fields
             _computeMetadata = null;
             _materialMetadata = null;
             _assetTextures.Clear();
+            _materialAssetTextures.Clear();
             _activeNodeId = "";
         }
 

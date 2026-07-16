@@ -138,6 +138,46 @@ namespace GameCult.Eve.UnityScene.Tests
         }
 
         [Test]
+        public void ParticleMaterialAcceptsAdvertisedTemporalDitherInputs()
+        {
+            var field = new EveUnityFieldParticlesProjection(
+                "particles", "document", EveFieldsSchemas.Splats, "compute", "material", "world.transparent",
+                new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["materialAssetTextureBindings"] = "texture.noise=dither",
+                    ["materialViewportTextureScaleBindings"] = "ditherCoordinates=dither",
+                    ["materialRenderFrameIndexPort"] = "frameIndex"
+                });
+            var metadata = RequiredParticleMaterialMetadata();
+            metadata["unity.particles.texturePort.dither"] = "_DitheringTex";
+            metadata["unity.particles.vectorPort.ditherCoordinates"] = "_DitheringCoords";
+            metadata["unity.particles.intPort.frameIndex"] = "_FrameNumber";
+
+            Assert.That(EveUnityFieldsParticleRenderer.TryValidateMaterialPresentationContract(
+                field, metadata, out var error), Is.True, error);
+        }
+
+        [Test]
+        public void ParticleMaterialRejectsPartialTemporalDitherInputs()
+        {
+            var field = new EveUnityFieldParticlesProjection(
+                "particles", "document", EveFieldsSchemas.Splats, "compute", "material", "world.transparent",
+                new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["materialAssetTextureBindings"] = "texture.noise=dither",
+                    ["materialViewportTextureScaleBindings"] = "ditherCoordinates=dither",
+                    ["materialRenderFrameIndexPort"] = "frameIndex"
+                });
+            var metadata = RequiredParticleMaterialMetadata();
+            metadata["unity.particles.texturePort.dither"] = "_DitheringTex";
+            metadata["unity.particles.vectorPort.ditherCoordinates"] = "_DitheringCoords";
+
+            Assert.That(EveUnityFieldsParticleRenderer.TryValidateMaterialPresentationContract(
+                field, metadata, out var error), Is.False);
+            Assert.That(error, Does.Contain("render-frame"));
+        }
+
+        [Test]
         public void ParticleRendererPreservesRepeatedDocumentSourcesForDistinctPorts()
         {
             var document = new EveFieldsSplatsDocument { SimulationTimeSeconds = 12.5 };

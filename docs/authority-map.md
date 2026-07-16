@@ -47,6 +47,12 @@ projected `EveFieldsViewport`. URP TAA state is likewise derived from the
 world's neutral `temporal-reprojection.v1` camera contract and is restored on
 release.
 
+Particle materials may consume advertised presentation-only inputs through
+logical native metadata: provider-owned textures, viewport-to-texture scale,
+and the current render-frame index. The runtime frame index owns temporal
+coverage only; it cannot drive particle identity, phase, position, or any
+daemon-visible state.
+
 ## Forbidden Writers
 
 Unity transforms, input drivers, camera rigs, scene sinks, asset caches, and

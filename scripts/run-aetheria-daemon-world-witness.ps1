@@ -13,7 +13,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$expectedEveUnityCommit = "7c8442e12264806a53a9e0e08b7b090dcddb8c90"
+$expectedEveUnityCommit = "21ac39e7bdfca9d81a0b7d89834f7e9da60aaad6"
 $expectedEveFieldsCommit = "c5a4a75c1b727499b16c2dae1895f29e2a9f72f0"
 $expectedEveUnityUiToolkitCommit = "4d0cbe0185bdc4fc65eb63503a7c5cb578539669"
 $expectedCultLibCommit = "4b7162022a8976f7941b5a7a69acf50f1b6d532b"
@@ -245,6 +245,21 @@ try {
       -not $facts.mapCameraIncludesMapChannel -or [int]$facts.fieldVolumeLayerCount -le 0 -or
       [long]$facts.fieldVolumeCompositeCount -le 0) {
     throw "Live witness did not prove provider assets, movement, Fields lowering, and camera-channel separation."
+  }
+  $presentedCelestials = @($facts.presentedEntities | Where-Object { $_.entityKind -like "celestial.*" })
+  $presentedBodies = @($presentedCelestials | Where-Object {
+    $_.entityKind -in @("celestial.sun", "celestial.planet", "celestial.gas-giant")
+  })
+  $presentedAsteroids = @($presentedCelestials | Where-Object { $_.entityKind -eq "celestial.asteroid" })
+  $invalidCelestials = @($presentedCelestials | Where-Object {
+    [string]::IsNullOrWhiteSpace($_.assetRef) -or
+    [int]$_.rendererCount -le 0 -or
+    [int]$_.enabledRendererCount -le 0
+  })
+  if ($presentedBodies.Count -le 0 -or $presentedAsteroids.Count -le 0 -or
+      $invalidCelestials.Count -ne 0 -or
+      @($presentedCelestials | Where-Object { $_.intersectsPilotFrustum }).Count -le 0) {
+    throw "Live witness did not prove provider-owned celestial bodies and asteroids reached the generic scene and intersected the pilot frustum. bodies=$($presentedBodies.Count) asteroids=$($presentedAsteroids.Count) invalid=$($invalidCelestials.Count)"
   }
   if ($witnessProfile -eq "full-session-gameplay" -and
       (-not $facts.combatPresentation -or [string]::IsNullOrWhiteSpace($facts.shotId) -or

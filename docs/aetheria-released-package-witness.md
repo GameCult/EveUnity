@@ -5,8 +5,8 @@
 The released-package witness passes in separate cold-lowering and warm-gameplay
 profiles with:
 
-- `org.gamecult.eve.unity-scene` `0.3.50`, commit
-  `7c8442e12264806a53a9e0e08b7b090dcddb8c90`;
+- `org.gamecult.eve.unity-scene` `0.3.51`, commit
+  `21ac39e7bdfca9d81a0b7d89834f7e9da60aaad6`;
 - `org.gamecult.eve.plugin-fields` `0.2.3`, commit
   `c5a4a75c1b727499b16c2dae1895f29e2a9f72f0`;
 - `org.gamecult.eve.surface` `0.2.2`, commit
@@ -18,8 +18,9 @@ profiles with:
 - the generic `ReleaseConsumerProject` client connected directly to the
   Aetheria daemon.
 
-Evidence is in `artifacts/aetheria-daemon-cultlib-1014-cold-final` and
-`artifacts/aetheria-daemon-cultlib-1014-warm-final`. The warm PlayMode test
+Current celestial-package evidence is in
+`artifacts/aetheria-daemon-celestial-cold`; the retained cold and warm witness
+documents distinguish transfer from gameplay. The warm PlayMode test
 passed and recorded provider-owned reconciled movement, look, targeting,
 tractor press, tractor release, contact-gated cargo collection, and action
 receipts. The daemon-owned look direction reached the SoA body rotation,
@@ -32,7 +33,7 @@ direction, color, and intensity; the generic camera rig lowers that contract to
 the only live directional light (`0.75` intensity).
 Aetheria also advertises the original undocked `ARPG.unity` Third Person Rig:
 entity-forward perspective follow, `30` unit distance, `60` degree vertical
-field of view, target screen position `0.64,0.81`, zero position damping, and
+field of view, canonical bottom-origin target screen position `0.64,0.19`, zero position damping, and
 `1`-`4096` clip planes. Its generic `aim.convergence-point.v1` relation makes
 the optical axis reach the daemon-published aim point while preserving that
 entity framing. The generic camera rig lowers both constraints without
@@ -66,11 +67,11 @@ daemon lock progress `1.0`; Unity does not manufacture or smooth that value.
 Camera-channel facts:
 
 - provider-authored player renderers: `13`, including the lowered tractor effect;
-- pilot changed pixels: `196,179`;
-- pilot average luminance: `0.0993295`;
-- pilot bright pixels: `1,348`;
+- pilot changed pixels: `225,548`;
+- pilot average luminance: `0.119513`;
+- pilot bright pixels: `97,617`;
 - map-channel renderers: `10`;
-- map changed pixels: `4,627`;
+- map changed pixels: `4,723`;
 - native cockpit progress bars: `7`;
 - daemon tractor power at capture: `1.0` after the held input completed its
   authored ramp;
@@ -86,11 +87,22 @@ Camera-channel facts:
   pixels;
 - the map camera renders exactly the advertised map layer.
 
+The daemon also publishes the current zone's celestial presentation through the
+same generic entity SoA generation as ordinary world entities. The current warm
+witness records eleven sun/planet/gas-giant rows and eighteen asteroid rows.
+Every row resolved a provider asset with enabled native renderers, and seven
+celestial instances intersected the pilot frustum. These identities are
+presentation-only and cannot receive gameplay commands. EveUnity contains no
+Aetheria or celestial branch; release `0.3.51` fixes the generic prefab wrapper
+so semantic instance scale composes with, rather than overwrites, provider-local
+scale.
+
 Visual inspection confirms that map glyphs are absent from the pilot frame and
 present in the map-only frame. This is transport, authority, field-production,
-and lowering proof, not visual parity: the current pilot capture is nearly black
-with sparse clipped geometry instead of the fossil's bright blue gravity-shaped
-fog sea. Release `0.3.50` includes generic lowering for Eve Fields `0.2.3`'s
+and lowering proof, not visual parity: the current pilot capture contains the
+blue fog field and provider geometry, but nearby ships remain too dark and the
+celestial composition lacks the fossil capture's readable close body. Release
+`0.3.51` includes generic lowering for Eve Fields `0.2.3`'s
 `AnimatedRadialCosine` source alongside `PowerPulse`, dither-scale,
 temporal-history, and finite-look-at semantics. Aetheria publishes the fossil
 global animated simplex/cellular/ambient producer stack, body-owned radial wave
@@ -146,13 +158,14 @@ Primary artifacts:
 ## Cold delivery proof
 
 The `cold-start-lowering` profile starts with zero bodies and zero partials. It
-receives the `46,412,384` byte Unity bundle through the managed
+receives the `55,529,775` byte Unity bundle through the managed
 `cultmesh.content.v1` session, verifies SHA-256
-`f5960f240ecfd56de417e8e51fde34cfb962fc6fcf0840cc373190e7dbc6048f`,
+`5cb34be9b29f533ddfea89a439f43170c3691538b2dba9578d1f96ff91cc0b34`,
 atomically promotes one `.body`, and leaves zero partials under the unchanged
-300-second deadline. The full witness took `84.991` seconds; the Unity test took
-`43.212` seconds. It then lowered provider assets, movement, environment, four
-field layers across `127` composites, and both camera channels. The pilot camera
+300-second deadline. Including a clean provider-bundle build, the full witness
+took `263.477` seconds; the Unity test took `48.083` seconds. It then lowered
+provider assets, movement, environment, four field layers across `125`
+composites, and both camera channels. The pilot camera
 excluded map objects and the map camera included them.
 
 Cold asset acquisition and transient gameplay are deliberately separate proof

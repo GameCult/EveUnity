@@ -225,6 +225,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             EveUnityAimPresentationRenderer aimRenderer = null;
             EveUnityBeamPresentation beamPresentation = null;
             EveUnityBeamPresentationRenderer beamRenderer = null;
+            EveUnityShotTrajectoryRenderer trajectories = null;
 
             try
             {
@@ -279,7 +280,13 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 Assert.That(cockpitProgressCount, Is.GreaterThanOrEqualTo(7));
                 Assert.That(loweredSurface.Q<VisualElement>("aetheria.daemon.game.frame").style.display.value,
                     Is.EqualTo(DisplayStyle.None), "Daemon diagnostics leaked into the pilot UI.");
-                host.ShotAvailable += shot => observedShot = shot;
+                trajectories = root.GetComponent<EveUnityShotTrajectoryRenderer>();
+                Assert.That(trajectories, Is.Not.Null);
+                host.ShotAvailable += shot =>
+                {
+                    observedShot = shot;
+                    maximumTrajectoryCount = Math.Max(maximumTrajectoryCount, trajectories.ActiveTrajectoryCount);
+                };
                 runtime = host.Runtime;
                 Assert.That(runtime, Is.Not.Null);
                 Assert.That(runtime.ActiveWorld.PlayerEntityId, Is.Not.Empty);
@@ -507,9 +514,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 Assert.That(runtime.ActiveVersion, Is.GreaterThanOrEqualTo(runtime.LastReceipt.SourceVersion));
                 actionReceipt = WitnessReceipt.From("action", runtime.LastReceipt);
 
-                var trajectories = root.GetComponent<EveUnityShotTrajectoryRenderer>();
                 var combatRenderer = root.GetComponent<EveUnityCombatPresentationRenderer>();
-                Assert.That(trajectories, Is.Not.Null);
                 Assert.That(combatRenderer, Is.Not.Null);
                 var shotDeadline = Time.realtimeSinceStartup + 20f;
                 while (Time.realtimeSinceStartup < shotDeadline &&
@@ -823,7 +828,10 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     Convert.ToSingle(fieldViewport.GetType().GetProperty("MaxX")?.GetValue(fieldViewport)),
                     Convert.ToSingle(fieldViewport.GetType().GetProperty("MaxY")?.GetValue(fieldViewport)),
                     Convert.ToInt32(fieldSplats.GetType().GetProperty("Count")?.GetValue(fieldSplats)),
-                    playerRendererFacts);
+                    playerRendererFacts,
+                    root.GetComponentsInChildren<EveUnityPlayableWorldEntityMarker>(includeInactive: true)
+                        .Select(marker => PresentedEntityFact.From(camera, marker))
+                        .ToArray());
             }
             finally
             {
@@ -893,7 +901,8 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             float fieldViewportMaxX,
             float fieldViewportMaxY,
             int fieldSplatCount,
-            RendererFact[] playerRendererFacts)
+            RendererFact[] playerRendererFacts,
+            PresentedEntityFact[] presentedEntityFacts)
         {
             var path = Environment.GetEnvironmentVariable("EVEUNITY_WITNESS_FACTS_PATH");
             if (string.IsNullOrWhiteSpace(path)) return;
@@ -961,6 +970,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 fieldViewportMaxY = fieldViewportMaxY,
                 fieldSplatCount = fieldSplatCount,
                 playerRenderers = playerRendererFacts,
+                presentedEntities = presentedEntityFacts,
                 mapChannelRendererCount = mapChannelRendererCount,
                 mapChangedPixels = mapChangedPixels,
                 pilotCameraExcludesMapChannel = pilotCameraExcludesMapChannel,
@@ -1034,6 +1044,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             public float fieldViewportMaxY;
             public int fieldSplatCount;
             public RendererFact[] playerRenderers;
+            public PresentedEntityFact[] presentedEntities;
             public int mapChannelRendererCount;
             public int mapChangedPixels;
             public bool pilotCameraExcludesMapChannel;
@@ -1106,6 +1117,45 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                         .Where(material => material != null)
                         .Select(MaterialFact.From)
                         .ToArray()
+                };
+            }
+        }
+
+        [Serializable]
+        private sealed class PresentedEntityFact
+        {
+            public string entityId;
+            public string entityKind;
+            public string label;
+            public string assetRef;
+            public string worldPosition;
+            public string worldScale;
+            public int rendererCount;
+            public int enabledRendererCount;
+            public bool intersectsPilotFrustum;
+            public float viewportWidth;
+            public float viewportHeight;
+
+            public static PresentedEntityFact From(Camera camera, EveUnityPlayableWorldEntityMarker marker)
+            {
+                var renderers = marker.GetComponentsInChildren<Renderer>(includeInactive: true);
+                MeasureViewportCoverage(camera, renderers, out var width, out var height);
+                var planes = GeometryUtility.CalculateFrustumPlanes(camera);
+                return new PresentedEntityFact
+                {
+                    entityId = marker.EntityId,
+                    entityKind = marker.EntityKind,
+                    label = marker.Label,
+                    assetRef = marker.AssetRef,
+                    worldPosition = FormatVector(marker.transform.position),
+                    worldScale = FormatVector(marker.transform.lossyScale),
+                    rendererCount = renderers.Length,
+                    enabledRendererCount = renderers.Count(renderer => renderer.enabled && renderer.gameObject.activeInHierarchy),
+                    intersectsPilotFrustum = renderers.Any(renderer =>
+                        renderer.enabled && renderer.gameObject.activeInHierarchy &&
+                        GeometryUtility.TestPlanesAABB(planes, renderer.bounds)),
+                    viewportWidth = width,
+                    viewportHeight = height
                 };
             }
         }

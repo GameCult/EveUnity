@@ -638,7 +638,9 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 }
                 Assert.That(mapRenderers, Is.Not.Empty, "The live provider prefab has no renderer assigned to its advertised map channel.");
 
-                target = new RenderTexture(640, 360, 24, RenderTextureFormat.ARGB32);
+                const int captureWidth = 1280;
+                const int captureHeight = 720;
+                target = new RenderTexture(captureWidth, captureHeight, 24, RenderTextureFormat.ARGB32);
                 camera.targetTexture = target;
                 var cameraRig = cameraObject.AddComponent<EveUnityPlayableWorldCameraRig>();
                 cameraRig.Host = host;
@@ -697,11 +699,22 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 var mapCamera = mapCameraObject.AddComponent<Camera>();
                 mapCamera.cullingMask = 1 << mapLayer;
                 Assert.That(mapCamera.cullingMask, Is.EqualTo(1 << mapLayer));
-                yield return null;
+                var captureFieldVolume = root.GetComponent<EveUnityFieldsVolumeRenderer>();
+                Assert.That(captureFieldVolume, Is.Not.Null,
+                    "The generic client did not install its Fields volume lowerer before temporal settling.");
+                const int temporalSettlingFrames = 128;
+                var initialCompositeCount = captureFieldVolume.CompositeCount;
+                var temporalSettlingDeadline = Time.realtimeSinceStartup + 20f;
+                while (captureFieldVolume.CompositeCount - initialCompositeCount < temporalSettlingFrames &&
+                       Time.realtimeSinceStartup < temporalSettlingDeadline)
+                    yield return null;
+                Assert.That(captureFieldVolume.CompositeCount - initialCompositeCount,
+                    Is.GreaterThanOrEqualTo(temporalSettlingFrames),
+                    "The pilot capture ran before the advertised temporal reconstruction had settled.");
                 camera.Render();
                 RenderTexture.active = target;
-                pixels = new Texture2D(640, 360, TextureFormat.RGB24, false);
-                pixels.ReadPixels(new Rect(0, 0, 640, 360), 0, 0);
+                pixels = new Texture2D(captureWidth, captureHeight, TextureFormat.RGB24, false);
+                pixels.ReadPixels(new Rect(0, 0, captureWidth, captureHeight), 0, 0);
                 pixels.Apply();
                 var pilotChangedPixels = CountChangedPixels(pixels, camera.backgroundColor);
                 MeasureLuminance(pixels, out var pilotAverageLuminance, out var pilotBrightPixelCount);
@@ -749,7 +762,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 Assert.That(particleMapCameraIsolated, Is.True,
                     "The map camera executed the pilot-only field-particle pass.");
                 RenderTexture.active = target;
-                pixels.ReadPixels(new Rect(0, 0, 640, 360), 0, 0);
+                pixels.ReadPixels(new Rect(0, 0, captureWidth, captureHeight), 0, 0);
                 pixels.Apply();
                 var mapChangedPixels = CountChangedPixels(pixels, mapCamera.backgroundColor);
                 Assert.That(mapChangedPixels, Is.GreaterThan(25), "The map-only camera rendered no provider-authored map glyph pixels.");

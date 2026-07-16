@@ -346,8 +346,8 @@ try {
     assertions = $facts
     receipts = @($facts.receipts)
     screenshotMetrics = [ordered]@{
-      width = 640
-      height = 360
+      width = 1280
+      height = 720
       encodedSizeBytes = $capture.Length
       sha256 = (Get-FileHash -LiteralPath $capture.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
       mapEncodedSizeBytes = $mapCapture.Length
@@ -360,16 +360,16 @@ try {
         path = $capture.Name
         sha256 = (Get-FileHash -LiteralPath $capture.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
         sizeBytes = $capture.Length
-        width = 640
-        height = 360
+        width = 1280
+        height = 720
       },
       [ordered]@{
         kind = "unity-map-channel-png"
         path = $mapCapture.Name
         sha256 = (Get-FileHash -LiteralPath $mapCapture.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
         sizeBytes = $mapCapture.Length
-        width = 640
-        height = 360
+        width = 1280
+        height = 720
       },
       [ordered]@{
         kind = "unity-test-results"

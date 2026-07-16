@@ -41,6 +41,18 @@ effectively unchanged while mean neighboring-pixel variation falls from
 to `0.0531`. This proves the temporal history is accumulating and that its
 bootstrap seed mattered. The remaining cyan/tonemap mismatch is still open.
 
+The cold HD witness in `artifacts/aetheria-daemon-fog-alpha-cold-hd` then
+transfers the rebuilt 56,168,970-byte provider bundle
+`a829e57731fbe08f4564fa131468148e99f6b4204708ad3e64498885532b5091`
+through `SharedFileMapping` and captures after 128 temporal composites at
+1280x720. It restores the historical fog history ABI: the temporal pass stores
+density directly in alpha, so the composite consumes that density directly
+instead of decoding it as the raymarch pass's packed distance/density payload.
+The flat grey opacity slabs disappear. The released client test passes in 52.7
+seconds with 238 fog composites and Stardust draws; the pilot camera still
+excludes map renderers and the map camera includes them. Remaining visual work
+is color/composition parity, not broken fog opacity or an unsettled witness.
+
 Current released-package evidence is in
 `artifacts/aetheria-daemon-mapped-body-cold`; despite that retained directory
 name, `runtime-witness.warm.json` is the current passing run. The warm PlayMode test

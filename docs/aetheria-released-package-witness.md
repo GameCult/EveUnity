@@ -28,9 +28,11 @@ and the generic aim presentation rendered at the advertised 50-unit minimum
 convergence distance. The advertised skybox material and reflection cubemap
 resolved from the provider bundle as their required native types and became the
 active camera rig's leased Unity environment.
-The witness supplies no client-authored light. Aetheria advertises the key-light
-direction, color, and intensity; the generic camera rig lowers that contract to
-the only live directional light (`0.75` intensity).
+The witness supplies no client-authored light. The fossil `ARPG.unity` scene has
+no Unity `Light` component, so Aetheria advertises its skybox ambient intensity
+and custom reflection but no key light. The generic camera rig records zero live
+directional intensity. The earlier invented `0.75` light has been deleted rather
+than retained as a material-conversion compensator.
 Aetheria also advertises the original undocked `ARPG.unity` Third Person Rig:
 entity-forward perspective follow, `30` unit distance, `60` degree vertical
 field of view, canonical bottom-origin target screen position `0.64,0.19`, zero position damping, and
@@ -53,7 +55,7 @@ Fields splat layers. Its surface contract contains logical ports such as
 names or pass indices. The selected `unity-scene` provider asset variant owns
 that concrete shader ABI through `unity.volume.*` metadata. The released
 generic lowerer resolved the provider shader and dither texture, rasterized all
-four layers, and composited `91` pilot-camera frames through daemon frame `643`.
+ four layers, and composited `121` pilot-camera frames through daemon frame `397`.
 The provider variant advertises the fossil shader's raymarch, temporal-history,
 and composite passes plus their logical ports. EveUnity allocates and resets the
 history targets generically; a partial temporal ABI fails closed.
@@ -66,12 +68,12 @@ daemon lock progress `1.0`; Unity does not manufacture or smooth that value.
 
 Camera-channel facts:
 
-- provider-authored player renderers: `13`, including the lowered tractor effect;
-- pilot changed pixels: `225,548`;
-- pilot average luminance: `0.119513`;
-- pilot bright pixels: `97,617`;
+- provider-authored player renderers: `12`, with no embedded shield renderer;
+- pilot changed pixels: `220,747`;
+- pilot average luminance: `0.134114`;
+- pilot bright pixels: `113,308`;
 - map-channel renderers: `10`;
-- map changed pixels: `4,723`;
+- map changed pixels: `4,857`;
 - native cockpit progress bars: `7`;
 - daemon tractor power at capture: `1.0` after the held input completed its
   authored ramp;
@@ -97,6 +99,15 @@ Aetheria or celestial branch; release `0.3.51` fixes the generic prefab wrapper
 so semantic instance scale composes with, rather than overwrites, provider-local
 scale.
 
+Provider prefab construction now removes the fossil shield renderer embedded in
+each ship. That renderer's custom shader performs collision-local dither clipping;
+flattening it to ordinary opaque URP Lit had produced the large black ellipsoids
+previously mistaken for celestial bodies. Shield state remains daemon truth and
+shield impacts use the separately advertised receipt-driven effect. Material
+conversion also preserves source lighting models: the map icon's unlit source
+now becomes `Universal Render Pipeline/Unlit`, so map glyphs remain readable
+without resurrecting the false scene light.
+
 Visual inspection confirms that map glyphs are absent from the pilot frame and
 present in the map-only frame. This is transport, authority, field-production,
 and lowering proof, not visual parity: the current pilot capture contains the
@@ -108,7 +119,7 @@ temporal-history, and finite-look-at semantics. Aetheria publishes the fossil
 global animated simplex/cellular/ambient producer stack, body-owned radial wave
 frequency, separate negative `gravity.height` and positive
 `fog.surface_height`, and the authored `ARPG.unity` zone-brush extent. The
-witness records player Y `-76.7574` and camera Y `-94.3347`; Unity does not
+  witness records player Y `-83.7296` and camera Y `-66.9630`; Unity does not
 sample terrain to invent either value. The four rasterized field layers and HDR
 raymarch/history targets are populated, so the remaining failure is in native
 presentation/composition or provider art calibration rather than missing state
@@ -120,7 +131,7 @@ Aetheria currently bundles ambientCG's 1K `Metal012` color, normal, and
 metalness maps under CC0. The same pre-generated maps now replace dead
 Substance archive sub-assets on the brushed aluminium, tinted car paint,
 cockpit, steel, black-metal, and radiator materials. The released witness
-resolves textured native URP materials in `10` distinct player-material slots,
+  resolves textured native URP materials in `9` distinct player-material slots,
 up from `3`, without adding another texture payload. This is temporary provider
 art with recorded provenance, not a replacement texture pipeline.
 
@@ -158,13 +169,13 @@ Primary artifacts:
 ## Cold delivery proof
 
 The `cold-start-lowering` profile starts with zero bodies and zero partials. It
-receives the `55,529,775` byte Unity bundle through the managed
+receives the `55,533,143` byte Unity bundle through the managed
 `cultmesh.content.v1` session, verifies SHA-256
-`5cb34be9b29f533ddfea89a439f43170c3691538b2dba9578d1f96ff91cc0b34`,
+`6d7352c47bde37ca4235ed8a96e2b4d4df9a1c5a2e84af504c7a0662f7b7d2ba`,
 atomically promotes one `.body`, and leaves zero partials under the unchanged
 300-second deadline. Including a clean provider-bundle build, the full witness
-took `263.477` seconds; the Unity test took `48.083` seconds. It then lowered
-provider assets, movement, environment, four field layers across `125`
+took `147.615` seconds; the Unity test took `48.710` seconds. It then lowered
+provider assets, movement, environment, four field layers across `135`
 composites, and both camera channels. The pilot camera
 excluded map objects and the map camera included them.
 

@@ -4,8 +4,8 @@
 
 The released-package warm-gameplay witness passes with:
 
-- `org.gamecult.eve.unity-scene` `0.3.55`, commit
-  `745ce7cc24c514ad442d53807722b6a4651d9521`;
+- `org.gamecult.eve.unity-scene` `0.3.57`, commit
+  `0974154fa7c7982c9a8ea0ca006d2698a53e1235`;
 - `org.gamecult.eve.plugin-fields` `0.2.3`, commit
   `c5a4a75c1b727499b16c2dae1895f29e2a9f72f0`;
 - `org.gamecult.eve.surface` `0.2.2`, commit
@@ -30,14 +30,14 @@ ships were `Djinni`, and no `LonginusX` appeared. The player moved 14.34 world
 units and completed its authoritative hardware-driven look before combat.
 The daemon-owned look direction reached the SoA body rotation,
 and the generic aim presentation rendered at the advertised 50-unit minimum
-convergence distance. The advertised skybox material and reflection cubemap
-resolved from the provider bundle as their required native types and became the
-active camera rig's leased Unity environment.
-The witness supplies no client-authored light. The fossil `ARPG.unity` scene has
-no Unity `Light` component, so Aetheria advertises its skybox ambient intensity
-and custom reflection but no key light. The generic camera rig records zero live
-directional intensity. The earlier invented `0.75` light has been deleted rather
-than retained as a material-conversion compensator.
+convergence distance. Aetheria derives ambient color from daemon-owned stellar
+`LightColor` values and advertises `studio2` only as the reflection cubemap; the
+gravity-fog raymarch owns the visible frame. The released lowerer records flat
+ambient mode, color `(1.46,1.2556,0.8468)`, ambient-probe energy `4.6354`, and
+custom reflection texture `studio2`. No skybox asset or key light is advertised,
+and the generic camera rig records zero live directional intensity. The earlier
+invented `0.75` light and false skybox authority were deleted rather than retained
+as material-conversion compensators.
 Aetheria also advertises the original undocked `ARPG.unity` Third Person Rig:
 entity-forward perspective follow, `30` unit distance, `60` degree vertical
 field of view, canonical bottom-origin target screen position `0.64,0.19`, zero position damping, and
@@ -73,7 +73,7 @@ daemon lock progress `1.0`; Unity does not manufacture or smooth that value.
 
 Camera-channel facts:
 
-- provider-authored player renderers: `13` total / `9` enabled, with no embedded shield renderer;
+- provider-authored player renderers: `7` active, with no embedded shield renderer;
 - pilot changed pixels: `217,323`;
 - pilot average luminance: `0.1322155`;
 - pilot bright pixels: `101,510`;
@@ -116,8 +116,9 @@ without resurrecting the false scene light.
 Visual inspection confirms that map glyphs are absent from the pilot frame and
 present in the map-only frame. This is transport, authority, field-production,
 and lowering proof, not visual parity: the current pilot capture contains the
-blue fog field and provider geometry, but nearby ships remain too dark and the
-celestial composition lacks the fossil capture's readable close body. Release
+blue fog field and the provider's magenta-and-gold Longinus hull with no opaque
+shield ellipsoid. The celestial composition still lacks the fossil capture's
+readable close body. Release
 `0.3.57` includes generic lowering for Eve Fields `0.2.3`'s
 `AnimatedRadialCosine` source alongside `PowerPulse`, dither-scale,
 temporal-history, and finite-look-at semantics. Aetheria publishes the fossil
@@ -138,7 +139,12 @@ generic lowerer applies URP TAA with `0.99` history blend, `0.1` jitter scale,
 high quality, and zero sharpening. Fog and Stardust now consume one generic
 camera-relative viewport-frame resolver rather than projecting the same splat
 document independently. The live witness fails unless their snapped grid
-centers are identical; this run resolved both to `(-6,-6)` after movement.
+centers are identical; the latest run resolved both to `(-6,-6)` after movement.
+The provider HLSL now consumes Eve Fields' positive world-axis viewport directly;
+it no longer retains the two-axis compensation once required by the deleted
+fossil gravity camera. An asymmetric GPU fixture fails unless positive-world X
+samples positive texture X, while the existing one-cell remap proof still keeps
+705 overlapping world particles bit-identical.
 The capture is still visibly rough and is not a visual-parity claim.
 
 The fossil Stardust material used a screen-space coverage mask that changes on
@@ -156,7 +162,7 @@ Aetheria currently bundles ambientCG's 1K `Metal012` color, normal, and
 metalness maps under CC0. The same pre-generated maps now replace dead
 Substance archive sub-assets on the brushed aluminium, tinted car paint,
 cockpit, steel, black-metal, and radiator materials. The released witness
-  resolves textured native URP materials in `9` distinct player-material slots,
+  resolves textured native URP materials in `8` distinct player-material slots,
 up from `3`, without adding another texture payload. This is temporary provider
 art with recorded provenance, not a replacement texture pipeline.
 

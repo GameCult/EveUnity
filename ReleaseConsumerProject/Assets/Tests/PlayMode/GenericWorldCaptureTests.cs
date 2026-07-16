@@ -12,6 +12,7 @@ using GameCult.Eve.UnityScene.Fields;
 using GameCult.Mesh;
 using NUnit.Framework;
 using UnityEngine;
+using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
 using UnityEngine.TestTools;
 using UnityEngine.UIElements;
@@ -612,6 +613,8 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 var playerMarker = FindMarker(root, playerId);
                 var playerRenderers = playerMarker.GetComponentsInChildren<Renderer>();
                 Assert.That(playerRenderers, Is.Not.Empty, "The provider-authored player prefab has no renderable visual.");
+                Assert.That(playerRenderers.Any(renderer => renderer.name == "Shield Visual"), Is.False,
+                    "The provider hull retained an always-on shield envelope instead of using receipt-driven shield feedback.");
                 Assert.That(playerMarker.GetComponentsInChildren<Collider>(), Is.Empty,
                     "The provider-authored player presentation retained gameplay colliders.");
                 Assert.That(playerMarker.GetComponentsInChildren<Rigidbody>(), Is.Empty,
@@ -642,18 +645,21 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 cameraRig.CameraTransform = camera.transform;
                 cameraRig.RenderPolicySource = provider;
                 Assert.That(cameraRig.ApplyRig(0f), Is.True);
-                var skybox = provider.ResolveAsset(new EveUnityPlayableWorldAssetBinding(
-                    runtime.ActiveWorld.SkyboxAssetRef, "", "provider-asset-ref"), typeof(Material)) as Material;
                 var reflection = provider.ResolveAsset(new EveUnityPlayableWorldAssetBinding(
                     runtime.ActiveWorld.ReflectionAssetRef, "", "provider-asset-ref"), typeof(Cubemap)) as Cubemap;
-                Assert.That(runtime.ActiveWorld.SkyboxAssetRef, Is.Not.Empty);
+                Assert.That(runtime.ActiveWorld.SkyboxAssetRef, Is.Empty,
+                    "Aetheria's raymarch owns the frame; its reflection HDRI must not become a skybox-lighting authority.");
                 Assert.That(runtime.ActiveWorld.ReflectionAssetRef, Is.Not.Empty);
-                Assert.That(skybox, Is.Not.Null);
                 Assert.That(reflection, Is.Not.Null);
-                Assert.That(RenderSettings.skybox, Is.SameAs(skybox));
+                Assert.That(RenderSettings.ambientMode, Is.EqualTo(AmbientMode.Flat));
+                Assert.That(RenderSettings.ambientLight.r,
+                    Is.EqualTo(runtime.ActiveWorld.AmbientLightR * runtime.ActiveWorld.AmbientLightIntensity).Within(0.001f));
+                Assert.That(RenderSettings.ambientLight.g,
+                    Is.EqualTo(runtime.ActiveWorld.AmbientLightG * runtime.ActiveWorld.AmbientLightIntensity).Within(0.001f));
+                Assert.That(RenderSettings.ambientLight.b,
+                    Is.EqualTo(runtime.ActiveWorld.AmbientLightB * runtime.ActiveWorld.AmbientLightIntensity).Within(0.001f));
                 Assert.That(RenderSettings.customReflectionTexture, Is.SameAs(reflection));
-                Assert.That(camera.clearFlags, Is.EqualTo(CameraClearFlags.Skybox));
-                var environmentPresentation = RenderSettings.skybox == skybox &&
+                var environmentPresentation = RenderSettings.ambientMode == AmbientMode.Flat &&
                     RenderSettings.customReflectionTexture == reflection;
                 aimRenderer.RefreshNow();
                 Assert.That(aimRenderer.ViewDotVisible, Is.True);
@@ -679,7 +685,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     .Where(material => material != null)
                     .Distinct()
                     .Count(HasAnyTexture);
-                Assert.That(texturedPlayerMaterialCount, Is.GreaterThanOrEqualTo(9),
+                Assert.That(texturedPlayerMaterialCount, Is.GreaterThanOrEqualTo(8),
                     "The provider bundle must retain its advertised native material textures.");
                 var directionalLightIntensity = UnityEngine.Object.FindObjectsOfType<Light>()
                     .Where(light => light != null && light.enabled && light.type == LightType.Directional)
@@ -994,6 +1000,12 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 providerAssets = true,
                 assetBodyTransport = assetBodyTransport,
                 environmentPresentation = environmentPresentation,
+                ambientProbeEnergy = AmbientProbeEnergy(),
+                ambientMode = RenderSettings.ambientMode.ToString(),
+                ambientLight = RenderSettings.ambientLight,
+                reflectionTexture = RenderSettings.customReflectionTexture != null
+                    ? RenderSettings.customReflectionTexture.name
+                    : "",
                 fieldVolumeFrameId = fieldVolumeFrameId,
                 fieldVolumeLayerCount = fieldVolumeLayerCount,
                 fieldVolumeCompositeCount = fieldVolumeCompositeCount,
@@ -1077,6 +1089,10 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             public bool providerAssets;
             public string assetBodyTransport;
             public bool environmentPresentation;
+            public float ambientProbeEnergy;
+            public string ambientMode;
+            public Color ambientLight;
+            public string reflectionTexture;
             public long fieldVolumeFrameId;
             public int fieldVolumeLayerCount;
             public long fieldVolumeCompositeCount;
@@ -1145,6 +1161,16 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             public bool pilotCameraExcludesMapChannel;
             public bool mapCameraIncludesMapChannel;
             public WitnessReceipt[] receipts;
+        }
+
+        private static float AmbientProbeEnergy()
+        {
+            var probe = RenderSettings.ambientProbe;
+            var energy = 0f;
+            for (var channel = 0; channel < 3; channel++)
+            for (var coefficient = 0; coefficient < 9; coefficient++)
+                energy += Mathf.Abs(probe[channel, coefficient]);
+            return energy;
         }
 
         [Serializable]

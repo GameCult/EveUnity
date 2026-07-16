@@ -597,8 +597,10 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 Assert.That(camera.fieldOfView, Is.EqualTo(60f).Within(0.001f));
                 Assert.That(runtime.ActiveWorld.CameraPositionDamping, Is.EqualTo(0f).Within(0.001f));
                 var playerViewport = camera.WorldToViewportPoint(playerMarker.transform.position);
-                Assert.That(playerViewport.x, Is.EqualTo(0.64f).Within(0.01f));
-                Assert.That(playerViewport.y, Is.EqualTo(0.81f).Within(0.01f));
+                Assert.That(runtime.ActiveWorld.CameraTargetScreenX, Is.EqualTo(0.64f).Within(0.001f));
+                Assert.That(runtime.ActiveWorld.CameraTargetScreenY, Is.EqualTo(0.19f).Within(0.001f));
+                Assert.That(playerViewport.x, Is.EqualTo(runtime.ActiveWorld.CameraTargetScreenX).Within(0.01f));
+                Assert.That(playerViewport.y, Is.EqualTo(runtime.ActiveWorld.CameraTargetScreenY).Within(0.01f));
                 MeasureViewportCoverage(camera, playerRenderers, out var playerViewportWidth, out var playerViewportHeight);
                 var playerRendererFacts = playerRenderers
                     .Select(renderer => RendererFact.From(camera, renderer))
@@ -1179,6 +1181,15 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 for (var index = 0; index < measuredRenderers.Count; index++)
                 {
                     var fact = facts[index];
+                    var rendererLayer = measuredRenderers[index].gameObject.layer;
+                    if (rendererLayer >= 0 && rendererLayer < 32 &&
+                        (camera.cullingMask & (1 << rendererLayer)) == 0)
+                    {
+                        fact.renderedPixelCount = 0;
+                        fact.renderedAverageLuminance = 0;
+                        fact.renderedBrightPixelCount = 0;
+                        continue;
+                    }
                     measuredRenderers[index].enabled = true;
                     camera.Render();
                     RenderTexture.active = target;

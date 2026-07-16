@@ -1269,7 +1269,9 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     floatCopy.ReadPixels(new Rect(0, 0, texture.width, texture.height), 0, 0);
                     floatCopy.Apply();
                     RenderTexture.active = previous;
-                    File.WriteAllBytes(Path.Combine(directory, $"field-{layerKey}.exr"), floatCopy.EncodeToEXR());
+                    File.WriteAllBytes(
+                        Path.Combine(directory, $"field-{layerKey}.exr"),
+                        floatCopy.EncodeToEXR(Texture2D.EXRFlags.OutputAsFloat));
                     UnityEngine.Object.DestroyImmediate(floatCopy);
                 }
             }
@@ -1288,6 +1290,12 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             var historyIndexField = typeof(EveUnityFieldsVolumeRenderer).GetField(
                 "_historyTextureIndex",
                 System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            var materialField = typeof(EveUnityFieldsVolumeRenderer).GetField(
+                "_material",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            var metadataField = typeof(EveUnityFieldsVolumeRenderer).GetField(
+                "_programMetadata",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
             var raymarchTexture = raymarchField?.GetValue(renderer) as RenderTexture;
             var historyTextures = historyTexturesField?.GetValue(renderer) as RenderTexture[];
             var historyIndex = historyIndexField?.GetValue(renderer) is int value ? value : -1;
@@ -1299,7 +1307,33 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 : null;
             WriteFloatTexture(historyTexture, Path.Combine(directory, "field-volume-history.exr"));
             WriteFloatTexture(historyTexture ?? raymarchTexture, Path.Combine(directory, "field-volume-cloud.exr"));
+            WriteVolumeMaterialFacts(
+                materialField?.GetValue(renderer) as Material,
+                metadataField?.GetValue(renderer) as IReadOnlyDictionary<string, string>,
+                Path.Combine(directory, "field-volume-material.txt"));
             RenderTexture.active = previous;
+        }
+
+        private static void WriteVolumeMaterialFacts(
+            Material material,
+            IReadOnlyDictionary<string, string> metadata,
+            string path)
+        {
+            if (material == null || metadata == null) return;
+            var facts = new List<string>();
+            foreach (var binding in metadata.OrderBy(value => value.Key, StringComparer.Ordinal))
+            {
+                if (binding.Key.Contains(".floatPort.", StringComparison.Ordinal))
+                    facts.Add($"{binding.Key}={binding.Value}:{material.GetFloat(binding.Value):R}");
+                else if (binding.Key.Contains(".vectorPort.", StringComparison.Ordinal))
+                    facts.Add($"{binding.Key}={binding.Value}:{material.GetVector(binding.Value)}");
+                else if (binding.Key.Contains(".texturePort.", StringComparison.Ordinal))
+                {
+                    var texture = material.HasProperty(binding.Value) ? material.GetTexture(binding.Value) : null;
+                    facts.Add($"{binding.Key}={binding.Value}:{texture?.name ?? "<none>"}:{texture?.width ?? 0}x{texture?.height ?? 0}");
+                }
+            }
+            File.WriteAllLines(path, facts);
         }
 
         private static void WriteFloatTexture(RenderTexture texture, string path)
@@ -1311,7 +1345,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             copy.ReadPixels(new Rect(0, 0, texture.width, texture.height), 0, 0);
             copy.Apply();
             RenderTexture.active = previous;
-            File.WriteAllBytes(path, copy.EncodeToEXR());
+            File.WriteAllBytes(path, copy.EncodeToEXR(Texture2D.EXRFlags.OutputAsFloat));
             UnityEngine.Object.DestroyImmediate(copy);
         }
 

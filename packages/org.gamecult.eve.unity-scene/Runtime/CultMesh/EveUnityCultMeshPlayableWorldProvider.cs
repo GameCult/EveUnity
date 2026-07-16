@@ -58,6 +58,15 @@ namespace GameCult.Eve.UnityScene
             }
         }
 
+        public CultMeshBodyTransportKind? CurrentAssetBodyTransportKind
+        {
+            get
+            {
+                EnsureTransport();
+                return _transport!.CurrentAssetBodyTransportKind;
+            }
+        }
+
         public event Action<EveUnitySceneProviderSurfaceDocument>? DocumentAvailable
         {
             add { Bridge.DocumentAvailable += value; }

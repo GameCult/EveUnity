@@ -107,6 +107,32 @@ namespace GameCult.Eve.UnityScene.Tests
         }
 
         [Test]
+        public void LiveTransportBuildsImmutableNetworkFallbackForMappedAssetContent()
+        {
+            var manifest = CultMeshCdn.PackArtifact(
+                "provider/world/windows",
+                Enumerable.Range(0, 64).Select(value => (byte)value).ToArray()).Manifest;
+            var now = DateTimeOffset.UtcNow;
+            var method = typeof(EveUnityCultMeshLiveProviderTransport)
+                .GetMethod("NetworkArtifactDescriptor", BindingFlags.NonPublic | BindingFlags.Static)!;
+
+            var descriptor = (CultMeshBodyDescriptor)method.Invoke(
+                null,
+                new object[] { manifest, now, TimeSpan.FromMinutes(5) })!;
+
+            Assert.That(descriptor.BodyId, Is.EqualTo(manifest.ArtifactId));
+            Assert.That(descriptor.SchemaId, Is.EqualTo("gamecult.mesh.cdn-artifact.v1"));
+            Assert.That(descriptor.ByteSize, Is.EqualTo(manifest.SizeBytes));
+            Assert.That(descriptor.Capacity, Is.EqualTo(manifest.SizeBytes));
+            Assert.That(descriptor.AccessMode, Is.EqualTo(CultMeshBodyAccessMode.ReadOnly));
+            Assert.That(descriptor.Synchronization, Is.EqualTo(CultMeshBodySynchronization.ImmutableSequence));
+            Assert.That(descriptor.TransportKind, Is.EqualTo(CultMeshBodyTransportKind.Network));
+            Assert.That(descriptor.SemanticHash, Is.EqualTo(manifest.ContentHash));
+            Assert.That(descriptor.CapabilityToken, Is.EqualTo(
+                CultMeshCdnArtifactManifest.CreateRecordKey(manifest).Value));
+        }
+
+        [Test]
         public void LiveTransportAuthorizesOnlyExplicitlyAdvertisedBodyProducers()
         {
             var advertisement = ProviderAdvertisement("aetheria", "aetheria-daemon-17", "aetheria.daemon");

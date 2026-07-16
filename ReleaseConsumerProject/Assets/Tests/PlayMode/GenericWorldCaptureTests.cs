@@ -262,6 +262,9 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 Assert.That(provider.Selection.VerseId, Is.Not.Empty);
                 Assert.That(provider.Selection.ProviderId, Is.Not.Empty);
                 Assert.That(provider.Selection.SurfaceId, Is.Not.Empty);
+                Assert.That(provider.CurrentAssetBodyTransportKind,
+                    Is.EqualTo(CultMeshBodyTransportKind.SharedFileMapping),
+                    "The generic client did not negotiate its verified provider bundle as a mapped body.");
                 host = root.AddComponent<EveUnityPlayableWorldClientHost>();
                 host.Configure(
                     root.transform,
@@ -815,6 +818,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 Assert.That(fieldSplats, Is.Not.Null);
                 WriteWitnessFacts(
                     witnessProfile,
+                    provider.CurrentAssetBodyTransportKind?.ToString() ?? "",
                     initialVersion,
                     runtime.ActiveVersion,
                     movementDistance,
@@ -894,6 +898,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
 
         private static void WriteWitnessFacts(
             string witnessProfile,
+            string assetBodyTransport,
             long initialVersion,
             long finalVersion,
             float movementDistance,
@@ -960,6 +965,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 witnessProfile = witnessProfile,
                 providerAdvertisement = true,
                 providerAssets = true,
+                assetBodyTransport = assetBodyTransport,
                 environmentPresentation = environmentPresentation,
                 fieldVolumeFrameId = fieldVolumeFrameId,
                 fieldVolumeLayerCount = fieldVolumeLayerCount,
@@ -1042,6 +1048,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             public string witnessProfile;
             public bool providerAdvertisement;
             public bool providerAssets;
+            public string assetBodyTransport;
             public bool environmentPresentation;
             public long fieldVolumeFrameId;
             public int fieldVolumeLayerCount;

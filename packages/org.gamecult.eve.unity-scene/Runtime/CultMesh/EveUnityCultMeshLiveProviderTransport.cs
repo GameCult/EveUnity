@@ -51,6 +51,7 @@ namespace GameCult.Eve.UnityScene
         private readonly Dictionary<string, IReadOnlyDictionary<string, string>> _nativeAssetMetadata =
             new Dictionary<string, IReadOnlyDictionary<string, string>>(StringComparer.Ordinal);
         private readonly List<AssetBundle> _assetBundles = new List<AssetBundle>();
+        private readonly List<ICultMeshBodyReadLease> _assetBodyLeases = new List<ICultMeshBodyReadLease>();
         private readonly Dictionary<string, int> _renderChannelLayers = new Dictionary<string, int>(StringComparer.Ordinal);
         private readonly ConcurrentQueue<object> _liveDocuments = new ConcurrentQueue<object>();
         private CultMeshNode? _node;
@@ -60,6 +61,7 @@ namespace GameCult.Eve.UnityScene
         private CultNetDatabaseSubscriptionClient? _subscriptions;
         private CultMeshClient? _meshClient;
         private CultMeshContentTransferService? _contentTransfer;
+        private CultMeshVerifiedBodyMappingBroker? _assetBodyMappings;
         private EveProviderAdvertisementDocument? _advertisement;
         private EveAdvertisedSurface? _advertisedSurface;
         private CultMeshBodyPublicationResolver? _bodyResolver;
@@ -108,6 +110,8 @@ namespace GameCult.Eve.UnityScene
         public EveUnityPlayableWorldAssetManifestDocument CurrentAssetManifestDocument { get; private set; }
 
         public EveInputCapabilityDocument CurrentInputCapability { get; private set; }
+
+        public CultMeshBodyTransportKind? CurrentAssetBodyTransportKind { get; private set; }
 
         public event Action<EveUnitySceneProviderSurfaceDocument>? SurfaceDocumentAvailable;
 
@@ -314,6 +318,8 @@ namespace GameCult.Eve.UnityScene
         {
             foreach (var bundle in _assetBundles) bundle.Unload(unloadAllLoadedObjects: false);
             _assetBundles.Clear();
+            foreach (var lease in _assetBodyLeases) lease.Dispose();
+            _assetBodyLeases.Clear();
             _prefabs.Clear();
             _nativeAssets.Clear();
             _nativeAssetMetadata.Clear();
@@ -326,6 +332,7 @@ namespace GameCult.Eve.UnityScene
             _subscriptions = null;
             _meshClient = null;
             _contentTransfer = null;
+            _assetBodyMappings = null;
             _networkRegistry = null;
             _replicaShard = null;
             _pendingCommandIds.Clear();
@@ -688,6 +695,9 @@ namespace GameCult.Eve.UnityScene
 
             foreach (var bundle in _assetBundles) bundle.Unload(unloadAllLoadedObjects: false);
             _assetBundles.Clear();
+            foreach (var lease in _assetBodyLeases) lease.Dispose();
+            _assetBodyLeases.Clear();
+            CurrentAssetBodyTransportKind = null;
             _prefabs.Clear();
             _nativeAssets.Clear();
             _nativeAssetMetadata.Clear();
@@ -724,8 +734,7 @@ namespace GameCult.Eve.UnityScene
                 var descriptor = manifest.FirstOrDefault();
                 if (descriptor == null)
                     throw new InvalidOperationException($"Provider asset bundle manifest '{variant.Uri}' was not available.");
-                var path = ReadVerifiedBundlePath(descriptor, variant);
-                var bundle = AssetBundle.LoadFromFile(path);
+                var bundle = LoadVerifiedBundle(descriptor, variant);
                 if (bundle == null)
                     throw new InvalidOperationException($"Unity could not load provider asset bundle '{variant.Uri}'.");
                 _assetBundles.Add(bundle);
@@ -815,6 +824,7 @@ namespace GameCult.Eve.UnityScene
             var cacheRoot = Environment.GetEnvironmentVariable("EVEUNITY_ASSET_CACHE_PATH");
             if (string.IsNullOrWhiteSpace(cacheRoot))
                 cacheRoot = Path.Combine(Application.persistentDataPath, "EveUnity", "assets");
+            _assetBodyMappings = new CultMeshVerifiedBodyMappingBroker(cacheRoot);
             _contentTransfer = new CultMeshContentTransferService(
                 _node!.Cache,
                 new[]
@@ -824,11 +834,12 @@ namespace GameCult.Eve.UnityScene
                         _advertisement.ServiceId,
                         new CultMeshSessionContentProviderOptions { ResponseTimeout = TimeSpan.FromSeconds(30) })
                 },
-                new CultMeshContentTransferOptions(cacheRoot));
+                new CultMeshContentTransferOptions(cacheRoot),
+                _assetBodyMappings);
             return _contentTransfer;
         }
 
-        private string ReadVerifiedBundlePath(CultMeshCdnArtifactManifest manifest, EveAssetVariant variant)
+        private AssetBundle? LoadVerifiedBundle(CultMeshCdnArtifactManifest manifest, EveAssetVariant variant)
         {
             var hash = NormalizeContentHash(variant.ContentHash);
             if (manifest.SizeBytes != variant.SizeBytes)
@@ -836,7 +847,74 @@ namespace GameCult.Eve.UnityScene
             if (!string.Equals(NormalizeContentHash(manifest.ContentHash),
                     hash, StringComparison.Ordinal))
                 throw new InvalidOperationException($"Provider asset bundle '{variant.Uri}' hash did not match its catalog.");
-            return ContentTransfer().FetchAsync(manifest).GetAwaiter().GetResult();
+
+            var now = DateTimeOffset.UtcNow;
+            var network = NetworkArtifactDescriptor(manifest, now, TimeSpan.FromMinutes(5));
+            var mapped = ContentTransfer()
+                .FetchMappedContentAsync(manifest, network, now, TimeSpan.FromMinutes(5))
+                .GetAwaiter()
+                .GetResult();
+            var request = new CultMeshBodyValidationRequest
+            {
+                BodyId = network.BodyId,
+                SchemaId = network.SchemaId,
+                LayoutVersion = network.LayoutVersion,
+                ProducerEpoch = network.ProducerEpoch,
+                Sequence = network.Sequence,
+                Capacity = network.Capacity,
+                AccessMode = CultMeshBodyAccessMode.ReadOnly,
+                NowUtc = now
+            };
+            var transport = new CultMeshBodyTransportService(
+                new ICultMeshBodyTransportAdapter[]
+                {
+                    new CultMeshMappedBodyAdapter(_assetBodyMappings!),
+                    new CultMeshNetworkBodyAdapter(_ => ReadVerifiedArtifactBytes(manifest))
+                },
+                descriptor => string.Equals(descriptor.BodyId, manifest.ArtifactId, StringComparison.Ordinal) &&
+                    string.Equals(descriptor.SemanticHash, hash, StringComparison.Ordinal));
+            var negotiated = transport.NegotiateReadOnly(mapped.Descriptor, network, request);
+            CurrentAssetBodyTransportKind = negotiated.SelectedTransport;
+            _assetBodyLeases.Add(negotiated.Lease);
+            if (negotiated.SelectedTransport == CultMeshBodyTransportKind.SharedFileMapping)
+                return AssetBundle.LoadFromFile(mapped.VerifiedPath);
+
+            if (negotiated.Lease.Descriptor.ByteSize > int.MaxValue)
+                throw new InvalidOperationException("Unity cannot lower a network asset body larger than one managed byte array.");
+            var bytes = new byte[checked((int)negotiated.Lease.Descriptor.ByteSize)];
+            negotiated.Lease.CopyTo(0, bytes, 0, bytes.Length);
+            return AssetBundle.LoadFromMemory(bytes);
+        }
+
+        private byte[] ReadVerifiedArtifactBytes(CultMeshCdnArtifactManifest manifest)
+        {
+            var path = ContentTransfer().FetchAsync(manifest).GetAwaiter().GetResult();
+            return File.ReadAllBytes(path);
+        }
+
+        private static CultMeshBodyDescriptor NetworkArtifactDescriptor(
+            CultMeshCdnArtifactManifest manifest,
+            DateTimeOffset now,
+            TimeSpan leaseDuration)
+        {
+            if (manifest.SizeBytes > int.MaxValue)
+                throw new InvalidOperationException("CultMesh artifact capacity exceeds the current body descriptor bound.");
+            return new CultMeshBodyDescriptor
+            {
+                BodyId = manifest.ArtifactId,
+                SchemaId = "gamecult.mesh.cdn-artifact.v1",
+                LayoutVersion = 1,
+                ByteSize = manifest.SizeBytes,
+                Capacity = checked((int)manifest.SizeBytes),
+                ProducerEpoch = 1,
+                Sequence = 0,
+                AccessMode = CultMeshBodyAccessMode.ReadOnly,
+                Synchronization = CultMeshBodySynchronization.ImmutableSequence,
+                LeaseExpiresAtUnixMs = now.Add(leaseDuration).ToUnixTimeMilliseconds(),
+                TransportKind = CultMeshBodyTransportKind.Network,
+                CapabilityToken = CultMeshCdnArtifactManifest.CreateRecordKey(manifest).Value,
+                SemanticHash = NormalizeContentHash(manifest.ContentHash)
+            };
         }
 
         private void PublishReceipt(EveCommandReceiptDocument receipt)

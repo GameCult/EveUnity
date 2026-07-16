@@ -62,6 +62,7 @@ namespace GameCult.Eve.UnityScene
                 return;
             }
 
+            _lastPresentation = Current;
             var marker = FindMarker(Current.SelectedTargetEntityId);
             if (marker == null)
             {
@@ -69,7 +70,6 @@ namespace GameCult.Eve.UnityScene
                 return;
             }
 
-            _lastPresentation = Current;
             EnsureVisuals();
             PresentationAxes(out var right, out var up, out var towardCamera, out var cullingMask);
             var visualBounds = VisualBounds(marker.transform, cullingMask);
@@ -128,7 +128,18 @@ namespace GameCult.Eve.UnityScene
             if (presentation?.PresentsHit(receipt) != true)
                 presentation = _lastPresentation;
             if (presentation?.PresentsHit(receipt) == true)
+            {
+                PresentationAxes(out var right, out var up, out _, out _);
+                _lastCenter = new Vector3(
+                    (float)receipt.Endpoint.X,
+                    (float)receipt.Endpoint.Y,
+                    (float)receipt.Endpoint.Z);
+                _lastRight = right;
+                _lastUp = up;
+                _lastRadius = Math.Max(0.8f, _lastRadius);
+                _hasLastTarget = true;
                 _hitUntil = Time.unscaledTime + presentation.HitMarkerDurationSeconds;
+            }
         }
 
         private EveUnityPlayableWorldEntityMarker? FindMarker(string entityId)

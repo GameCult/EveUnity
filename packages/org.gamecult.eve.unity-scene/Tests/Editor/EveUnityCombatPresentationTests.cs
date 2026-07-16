@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using NUnit.Framework;
+using UnityEngine;
 
 #nullable enable
 
@@ -38,6 +40,37 @@ namespace GameCult.Eve.UnityScene.Tests
             Assert.That(combat.PresentsHit(Shot(4, 9, true, 0, 12)), Is.True);
         }
 
+        [Test]
+        public void HitMarkerRetainsAuthoritativeEndpointAfterTargetLeavesTheWorld()
+        {
+            var root = new GameObject("combat-hit-retention-test");
+            try
+            {
+                var renderer = root.AddComponent<EveUnityCombatPresentationRenderer>();
+                var presentation = new EveUnityCombatPresentation(Combat());
+                typeof(EveUnityCombatPresentationRenderer)
+                    .GetField("_lastPresentation", BindingFlags.Instance | BindingFlags.NonPublic)!
+                    .SetValue(renderer, presentation);
+                typeof(EveUnityCombatPresentationRenderer)
+                    .GetMethod("OnShotAvailable", BindingFlags.Instance | BindingFlags.NonPublic)!
+                    .Invoke(renderer, new object[] { Shot(4, 9, true, 12, 0, "7.5,-3.25") });
+
+                renderer.RefreshNow();
+
+                Assert.That(renderer.HitMarkerVisible, Is.True,
+                    "A destroyed target must not erase receipt-owned hit feedback.");
+                var line = root.transform.Find("Eve combat presentation/Hit marker A")!
+                    .GetComponent<LineRenderer>();
+                var center = (line.GetPosition(0) + line.GetPosition(1)) * 0.5f;
+                Assert.That(center.x, Is.EqualTo(7.5f).Within(0.0001f));
+                Assert.That(center.z, Is.EqualTo(-3.25f).Within(0.0001f));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(root);
+            }
+        }
+
         private static EveUnitySceneProjection Projection(params EveUnitySceneNode[] children) =>
             new EveUnitySceneProjection("provider", "surface", "world", "commands", "receipt", "provider", null,
                 Node("root", "surface", children));
@@ -59,7 +92,13 @@ namespace GameCult.Eve.UnityScene.Tests
             ["radialFillMaximum"] = "0.75"
         });
 
-        private static EveUnityShotReceipt Shot(int source, int target, bool hit, double damage, double shield) =>
+        private static EveUnityShotReceipt Shot(
+            int source,
+            int target,
+            bool hit,
+            double damage,
+            double shield,
+            string endpoint = "0,0") =>
             new EveUnityShotReceipt(Node("shot", "shot.receipt", new Dictionary<string, string>(StringComparer.Ordinal)
             {
                 ["shotId"] = Guid.NewGuid().ToString("N"),
@@ -67,7 +106,8 @@ namespace GameCult.Eve.UnityScene.Tests
                 ["targetEntityIndex"] = target.ToString(),
                 ["hit"] = hit.ToString(),
                 ["appliedDamage"] = damage.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                ["shieldAbsorbedDamage"] = shield.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                ["shieldAbsorbedDamage"] = shield.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                ["endpoint"] = endpoint
             }));
 
         private static EveUnitySceneNode Node(string id, string kind, params EveUnitySceneNode[] children) =>

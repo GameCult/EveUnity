@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Collections.Generic;
+using System.Reflection;
 using GameCult.Eve.PluginFields;
 using GameCult.Eve.UnityScene.Fields;
 using NUnit.Framework;
@@ -12,6 +13,35 @@ namespace GameCult.Eve.UnityScene.Tests
 {
     public sealed class EveFieldsUnitySceneProjectionTests
     {
+        [Test]
+        public void VolumeCameraToWorldPreservesUnityShaderPositiveZForward()
+        {
+            var cameraObject = new GameObject("eve-volume-camera-matrix");
+            try
+            {
+                var camera = cameraObject.AddComponent<Camera>();
+                camera.transform.SetPositionAndRotation(
+                    new Vector3(12f, -3f, 8f),
+                    Quaternion.Euler(17f, 43f, -9f));
+                var method = typeof(EveUnityFieldsVolumeRenderer).GetMethod(
+                    "CameraTransformToWorld",
+                    BindingFlags.NonPublic | BindingFlags.Static);
+
+                Assert.That(method, Is.Not.Null);
+                var matrix = (Matrix4x4)method!.Invoke(null, new object[] { camera });
+                Assert.That(Vector3.Dot(
+                    matrix.MultiplyVector(Vector3.forward).normalized,
+                    camera.transform.forward), Is.EqualTo(1f).Within(0.00001f));
+                Assert.That(Vector3.Distance(
+                    matrix.MultiplyPoint3x4(Vector3.zero),
+                    camera.transform.position), Is.LessThan(0.00001f));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(cameraObject);
+            }
+        }
+
         [Test]
         public void RasterizerConsumesPluginOwnedDocumentContract()
         {

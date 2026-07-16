@@ -140,7 +140,7 @@ namespace GameCult.Eve.UnityScene.Fields
             var gpuProjection = GL.GetGPUProjectionMatrix(camera.projectionMatrix, true);
             var viewProjection = gpuProjection * camera.worldToCameraMatrix;
             SetMatrixPort("cameraInverseViewProjection", viewProjection.inverse);
-            SetMatrixPort("cameraToWorld", camera.cameraToWorldMatrix);
+            SetMatrixPort("cameraToWorld", CameraTransformToWorld(camera));
             SetVectorPort("cameraProjectionExtents", ProjectionExtents(camera));
             SetFloatPort("raymarchOffset", Halton(Time.frameCount & 1023, 3));
 
@@ -593,6 +593,9 @@ namespace GameCult.Eve.UnityScene.Fields
             var y = camera.orthographic ? camera.orthographicSize : Mathf.Tan(0.5f * Mathf.Deg2Rad * camera.fieldOfView);
             return new Vector4(y * camera.aspect, y, 0f, 0f);
         }
+
+        private static Matrix4x4 CameraTransformToWorld(Camera camera) =>
+            camera.transform.localToWorldMatrix;
 
         private static float Halton(int index, int radix)
         {

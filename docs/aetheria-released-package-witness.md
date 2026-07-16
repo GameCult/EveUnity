@@ -5,16 +5,16 @@
 The released-package witness passes in separate cold-lowering and warm-gameplay
 profiles with:
 
-- `org.gamecult.eve.unity-scene` `0.3.51`, commit
-  `21ac39e7bdfca9d81a0b7d89834f7e9da60aaad6`;
+- `org.gamecult.eve.unity-scene` `0.3.53`, commit
+  `bb7e7fc6bbbbd87e9794212de53f4b92b3c5e785`;
 - `org.gamecult.eve.plugin-fields` `0.2.3`, commit
   `c5a4a75c1b727499b16c2dae1895f29e2a9f72f0`;
 - `org.gamecult.eve.surface` `0.2.2`, commit
   `140e1bd963a0033e66777a3b2c5fe6e9c97dfe32`;
 - `org.gamecult.eve.unity-uitoolkit` `0.1.1`, commit
   `4d0cbe0185bdc4fc65eb63503a7c5cb578539669`;
-- `org.gamecult.cultlib` `1.0.14`, commit
-  `4b7162022a8976f7941b5a7a69acf50f1b6d532b`;
+- `org.gamecult.cultlib` `1.0.15`, commit
+  `419053ebe2325848051c4f4d8ba352cd4286c424`;
 - the generic `ReleaseConsumerProject` client connected directly to the
   Aetheria daemon.
 
@@ -95,7 +95,7 @@ witness records eleven sun/planet/gas-giant rows and eighteen asteroid rows.
 Every row resolved a provider asset with enabled native renderers, and seven
 celestial instances intersected the pilot frustum. These identities are
 presentation-only and cannot receive gameplay commands. EveUnity contains no
-Aetheria or celestial branch; release `0.3.51` fixes the generic prefab wrapper
+Aetheria or celestial branch; release `0.3.53` includes the generic prefab wrapper
 so semantic instance scale composes with, rather than overwrites, provider-local
 scale.
 
@@ -113,7 +113,7 @@ present in the map-only frame. This is transport, authority, field-production,
 and lowering proof, not visual parity: the current pilot capture contains the
 blue fog field and provider geometry, but nearby ships remain too dark and the
 celestial composition lacks the fossil capture's readable close body. Release
-`0.3.51` includes generic lowering for Eve Fields `0.2.3`'s
+`0.3.53` includes generic lowering for Eve Fields `0.2.3`'s
 `AnimatedRadialCosine` source alongside `PowerPulse`, dither-scale,
 temporal-history, and finite-look-at semantics. Aetheria publishes the fossil
 global animated simplex/cellular/ambient producer stack, body-owned radial wave
@@ -168,22 +168,25 @@ Primary artifacts:
 
 ## Cold delivery proof
 
-The `cold-start-lowering` profile starts with zero bodies and zero partials. It
-receives the `55,533,143` byte Unity bundle through the managed
+The `cold-start-lowering` profile starts with zero bodies and zero partials. The
+current released run in `artifacts/aetheria-daemon-mapped-body-cold` receives
+the `55,539,565` byte Unity bundle through the managed
 `cultmesh.content.v1` session, verifies SHA-256
-`6d7352c47bde37ca4235ed8a96e2b4d4df9a1c5a2e84af504c7a0662f7b7d2ba`,
+`7a6a6e5156f0645de00f38c9e96cd837ac0f42f6241fb4d06947b922fcdc808e`,
 atomically promotes one `.body`, and leaves zero partials under the unchanged
-300-second deadline. Including a clean provider-bundle build, the full witness
-took `147.615` seconds; the Unity test took `48.710` seconds. It then lowered
-provider assets, movement, environment, four field layers across `135`
-composites, and both camera channels. The pilot camera
-excluded map objects and the map camera included them.
+300-second deadline. The Unity test took `48.358` seconds. It then negotiates
+`SharedFileMapping` over the exact transfer-owned verified path and loads the
+bundle without first materializing another process-sized byte array. It lowers
+provider assets, movement, environment, four field layers, and both camera
+channels. The pilot camera excludes map objects and the map camera includes
+them.
 
 Cold asset acquisition and transient gameplay are deliberately separate proof
 profiles. Starting Unity before the provider means download time is not a
 stable lifetime for a boot-seeded enemy or pickup. The cold profile proves
 delivery and lowering; `full-session-gameplay` starts a fresh warm authoritative
 session and proves combat, destruction-created loot, Ymir contact collection,
-and exactly-once receipts. Neither profile claims negotiated mapped/zero-copy
-CDN delivery: the released path is the managed network content session and
-still copies/fragments bytes in process.
+and exactly-once receipts. The cold profile proves verified local file mapping
+after managed network delivery. It does not claim provider-to-client network
+zero-copy, shared-memory delivery, or GPU zero-copy; the content session still
+copies and fragments network bytes before atomic promotion.

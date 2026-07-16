@@ -199,15 +199,20 @@ Primary artifacts:
 
 ## Cold delivery proof
 
-Cold CDN transfer is currently failing and is not part of the passing claim.
-The approximately 13 MB provider bundle still times out because its bytes are
-carried through batched snapshot records instead of the intended mapped/network
-body transport. Increasing the timeout would only conceal the transport error.
+Cold CDN transfer passes with the current released package set. The
+`cold-start-lowering` run in `artifacts/aetheria-daemon-current-cold` began with
+zero cached bodies, received one typed manifest snapshot, transferred bounded
+payload chunks through the managed CultMesh content session, and atomically
+promoted exactly one `56,168,017`-byte body named by SHA-256
+`f54177cc8aadd5cd39ba0757cfd2b90a403a1b9efcfcb32060b86e8c152dce10`.
+It left zero partial files, selected `SharedFileMapping` over that verified path,
+lowered the shield-free provider hull, and preserved pilot/map camera isolation
+within the unchanged 300-second deadline; total witness time was `102,912.852`
+milliseconds.
 
-The passing `full-session-gameplay` witness starts from a previously verified
-warm body and negotiates `SharedFileMapping` over that provider-owned path. It
-proves released-package lowering and gameplay, not cold acquisition,
-provider-to-client network zero-copy, shared-memory delivery, or GPU zero-copy.
-Cold proof remains blocked until CultMesh transfers the bundle through the
-network-body path and atomically promotes the verified result without routing
-the payload through snapshot-record batching.
+The separate passing `full-session-gameplay` witness starts from the verified
+warm body and proves movement, combat, destruction-created canonical loot, Ymir
+contact collection, and exactly-once cargo mutation. This proves cold acquisition
+and local mapped reuse, not provider-to-client network zero-copy, shared-memory
+delivery, or GPU zero-copy. Managed network bytes are still copied and fragmented
+before the transfer owner commits the mapped file.

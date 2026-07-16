@@ -79,3 +79,6 @@ requirements without assigning gameplay or product meaning to the layer keys.
 `source=port,scale,offset`. This lets animated native programs consume
 provider-authoritative simulation time without making the client clock an
 authority.
+Native volume programs may advertise a `cameraToWorld` matrix port when their
+procedural passes require an explicit camera transform instead of relying on
+render-pipeline globals.

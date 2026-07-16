@@ -112,6 +112,7 @@ namespace GameCult.Eve.UnityScene.Fields
             var gpuProjection = GL.GetGPUProjectionMatrix(camera.projectionMatrix, true);
             var viewProjection = gpuProjection * camera.worldToCameraMatrix;
             SetMatrixPort("cameraInverseViewProjection", viewProjection.inverse);
+            SetMatrixPort("cameraToWorld", camera.cameraToWorldMatrix);
             SetVectorPort("cameraProjectionExtents", ProjectionExtents(camera));
             SetFloatPort("raymarchOffset", Halton(Time.frameCount & 1023, 3));
 

@@ -22,10 +22,12 @@ Current released-package evidence is in
 name, `runtime-witness.warm.json` is the current passing run. The warm PlayMode test
 passed and recorded provider-owned reconciled movement, look, targeting,
 tractor press, tractor release, contact-gated cargo collection, and action
-receipts. Its generated player happened to be the rare `LonginusX` modified
-hull with the singular `Traction` AetherDrive. The drive's authored nested
-torque curve spooled its persisted rotor state and daemon-owned torque reached
-the SoA body rotation; ordinary hulls remain directional-thruster ships.
+receipts. The fingerprinted April 2021 catalog recovery now restores the
+distinct common `Longinus`, rare `LonginusX`, and `Djinni` rows plus the missing
+turn-thruster equipment needed to outfit ordinary hulls. This run generated the
+player as a common directional-thruster `Longinus`; the other six presented
+ships were `Djinni`, and no `LonginusX` appeared. The player moved 14.34 world
+units and completed its authoritative hardware-driven look before combat.
 The daemon-owned look direction reached the SoA body rotation,
 and the generic aim presentation rendered at the advertised 50-unit minimum
 convergence distance. The advertised skybox material and reflection cubemap
@@ -71,12 +73,12 @@ daemon lock progress `1.0`; Unity does not manufacture or smooth that value.
 
 Camera-channel facts:
 
-- provider-authored player renderers: `12`, with no embedded shield renderer;
-- pilot changed pixels: `215,425`;
-- pilot average luminance: `0.124833`;
-- pilot bright pixels: `96,180`;
+- provider-authored player renderers: `13` total / `9` enabled, with no embedded shield renderer;
+- pilot changed pixels: `217,323`;
+- pilot average luminance: `0.1322155`;
+- pilot bright pixels: `101,510`;
 - map-channel renderers: `10`;
-- map changed pixels: `4,064`;
+- map changed pixels: `3,179`;
 - native cockpit progress bars: `7`;
 - daemon tractor power at capture: `1.0` after the held input completed its
   authored ramp;

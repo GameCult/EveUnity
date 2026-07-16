@@ -155,7 +155,7 @@
         "com.unity.render-pipelines.universal": "17.4.0",
         "com.unity.modules.particlesystem": "1.0.0"
       },
-      "hash": "7c8442e12264806a53a9e0e08b7b090dcddb8c90"
+      "hash": "21ac39e7bdfca9d81a0b7d89834f7e9da60aaad6"
     },
     "org.gamecult.eve.unity-uitoolkit": {
       "version": "https://github.com/GameCult/EveUnity.git?path=/packages/org.gamecult.eve.unity-uitoolkit#eveunity-uitoolkit-v0.1.1",

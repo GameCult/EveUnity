@@ -328,6 +328,55 @@ namespace GameCult.Eve.UnityScene.Tests
         }
 
         [Test]
+        public void VolumeRendererUsesCurrentProjectionWithPreviousViewWhenAdvertised()
+        {
+            var metadata = RequiredVolumeProgramMetadata();
+            metadata["unity.volume.matrixSemantic.previousViewProjection"] =
+                "current-projection.previous-view.v1";
+            var previousViewProjection = Matrix4x4.Translate(new Vector3(1f, 2f, 3f));
+            var currentProjection = Matrix4x4.Scale(new Vector3(2f, 3f, 4f));
+            var previousView = Matrix4x4.Rotate(Quaternion.Euler(10f, 20f, 30f));
+
+            var resolved = EveUnityFieldsVolumeRenderer.ResolvePreviousViewProjection(
+                metadata,
+                previousViewProjection,
+                currentProjection,
+                previousView);
+
+            Assert.That(resolved, Is.EqualTo(currentProjection * previousView));
+            Assert.That(resolved, Is.Not.EqualTo(previousViewProjection));
+        }
+
+        [Test]
+        public void VolumeRendererDefaultsToTruePreviousViewProjection()
+        {
+            var previousViewProjection = Matrix4x4.Translate(new Vector3(1f, 2f, 3f));
+
+            var resolved = EveUnityFieldsVolumeRenderer.ResolvePreviousViewProjection(
+                RequiredVolumeProgramMetadata(),
+                previousViewProjection,
+                Matrix4x4.Scale(Vector3.one * 2f),
+                Matrix4x4.Rotate(Quaternion.Euler(10f, 20f, 30f)));
+
+            Assert.That(resolved, Is.EqualTo(previousViewProjection));
+        }
+
+        [Test]
+        public void VolumeProgramRejectsUnknownPreviousViewProjectionSemantic()
+        {
+            var metadata = RequiredVolumeProgramMetadata();
+            metadata["unity.volume.pass.temporal"] = "1";
+            metadata["unity.volume.texturePort.currentSample"] = "_CurrentVolume";
+            metadata["unity.volume.texturePort.history"] = "_HistoryVolume";
+            metadata["unity.volume.matrixPort.previousViewProjection"] = "_PreviousViewProjection";
+            metadata["unity.volume.floatPort.resetHistory"] = "_ResetHistory";
+            metadata["unity.volume.matrixSemantic.previousViewProjection"] = "made-up";
+
+            Assert.That(EveUnityFieldsVolumeRenderer.TryValidateProgramMetadata(metadata, out var error), Is.False);
+            Assert.That(error, Does.Contain("previous-view-projection semantic"));
+        }
+
+        [Test]
         public void VolumeProgramRejectsPartialTemporalLifecycle()
         {
             var metadata = RequiredVolumeProgramMetadata();

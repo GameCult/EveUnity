@@ -28,6 +28,7 @@ namespace GameCult.Eve.UnityScene.Fields
         private readonly RenderTexture?[] _historyTextures = new RenderTexture?[2];
         private int _historyTextureIndex = -1;
         private Matrix4x4 _previousViewProjection;
+        private Matrix4x4 _previousView;
         private EveUnityFieldsVolumePass? _renderPass;
         private string _activeNodeId = "";
         private long _rasterizedFrameId = -1;
@@ -160,7 +161,15 @@ namespace GameCult.Eve.UnityScene.Fields
                 finalCloudTexture = _historyTextures[historyWriteIndex]!;
                 SetTexturePort("currentSample", _raymarchTexture);
                 SetTexturePort("history", historyReadTexture!);
-                SetMatrixPort("previousViewProjection", _historyTextureIndex < 0 ? viewProjection : _previousViewProjection);
+                SetMatrixPort(
+                    "previousViewProjection",
+                    _historyTextureIndex < 0
+                        ? viewProjection
+                        : ResolvePreviousViewProjection(
+                            _programMetadata,
+                            _previousViewProjection,
+                            gpuProjection,
+                            _previousView));
                 SetFloatPort("resetHistory", _historyTextureIndex < 0 ? 1f : 0f);
             }
             SetTexturePort("cloud", finalCloudTexture);
@@ -186,6 +195,7 @@ namespace GameCult.Eve.UnityScene.Fields
             {
                 _historyTextureIndex = historyWriteIndex;
                 _previousViewProjection = viewProjection;
+                _previousView = camera.worldToCameraMatrix;
             }
             CompositeCount++;
         }
@@ -454,6 +464,20 @@ namespace GameCult.Eve.UnityScene.Fields
         {
             _historyTextureIndex = -1;
             _previousViewProjection = Matrix4x4.identity;
+            _previousView = Matrix4x4.identity;
+        }
+
+        public static Matrix4x4 ResolvePreviousViewProjection(
+            IReadOnlyDictionary<string, string>? metadata,
+            Matrix4x4 previousViewProjection,
+            Matrix4x4 currentGpuProjection,
+            Matrix4x4 previousView)
+        {
+            return metadata != null &&
+                   metadata.TryGetValue("unity.volume.matrixSemantic.previousViewProjection", out var semantic) &&
+                   string.Equals(semantic, "current-projection.previous-view.v1", StringComparison.Ordinal)
+                ? currentGpuProjection * previousView
+                : previousViewProjection;
         }
 
         private bool HasTemporalProgram() => ProgramPass("temporal") >= 0;
@@ -532,6 +556,10 @@ namespace GameCult.Eve.UnityScene.Fields
                 !ValidPort(metadata, "matrix", "previousViewProjection") ||
                 !ValidPort(metadata, "float", "resetHistory"))
                 return Fail("Native volume temporal pass is missing a required history port.", out error);
+            if (metadata.TryGetValue("unity.volume.matrixSemantic.previousViewProjection", out var semantic) &&
+                !string.Equals(semantic, "previous-view-projection.v1", StringComparison.Ordinal) &&
+                !string.Equals(semantic, "current-projection.previous-view.v1", StringComparison.Ordinal))
+                return Fail("Native volume temporal pass has an unsupported previous-view-projection semantic.", out error);
             return true;
         }
 

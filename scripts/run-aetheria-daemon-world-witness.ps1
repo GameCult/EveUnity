@@ -243,8 +243,18 @@ try {
   if (-not $facts.providerAssets -or -not $facts.environmentPresentation -or
       -not $facts.movement -or -not $facts.pilotCameraExcludesMapChannel -or
       -not $facts.mapCameraIncludesMapChannel -or [int]$facts.fieldVolumeLayerCount -le 0 -or
-      [long]$facts.fieldVolumeCompositeCount -le 0) {
-    throw "Live witness did not prove provider assets, movement, Fields lowering, and camera-channel separation."
+      [long]$facts.fieldVolumeCompositeCount -le 0 -or
+      [int]$facts.fieldParticleCount -ne 65536 -or
+      [int]$facts.fieldParticleDispatchCount -le 0 -or
+      [int]$facts.fieldParticleDrawCount -le 0 -or
+      -not $facts.fieldParticleMapCameraIsolated) {
+    throw "Live witness did not prove provider assets, movement, Fields lowering, Stardust dispatch/draw, and camera-channel separation."
+  }
+  $gridCenterXCells = [double]$facts.fieldParticleGridCenter.x / 6.0
+  $gridCenterYCells = [double]$facts.fieldParticleGridCenter.y / 6.0
+  if ([math]::Abs($gridCenterXCells - [math]::Truncate($gridCenterXCells)) -gt 0.000001 -or
+      [math]::Abs($gridCenterYCells - [math]::Truncate($gridCenterYCells)) -gt 0.000001) {
+    throw "Live Stardust grid center was not snapped to its six-unit spatial lattice. center=$($facts.fieldParticleGridCenter.x),$($facts.fieldParticleGridCenter.y)"
   }
   $presentedCelestials = @($facts.presentedEntities | Where-Object { $_.entityKind -like "celestial.*" })
   $presentedBodies = @($presentedCelestials | Where-Object {

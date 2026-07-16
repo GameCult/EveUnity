@@ -115,6 +115,9 @@ namespace GameCult.Eve.UnityScene
             var fieldVolume = GetComponent<EveUnityFieldsVolumeRenderer>();
             if (fieldVolume == null) fieldVolume = gameObject.AddComponent<EveUnityFieldsVolumeRenderer>();
             fieldVolume.Bind(this, providerSurfaceDocuments as IEveUnityFieldsSplatsDocumentSource);
+            var fieldParticles = GetComponent<EveUnityFieldsParticleRenderer>();
+            if (fieldParticles == null) fieldParticles = gameObject.AddComponent<EveUnityFieldsParticleRenderer>();
+            fieldParticles.Bind(this, providerSurfaceDocuments as IEveUnityFieldsSplatsDocumentSource);
 
             var presentation = Runtime.Connect();
             ConnectionEpoch++;

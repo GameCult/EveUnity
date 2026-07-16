@@ -728,7 +728,13 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 mapCamera.transform.position = mapBounds.center + Vector3.up * (mapCamera.farClipPlane * 0.25f);
                 mapCamera.transform.rotation = Quaternion.Euler(90f, 0f, 0f);
                 mapCamera.targetTexture = target;
+                var fieldParticlesForMap = root.GetComponent<EveUnityFieldsParticleRenderer>();
+                var particleDrawsBeforeMap = fieldParticlesForMap?.DrawCount ?? 0;
                 mapCamera.Render();
+                var particleMapCameraIsolated = fieldParticlesForMap != null &&
+                    fieldParticlesForMap.DrawCount == particleDrawsBeforeMap;
+                Assert.That(particleMapCameraIsolated, Is.True,
+                    "The map camera executed the pilot-only field-particle pass.");
                 RenderTexture.active = target;
                 pixels.ReadPixels(new Rect(0, 0, 640, 360), 0, 0);
                 pixels.Apply();
@@ -768,6 +774,15 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     "The generic volume lowerer did not rasterize any advertised Fields layers.");
                 Assert.That(fieldVolume.CompositeCount, Is.GreaterThan(0),
                     "The generic volume lowerer never composited into the pilot camera.");
+                var fieldParticles = fieldParticlesForMap;
+                Assert.That(fieldParticles, Is.Not.Null,
+                    "The generic client did not install its field-particle lowerer.");
+                Assert.That(fieldParticles.ProgramReady, Is.True,
+                    "The generic field-particle lowerer rejected the advertised provider ABI or assets.");
+                Assert.That(fieldParticles.PresentedFrameId, Is.GreaterThanOrEqualTo(0));
+                Assert.That(fieldParticles.ParticleCount, Is.EqualTo(65536));
+                Assert.That(fieldParticles.DispatchCount, Is.GreaterThan(0));
+                Assert.That(fieldParticles.DrawCount, Is.GreaterThan(0));
                 var fieldDocument = typeof(EveUnityFieldsVolumeRenderer)
                     .GetField("_document", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
                     ?.GetValue(fieldVolume);
@@ -791,6 +806,12 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     fieldVolume.PresentedFrameId,
                     fieldVolume.PresentedLayerCount,
                     fieldVolume.CompositeCount,
+                    fieldParticles.PresentedFrameId,
+                    fieldParticles.ParticleCount,
+                    fieldParticles.DispatchCount,
+                    fieldParticles.DrawCount,
+                    particleMapCameraIsolated,
+                    fieldParticles.LastGridCenter,
                     movementReceipt,
                     lookReceipt,
                     focusReceipt,
@@ -864,6 +885,12 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             long fieldVolumeFrameId,
             int fieldVolumeLayerCount,
             long fieldVolumeCompositeCount,
+            long fieldParticleFrameId,
+            int fieldParticleCount,
+            int fieldParticleDispatchCount,
+            int fieldParticleDrawCount,
+            bool fieldParticleMapCameraIsolated,
+            Vector2 fieldParticleGridCenter,
             WitnessReceipt movement,
             WitnessReceipt look,
             WitnessReceipt targeting,
@@ -915,6 +942,12 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 fieldVolumeFrameId = fieldVolumeFrameId,
                 fieldVolumeLayerCount = fieldVolumeLayerCount,
                 fieldVolumeCompositeCount = fieldVolumeCompositeCount,
+                fieldParticleFrameId = fieldParticleFrameId,
+                fieldParticleCount = fieldParticleCount,
+                fieldParticleDispatchCount = fieldParticleDispatchCount,
+                fieldParticleDrawCount = fieldParticleDrawCount,
+                fieldParticleMapCameraIsolated = fieldParticleMapCameraIsolated,
+                fieldParticleGridCenter = fieldParticleGridCenter,
                 movement = movement != null,
                 aimPresentation = look != null && aimDotDistance >= 49.9f,
                 targeting = targeting != null,
@@ -991,6 +1024,12 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             public long fieldVolumeFrameId;
             public int fieldVolumeLayerCount;
             public long fieldVolumeCompositeCount;
+            public long fieldParticleFrameId;
+            public int fieldParticleCount;
+            public int fieldParticleDispatchCount;
+            public int fieldParticleDrawCount;
+            public bool fieldParticleMapCameraIsolated;
+            public Vector2 fieldParticleGridCenter;
             public bool movement;
             public bool aimPresentation;
             public bool targeting;

@@ -429,6 +429,13 @@ namespace GameCult.Eve.UnityScene.Tests
             Assert.That(projection.PlayableWorld.FieldVolumes[0].DocumentRef, Is.EqualTo("cultmesh://aetheria/world/fog-splats"));
             Assert.That(projection.PlayableWorld.FieldVolumes[0].MaterialAssetRef, Is.EqualTo("shader.environment.gravity-fog"));
             Assert.That(projection.PlayableWorld.FieldVolumes[0].RenderChannel, Is.EqualTo("world.transparent"));
+            Assert.That(projection.PlayableWorld.FieldParticles.Count, Is.EqualTo(1));
+            Assert.That(projection.PlayableWorld.FieldParticles[0].DocumentRef,
+                Is.EqualTo("cultmesh://aetheria/world/fog-splats"));
+            Assert.That(projection.PlayableWorld.FieldParticles[0].ComputeProgramAssetRef,
+                Is.EqualTo("compute.environment.stardust"));
+            Assert.That(projection.PlayableWorld.FieldParticles[0].MaterialAssetRef,
+                Is.EqualTo("material.environment.stardust"));
 
             var player = FindEntity(projection.PlayableWorld, "player-vanguard");
             Assert.That(player.EntityKind, Is.EqualTo("player"));
@@ -1969,6 +1976,21 @@ namespace GameCult.Eve.UnityScene.Tests
                     ["compositeMode"] = "premultiplied-alpha",
                     ["quality"] = "normal",
                     ["layerBindings"] = "fog.surface_height=surfaceHeight;fog.tint=tint"
+                },
+                Array.Empty<EveSurfaceComponent>()));
+
+            playableChildren.Add(new EveSurfaceComponent(
+                "aetheria.daemon.game.stardust",
+                "field.particles3d",
+                new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["documentRef"] = "cultmesh://aetheria/world/fog-splats",
+                    ["documentSchema"] = EveFieldsSchemas.Splats,
+                    ["computeProgramAssetRef"] = "compute.environment.stardust",
+                    ["materialAssetRef"] = "material.environment.stardust",
+                    ["renderChannel"] = "world.transparent",
+                    ["span"] = "256",
+                    ["spacing"] = "6"
                 },
                 Array.Empty<EveSurfaceComponent>()));
 

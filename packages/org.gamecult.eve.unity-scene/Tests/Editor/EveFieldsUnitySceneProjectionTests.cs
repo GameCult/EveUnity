@@ -51,6 +51,72 @@ namespace GameCult.Eve.UnityScene.Tests
         }
 
         [Test]
+        public void ParticleRendererExecutesProviderProgramWithoutProviderCode()
+        {
+            Assert.That(typeof(EveUnityFieldsParticleRenderer).Assembly.GetReferencedAssemblies()
+                .Any(assembly => assembly.Name?.Contains("Aetheria", StringComparison.OrdinalIgnoreCase) == true), Is.False);
+            Assert.That(EveUnityFieldsParticleRenderer.CompositionRenderPassEvent,
+                Is.EqualTo(RenderPassEvent.BeforeRenderingPostProcessing));
+        }
+
+        [TestCase(11f, 6f)]
+        [TestCase(-11f, -6f)]
+        [TestCase(5.999f, 0f)]
+        public void ParticleRendererSnapsToAnIntegralGravityPixelMultiple(float coordinate, float expected)
+        {
+            Assert.That(EveUnityFieldsParticleRenderer.SnapCameraCoordinate(
+                coordinate,
+                1536f,
+                2048,
+                8f), Is.EqualTo(expected).Within(0.0001f));
+        }
+
+        [Test]
+        public void ParticleRendererAcceptsAlignedGravityAndParticleLattices()
+        {
+            Assert.That(EveUnityFieldsParticleRenderer.TryValidateSpatialLattice(
+                1536f, 1536f, 2048, 2048, 256, 6f, 8), Is.True);
+        }
+
+        [Test]
+        public void ParticleRendererRejectsAliasedGravityAndParticleLattices()
+        {
+            Assert.That(EveUnityFieldsParticleRenderer.TryValidateSpatialLattice(
+                2000f, 2000f, 2048, 2048, 256, 6f, 8), Is.False);
+        }
+
+        [Test]
+        public void ParticleRendererFailsClosedWithoutCompleteNativeAbi()
+        {
+            var compute = RequiredParticleComputeMetadata();
+            var material = RequiredParticleMaterialMetadata();
+            Assert.That(EveUnityFieldsParticleRenderer.TryValidateProgramMetadata(compute, material, out var error),
+                Is.True, error);
+
+            compute.Remove("unity.particles.intPort.span");
+
+            Assert.That(EveUnityFieldsParticleRenderer.TryValidateProgramMetadata(compute, material, out error),
+                Is.False);
+            Assert.That(error, Does.Contain("logical port"));
+        }
+
+        [Test]
+        public void ParticleRendererPreservesRepeatedDocumentSourcesForDistinctPorts()
+        {
+            var document = new EveFieldsSplatsDocument { SimulationTimeSeconds = 12.5 };
+
+            Assert.That(EveUnityFieldsParticleRenderer.TryEvaluateDocumentFloatBindings(
+                document,
+                "simulationTimeSeconds=time,1,0;simulationTimeSeconds=flowScroll,0.025,0",
+                out var bindings), Is.True);
+            Assert.That(bindings.Count, Is.EqualTo(2));
+            Assert.That(bindings[0].Key, Is.EqualTo("time"));
+            Assert.That(bindings[0].Value, Is.EqualTo(12.5f));
+            Assert.That(bindings[1].Key, Is.EqualTo("flowScroll"));
+            Assert.That(bindings[1].Value, Is.EqualTo(0.3125f));
+        }
+
+        [Test]
         public void VolumeProgramAcceptsPortableTwoPassLifecycle()
         {
             var metadata = RequiredVolumeProgramMetadata();
@@ -173,6 +239,30 @@ namespace GameCult.Eve.UnityScene.Tests
             Assert.That(Shader.Find("Eve/Fields/Splats"), Is.Not.Null);
             Assert.That(File.Exists("Packages/org.gamecult.eve.unity-scene/Runtime/Fields/EveFieldsSplatsCore.hlsl"), Is.True);
         }
+
+        private static Dictionary<string, string> RequiredParticleComputeMetadata() =>
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["unity.particles.kernel.update"] = "UpdateParticles",
+                ["unity.particles.bufferPort.particles"] = "particles",
+                ["unity.particles.texturePort.surfaceHeight"] = "_SurfaceHeight",
+                ["unity.particles.texturePort.tint"] = "_Tint",
+                ["unity.particles.texturePort.hue"] = "_Hue",
+                ["unity.particles.vectorPort.viewportTransform"] = "_GridTransform",
+                ["unity.particles.vectorPort.timeVector"] = "_Time",
+                ["unity.particles.floatPort.time"] = "time",
+                ["unity.particles.floatPort.period"] = "period",
+                ["unity.particles.floatPort.spacing"] = "spacing",
+                ["unity.particles.intPort.span"] = "span"
+            };
+
+        private static Dictionary<string, string> RequiredParticleMaterialMetadata() =>
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["unity.particles.pass.render"] = "0",
+                ["unity.particles.bufferPort.particles"] = "particles",
+                ["unity.particles.bufferPort.quadPoints"] = "quadPoints"
+            };
 
         [Test]
         public void LayerRendererConsumesPluginContractsWithoutProviderBindings()

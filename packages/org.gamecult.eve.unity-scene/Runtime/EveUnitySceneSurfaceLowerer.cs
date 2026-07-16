@@ -105,12 +105,15 @@ namespace GameCult.Eve.UnityScene
 
             var entities = new List<EveUnityPlayableWorldEntity>();
             var fieldVolumes = new List<EveUnityFieldVolumeProjection>();
+            var fieldParticles = new List<EveUnityFieldParticlesProjection>();
             foreach (var component in Flatten(worldRoot))
             {
                 if (string.Equals(component.Kind, "world.entity3d", StringComparison.Ordinal))
                     entities.Add(BuildPlayableEntity(component));
                 else if (string.Equals(component.Kind, "field.volume3d", StringComparison.Ordinal))
                     fieldVolumes.Add(BuildFieldVolume(component));
+                else if (string.Equals(component.Kind, "field.particles3d", StringComparison.Ordinal))
+                    fieldParticles.Add(BuildFieldParticles(component));
             }
 
             return new EveUnityPlayableWorldProjection(
@@ -152,7 +155,8 @@ namespace GameCult.Eve.UnityScene
                 ParseVector3(worldRoot.GetProp("keyLightColor")),
                 ParseFloat(worldRoot.GetProp("keyLightIntensity"), 0f),
                 fieldVolumes,
-                worldRoot.GetProp("cameraLookAt"));
+                worldRoot.GetProp("cameraLookAt"),
+                fieldParticles);
         }
 
         private static EveUnityFieldVolumeProjection BuildFieldVolume(EveSurfaceComponent component) =>
@@ -164,6 +168,16 @@ namespace GameCult.Eve.UnityScene
                 component.GetProp("renderChannel", "world.transparent"),
                 component.GetProp("compositeMode", "premultiplied-alpha"),
                 component.GetProp("quality", "normal"),
+                component.Props);
+
+        private static EveUnityFieldParticlesProjection BuildFieldParticles(EveSurfaceComponent component) =>
+            new EveUnityFieldParticlesProjection(
+                component.Id,
+                component.GetProp("documentRef"),
+                component.GetProp("documentSchema", EveFieldsSchemas.Splats),
+                component.GetProp("computeProgramAssetRef"),
+                component.GetProp("materialAssetRef"),
+                component.GetProp("renderChannel", "world.transparent"),
                 component.Props);
 
         private static EveUnityPlayableWorldEntity BuildPlayableEntity(EveSurfaceComponent component)
@@ -396,7 +410,8 @@ namespace GameCult.Eve.UnityScene
             (float r, float g, float b) keyLightColor = default,
             float keyLightIntensity = 0f,
             IReadOnlyList<EveUnityFieldVolumeProjection>? fieldVolumes = null,
-            string cameraLookAt = "")
+            string cameraLookAt = "",
+            IReadOnlyList<EveUnityFieldParticlesProjection>? fieldParticles = null)
         {
             WorldRootId = worldRootId ?? "";
             StatePointerId = statePointerId ?? "";
@@ -442,6 +457,7 @@ namespace GameCult.Eve.UnityScene
             KeyLightColorB = keyLightColor.b;
             KeyLightIntensity = keyLightIntensity;
             FieldVolumes = fieldVolumes ?? Array.Empty<EveUnityFieldVolumeProjection>();
+            FieldParticles = fieldParticles ?? Array.Empty<EveUnityFieldParticlesProjection>();
             CameraLookAt = cameraLookAt ?? "";
         }
 
@@ -536,6 +552,7 @@ namespace GameCult.Eve.UnityScene
         public IReadOnlyList<EveUnityPlayableWorldEntity> Entities { get; }
 
         public IReadOnlyList<EveUnityFieldVolumeProjection> FieldVolumes { get; }
+        public IReadOnlyList<EveUnityFieldParticlesProjection> FieldParticles { get; }
     }
 
     public sealed class EveUnityFieldVolumeProjection
@@ -567,6 +584,35 @@ namespace GameCult.Eve.UnityScene
         public string RenderChannel { get; }
         public string CompositeMode { get; }
         public string Quality { get; }
+        public IReadOnlyDictionary<string, string> Props { get; }
+    }
+
+    public sealed class EveUnityFieldParticlesProjection
+    {
+        public EveUnityFieldParticlesProjection(
+            string nodeId,
+            string documentRef,
+            string documentSchema,
+            string computeProgramAssetRef,
+            string materialAssetRef,
+            string renderChannel,
+            IReadOnlyDictionary<string, string>? props = null)
+        {
+            NodeId = nodeId ?? "";
+            DocumentRef = documentRef ?? "";
+            DocumentSchema = documentSchema ?? "";
+            ComputeProgramAssetRef = computeProgramAssetRef ?? "";
+            MaterialAssetRef = materialAssetRef ?? "";
+            RenderChannel = renderChannel ?? "";
+            Props = props ?? new Dictionary<string, string>(StringComparer.Ordinal);
+        }
+
+        public string NodeId { get; }
+        public string DocumentRef { get; }
+        public string DocumentSchema { get; }
+        public string ComputeProgramAssetRef { get; }
+        public string MaterialAssetRef { get; }
+        public string RenderChannel { get; }
         public IReadOnlyDictionary<string, string> Props { get; }
     }
 

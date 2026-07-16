@@ -4,8 +4,8 @@
 
 The released-package cold world witness passes with:
 
-- `org.gamecult.eve.unity-scene` `0.3.59`, commit
-  `4d5257b8ca09767974e8eb350a9695191ec39fdc`;
+- `org.gamecult.eve.unity-scene` `0.3.61`, commit
+  `887de62db84526511ae99a9d59429ae05c86476c`;
 - `org.gamecult.eve.plugin-fields` `0.2.3`, commit
   `c5a4a75c1b727499b16c2dae1895f29e2a9f72f0`;
 - `org.gamecult.eve.surface` `0.2.2`, commit
@@ -29,6 +29,17 @@ camera witness to `0.5096`, recovering visible cloud structure. The capture is
 still cyan and visibly posterized, so temporal/color parity remains open.
 Map-channel isolation also passes: the pilot camera excludes the 11 map
 renderers and the map camera includes them.
+
+The subsequent released `0.3.61` warm witness in
+`artifacts/aetheria-daemon-temporal-bootstrap-warm` restores two temporal
+details from the fossil renderer as explicit provider-program semantics. The
+fog history projects the previous view through the current projection, and the
+first history frame uses the provider-advertised `ultra` quality before
+settling to the scene's serialized `high` quality. Average luminance remains
+effectively unchanged while mean neighboring-pixel variation falls from
+`0.0332` to `0.0174` and Laplacian high-frequency energy falls from `0.1050`
+to `0.0531`. This proves the temporal history is accumulating and that its
+bootstrap seed mattered. The remaining cyan/tonemap mismatch is still open.
 
 Current released-package evidence is in
 `artifacts/aetheria-daemon-mapped-body-cold`; despite that retained directory

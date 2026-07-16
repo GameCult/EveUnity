@@ -2,11 +2,10 @@
 
 ## Current result
 
-The released-package witness passes in separate cold-lowering and warm-gameplay
-profiles with:
+The released-package warm-gameplay witness passes with:
 
-- `org.gamecult.eve.unity-scene` `0.3.53`, commit
-  `bb7e7fc6bbbbd87e9794212de53f4b92b3c5e785`;
+- `org.gamecult.eve.unity-scene` `0.3.55`, commit
+  `745ce7cc24c514ad442d53807722b6a4651d9521`;
 - `org.gamecult.eve.plugin-fields` `0.2.3`, commit
   `c5a4a75c1b727499b16c2dae1895f29e2a9f72f0`;
 - `org.gamecult.eve.surface` `0.2.2`, commit
@@ -18,12 +17,16 @@ profiles with:
 - the generic `ReleaseConsumerProject` client connected directly to the
   Aetheria daemon.
 
-Current celestial-package evidence is in
-`artifacts/aetheria-daemon-celestial-cold`; the retained cold and warm witness
-documents distinguish transfer from gameplay. The warm PlayMode test
+Current released-package evidence is in
+`artifacts/aetheria-daemon-mapped-body-cold`; despite that retained directory
+name, `runtime-witness.warm.json` is the current passing run. The warm PlayMode test
 passed and recorded provider-owned reconciled movement, look, targeting,
 tractor press, tractor release, contact-gated cargo collection, and action
-receipts. The daemon-owned look direction reached the SoA body rotation,
+receipts. Its generated player happened to be the rare `LonginusX` modified
+hull with the singular `Traction` AetherDrive. The drive's authored nested
+torque curve spooled its persisted rotor state and daemon-owned torque reached
+the SoA body rotation; ordinary hulls remain directional-thruster ships.
+The daemon-owned look direction reached the SoA body rotation,
 and the generic aim presentation rendered at the advertised 50-unit minimum
 convergence distance. The advertised skybox material and reflection cubemap
 resolved from the provider bundle as their required native types and became the
@@ -55,7 +58,7 @@ Fields splat layers. Its surface contract contains logical ports such as
 names or pass indices. The selected `unity-scene` provider asset variant owns
 that concrete shader ABI through `unity.volume.*` metadata. The released
 generic lowerer resolved the provider shader and dither texture, rasterized all
- four layers, and composited `121` pilot-camera frames through daemon frame `397`.
+ four layers, and composited `195` pilot-camera frames through daemon frame `491`.
 The provider variant advertises the fossil shader's raymarch, temporal-history,
 and composite passes plus their logical ports. EveUnity allocates and resets the
 history targets generically; a partial temporal ABI fails closed.
@@ -69,11 +72,11 @@ daemon lock progress `1.0`; Unity does not manufacture or smooth that value.
 Camera-channel facts:
 
 - provider-authored player renderers: `12`, with no embedded shield renderer;
-- pilot changed pixels: `220,747`;
-- pilot average luminance: `0.134114`;
-- pilot bright pixels: `113,308`;
+- pilot changed pixels: `215,425`;
+- pilot average luminance: `0.124833`;
+- pilot bright pixels: `96,180`;
 - map-channel renderers: `10`;
-- map changed pixels: `4,857`;
+- map changed pixels: `4,064`;
 - native cockpit progress bars: `7`;
 - daemon tractor power at capture: `1.0` after the held input completed its
   authored ramp;
@@ -95,7 +98,7 @@ witness records eleven sun/planet/gas-giant rows and eighteen asteroid rows.
 Every row resolved a provider asset with enabled native renderers, and seven
 celestial instances intersected the pilot frustum. These identities are
 presentation-only and cannot receive gameplay commands. EveUnity contains no
-Aetheria or celestial branch; release `0.3.53` includes the generic prefab wrapper
+Aetheria or celestial branch; release `0.3.55` includes the generic prefab wrapper
 so semantic instance scale composes with, rather than overwrites, provider-local
 scale.
 
@@ -113,13 +116,13 @@ present in the map-only frame. This is transport, authority, field-production,
 and lowering proof, not visual parity: the current pilot capture contains the
 blue fog field and provider geometry, but nearby ships remain too dark and the
 celestial composition lacks the fossil capture's readable close body. Release
-`0.3.53` includes generic lowering for Eve Fields `0.2.3`'s
+`0.3.55` includes generic lowering for Eve Fields `0.2.3`'s
 `AnimatedRadialCosine` source alongside `PowerPulse`, dither-scale,
 temporal-history, and finite-look-at semantics. Aetheria publishes the fossil
 global animated simplex/cellular/ambient producer stack, body-owned radial wave
 frequency, separate negative `gravity.height` and positive
 `fog.surface_height`, and the authored `ARPG.unity` zone-brush extent. The
-  witness records player Y `-83.7296` and camera Y `-66.9630`; Unity does not
+  witness records player Y `-101.5035` and camera Y `-84.7369`; Unity does not
 sample terrain to invent either value. The four rasterized field layers and HDR
 raymarch/history targets are populated, so the remaining failure is in native
 presentation/composition or provider art calibration rather than missing state
@@ -168,25 +171,15 @@ Primary artifacts:
 
 ## Cold delivery proof
 
-The `cold-start-lowering` profile starts with zero bodies and zero partials. The
-current released run in `artifacts/aetheria-daemon-mapped-body-cold` receives
-the `55,539,565` byte Unity bundle through the managed
-`cultmesh.content.v1` session, verifies SHA-256
-`7a6a6e5156f0645de00f38c9e96cd837ac0f42f6241fb4d06947b922fcdc808e`,
-atomically promotes one `.body`, and leaves zero partials under the unchanged
-300-second deadline. The Unity test took `48.358` seconds. It then negotiates
-`SharedFileMapping` over the exact transfer-owned verified path and loads the
-bundle without first materializing another process-sized byte array. It lowers
-provider assets, movement, environment, four field layers, and both camera
-channels. The pilot camera excludes map objects and the map camera includes
-them.
+Cold CDN transfer is currently failing and is not part of the passing claim.
+The approximately 13 MB provider bundle still times out because its bytes are
+carried through batched snapshot records instead of the intended mapped/network
+body transport. Increasing the timeout would only conceal the transport error.
 
-Cold asset acquisition and transient gameplay are deliberately separate proof
-profiles. Starting Unity before the provider means download time is not a
-stable lifetime for a boot-seeded enemy or pickup. The cold profile proves
-delivery and lowering; `full-session-gameplay` starts a fresh warm authoritative
-session and proves combat, destruction-created loot, Ymir contact collection,
-and exactly-once receipts. The cold profile proves verified local file mapping
-after managed network delivery. It does not claim provider-to-client network
-zero-copy, shared-memory delivery, or GPU zero-copy; the content session still
-copies and fragments network bytes before atomic promotion.
+The passing `full-session-gameplay` witness starts from a previously verified
+warm body and negotiates `SharedFileMapping` over that provider-owned path. It
+proves released-package lowering and gameplay, not cold acquisition,
+provider-to-client network zero-copy, shared-memory delivery, or GPU zero-copy.
+Cold proof remains blocked until CultMesh transfers the bundle through the
+network-body path and atomically promotes the verified result without routing
+the payload through snapshot-record batching.

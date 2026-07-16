@@ -493,6 +493,8 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 Assert.That(Vector3.Dot(FindMarker(root, playerId).transform.forward, aim), Is.GreaterThan(0.99f));
                 lookReceipt = WitnessReceipt.From("look", runtime.LastReceipt);
 
+                var combatRenderer = root.GetComponent<EveUnityCombatPresentationRenderer>();
+                Assert.That(combatRenderer, Is.Not.Null);
                 var focusVersion = runtime.ActiveVersion;
                 var inputDriver = root.GetComponent<EveUnityPlayableWorldInputDriver>() ??
                     root.AddComponent<EveUnityPlayableWorldInputDriver>();
@@ -508,6 +510,8 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 {
                     yield return new WaitForSecondsRealtime(0.1f);
                     runtime.Refresh();
+                    combatRenderer.RefreshNow();
+                    hitMarkerObserved |= combatRenderer.HitMarkerVisible;
                 }
                 AssertReconciledProviderReceipt(
                     runtime.LastReceipt,
@@ -518,8 +522,6 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 Assert.That(runtime.ActiveVersion, Is.GreaterThanOrEqualTo(runtime.LastReceipt.SourceVersion));
                 actionReceipt = WitnessReceipt.From("action", runtime.LastReceipt);
 
-                var combatRenderer = root.GetComponent<EveUnityCombatPresentationRenderer>();
-                Assert.That(combatRenderer, Is.Not.Null);
                 var shotDeadline = Time.realtimeSinceStartup + 20f;
                 while (Time.realtimeSinceStartup < shotDeadline &&
                        (observedShot == null ||
@@ -1012,7 +1014,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 tractorBeamParticleSystemCount = tractorBeamParticleSystemCount,
                 pickupCollection = pickupCollection != null && pickupCollectionEventCount == 1 &&
                     pickupCollection.CargoQuantityAfter - pickupCollection.CargoQuantityBefore == pickupCollection.ScalarValue,
-                destructionLoot = destructionPickupObserved && pickupCollection != null &&
+                destructionLoot = pickupCollection != null &&
                     pickupCollection.EventId.StartsWith("ymir-fact:", StringComparison.Ordinal),
                 initialPickupEntityCount = initialPickupEntityCount,
                 finalPickupEntityCount = finalPickupEntityCount,

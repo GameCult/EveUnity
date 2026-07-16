@@ -170,7 +170,8 @@ namespace GameCult.Eve.UnityScene
                 ParseFloat(worldRoot.GetProp("exposureKeyValue"), 1f),
                 worldRoot.GetProp("exposureAdaptation", "progressive"),
                 ParseFloat(worldRoot.GetProp("exposureSpeedUp"), 2f),
-                ParseFloat(worldRoot.GetProp("exposureSpeedDown"), 1f));
+                ParseFloat(worldRoot.GetProp("exposureSpeedDown"), 1f),
+                worldRoot.GetProp("colorGradingSpace"));
         }
 
         private static EveUnityFieldVolumeProjection BuildFieldVolume(EveSurfaceComponent component) =>
@@ -439,7 +440,8 @@ namespace GameCult.Eve.UnityScene
             float exposureKeyValue = 1f,
             string exposureAdaptation = "progressive",
             float exposureSpeedUp = 2f,
-            float exposureSpeedDown = 1f)
+            float exposureSpeedDown = 1f,
+            string colorGradingSpace = "")
         {
             WorldRootId = worldRootId ?? "";
             StatePointerId = statePointerId ?? "";
@@ -501,6 +503,7 @@ namespace GameCult.Eve.UnityScene
             ExposureAdaptation = exposureAdaptation ?? "";
             ExposureSpeedUp = exposureSpeedUp;
             ExposureSpeedDown = exposureSpeedDown;
+            ColorGradingSpace = colorGradingSpace ?? "";
         }
 
         public string WorldRootId { get; }
@@ -536,6 +539,8 @@ namespace GameCult.Eve.UnityScene
         public float TemporalSharpening { get; }
 
         public string ExposureMode { get; }
+
+        public string ColorGradingSpace { get; }
 
         public float ExposureLowPercent { get; }
 

@@ -1133,6 +1133,14 @@ namespace GameCult.Eve.UnityScene.Tests
             var previousReflectionMode = RenderSettings.defaultReflectionMode;
             var previousCustomReflection = RenderSettings.customReflectionTexture;
             var previousReflectionIntensity = RenderSettings.reflectionIntensity;
+            var previousDefaultPipeline = GraphicsSettings.defaultRenderPipeline;
+            var previousQualityPipeline = QualitySettings.renderPipeline;
+            var gradingRendererData = ScriptableObject.CreateInstance<UniversalRendererData>();
+            var gradingPipelineAsset = UniversalRenderPipelineAsset.Create(gradingRendererData);
+            gradingPipelineAsset.colorGradingMode = ColorGradingMode.LowDynamicRange;
+            GraphicsSettings.defaultRenderPipeline = gradingPipelineAsset;
+            QualitySettings.renderPipeline = gradingPipelineAsset;
+            var previousGradingMode = gradingPipelineAsset.colorGradingMode;
             Material? skyboxMaterial = null;
             Cubemap? reflectionCubemap = null;
             VolumeProfile? postProcessProfile = null;
@@ -1168,7 +1176,8 @@ namespace GameCult.Eve.UnityScene.Tests
                             exposureKeyValue: "0.5",
                             exposureAdaptation: "progressive",
                             exposureSpeedUp: "2",
-                            exposureSpeedDown: "1"),
+                            exposureSpeedDown: "1",
+                            colorGradingSpace: "hdr-before-tonemap.v1"),
                         Advertisement("aetheria.daemon.game"),
                         "cultmesh://aetheria/eve/surfaces/aetheria.daemon.game",
                         1),
@@ -1184,6 +1193,7 @@ namespace GameCult.Eve.UnityScene.Tests
                 var exposedWorld = host.ActiveProjection?.PlayableWorld;
                 Assert.That(exposedWorld, Is.Not.Null);
                 Assert.That(exposedWorld!.ExposureMode, Is.EqualTo("histogram.v1"));
+                Assert.That(exposedWorld.ColorGradingSpace, Is.EqualTo("hdr-before-tonemap.v1"));
                 Assert.That(exposedWorld.ExposureLowPercent, Is.EqualTo(47.37294f).Within(0.00001f));
                 Assert.That(exposedWorld.ExposureHighPercent, Is.EqualTo(99f));
                 Assert.That(exposedWorld.ExposureMinimumEv, Is.EqualTo(-3f));
@@ -1240,6 +1250,7 @@ namespace GameCult.Eve.UnityScene.Tests
                 var adaptiveExposure = camera.GetComponent<EveUnityAdaptiveExposureRenderer>();
                 Assert.That(adaptiveExposure, Is.Not.Null);
                 Assert.That(adaptiveExposure.IsConfigured, Is.True);
+                Assert.That(gradingPipelineAsset.colorGradingMode, Is.EqualTo(ColorGradingMode.HighDynamicRange));
                 var postProcessTransform = hostObject.transform.Find("Eve World Post Process");
                 Assert.That(postProcessTransform, Is.Not.Null);
                 Assert.That(postProcessTransform.GetComponent<Volume>().sharedProfile, Is.SameAs(postProcessProfile));
@@ -1305,6 +1316,7 @@ namespace GameCult.Eve.UnityScene.Tests
                 Assert.That(hostObject.transform.Find("Eve World Key Light"), Is.Null);
                 Assert.That(hostObject.transform.Find("Eve World Post Process"), Is.Null);
                 Assert.That(camera.GetComponent<UniversalAdditionalCameraData>(), Is.Null);
+                Assert.That(gradingPipelineAsset.colorGradingMode, Is.EqualTo(previousGradingMode));
                 aim.RefreshNow();
                 Assert.That(aim.ViewDotVisible, Is.False);
                 Assert.That(RenderSettings.ambientMode, Is.EqualTo(ambientMode));
@@ -1335,6 +1347,10 @@ namespace GameCult.Eve.UnityScene.Tests
                 RenderSettings.defaultReflectionMode = previousReflectionMode;
                 RenderSettings.customReflectionTexture = previousCustomReflection;
                 RenderSettings.reflectionIntensity = previousReflectionIntensity;
+                QualitySettings.renderPipeline = previousQualityPipeline;
+                GraphicsSettings.defaultRenderPipeline = previousDefaultPipeline;
+                UnityEngine.Object.DestroyImmediate(gradingPipelineAsset);
+                UnityEngine.Object.DestroyImmediate(gradingRendererData);
                 if (skyboxMaterial != null) UnityEngine.Object.DestroyImmediate(skyboxMaterial);
                 if (reflectionCubemap != null) UnityEngine.Object.DestroyImmediate(reflectionCubemap);
                 if (postProcessProfile != null) UnityEngine.Object.DestroyImmediate(postProcessProfile);
@@ -1942,7 +1958,8 @@ namespace GameCult.Eve.UnityScene.Tests
             string exposureKeyValue = "1",
             string exposureAdaptation = "progressive",
             string exposureSpeedUp = "2",
-            string exposureSpeedDown = "1")
+            string exposureSpeedDown = "1",
+            string colorGradingSpace = "")
         {
             var playableChildren = new List<EveSurfaceComponent>
             {
@@ -2124,6 +2141,7 @@ namespace GameCult.Eve.UnityScene.Tests
                                     ["exposureAdaptation"] = exposureAdaptation,
                                     ["exposureSpeedUp"] = exposureSpeedUp,
                                     ["exposureSpeedDown"] = exposureSpeedDown,
+                                    ["colorGradingSpace"] = colorGradingSpace,
                                     ["keyLightDirection"] = "0.4,-1,0.25",
                                     ["keyLightColor"] = "1,0.95,0.9",
                                     ["keyLightIntensity"] = "0.75",

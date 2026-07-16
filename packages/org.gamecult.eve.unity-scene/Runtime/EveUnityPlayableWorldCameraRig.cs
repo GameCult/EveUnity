@@ -43,6 +43,8 @@ namespace GameCult.Eve.UnityScene
         private bool _previousRenderPostProcessing;
         private AntialiasingMode _previousAntialiasing;
         private TemporalAA.Settings _previousTaaSettings;
+        private UniversalRenderPipelineAsset? _colorGradingPipelineAsset;
+        private ColorGradingMode _previousColorGradingMode;
 
         public EveUnityPlayableWorldClientHost? Host
         {
@@ -137,6 +139,11 @@ namespace GameCult.Eve.UnityScene
 
             var cameraComponent = camera.GetComponent<Camera>();
             if (postProcessProfile != null && cameraComponent == null)
+            {
+                ReleaseRig();
+                return false;
+            }
+            if (!ApplyColorGradingSpace(activeWorld))
             {
                 ReleaseRig();
                 return false;
@@ -316,6 +323,8 @@ namespace GameCult.Eve.UnityScene
                 !IsFinite(world.TemporalSharpening) ||
                 (!string.IsNullOrWhiteSpace(world.CameraReconstruction) &&
                  !string.Equals(world.CameraReconstruction, "temporal-reprojection.v1", System.StringComparison.Ordinal)) ||
+                (!string.IsNullOrWhiteSpace(world.ColorGradingSpace) &&
+                 !string.Equals(world.ColorGradingSpace, "hdr-before-tonemap.v1", System.StringComparison.Ordinal)) ||
                 (string.Equals(world.CameraReconstruction, "temporal-reprojection.v1", System.StringComparison.Ordinal) &&
                  (world.TemporalHistoryBlend < 0f || world.TemporalHistoryBlend > 1f ||
                   world.TemporalJitterScale < 0f || world.TemporalJitterScale > 1f ||
@@ -357,6 +366,34 @@ namespace GameCult.Eve.UnityScene
                     return false;
             }
             return true;
+        }
+
+        private bool ApplyColorGradingSpace(EveUnityPlayableWorldProjection world)
+        {
+            if (string.IsNullOrWhiteSpace(world.ColorGradingSpace))
+            {
+                RestoreColorGradingSpace();
+                return true;
+            }
+            var asset = GraphicsSettings.currentRenderPipeline as UniversalRenderPipelineAsset;
+            if (asset == null ||
+                !string.Equals(world.ColorGradingSpace, "hdr-before-tonemap.v1", System.StringComparison.Ordinal))
+                return false;
+            if (!ReferenceEquals(_colorGradingPipelineAsset, asset))
+            {
+                RestoreColorGradingSpace();
+                _colorGradingPipelineAsset = asset;
+                _previousColorGradingMode = asset.colorGradingMode;
+            }
+            asset.colorGradingMode = ColorGradingMode.HighDynamicRange;
+            return true;
+        }
+
+        private void RestoreColorGradingSpace()
+        {
+            if (_colorGradingPipelineAsset == null) return;
+            _colorGradingPipelineAsset.colorGradingMode = _previousColorGradingMode;
+            _colorGradingPipelineAsset = null;
         }
 
         private void ApplyKeyLight(EveUnityPlayableWorldProjection world)
@@ -574,6 +611,7 @@ namespace GameCult.Eve.UnityScene
 
         private void RestorePostProcess()
         {
+            RestoreColorGradingSpace();
             ReleaseAdaptiveExposure();
             if (_postProcessCameraData != null)
             {

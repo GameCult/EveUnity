@@ -2,10 +2,10 @@
 
 ## Current result
 
-The released-package warm-gameplay witness passes with:
+The released-package cold world witness passes with:
 
-- `org.gamecult.eve.unity-scene` `0.3.58`, commit
-  `02203ff134570c301ce58969397c296ee14e69ee`;
+- `org.gamecult.eve.unity-scene` `0.3.59`, commit
+  `4d5257b8ca09767974e8eb350a9695191ec39fdc`;
 - `org.gamecult.eve.plugin-fields` `0.2.3`, commit
   `c5a4a75c1b727499b16c2dae1895f29e2a9f72f0`;
 - `org.gamecult.eve.surface` `0.2.2`, commit
@@ -17,16 +17,18 @@ The released-package warm-gameplay witness passes with:
 - the generic `ReleaseConsumerProject` client connected directly to the
   Aetheria daemon.
 
-The cold `0.3.58` camera-contract witness in
-`artifacts/aetheria-daemon-gravity-fog-historical` resolves the tagged package,
-transfers and lowers bundle
-`e299b50ded9c9ba8964c567964c30342b9b13323665b20e740210b4806dd6e66`, and
-passes in 51.0 seconds. EveUnity now supplies the positive-Z camera transform
-used by Unity shader globals, so Aetheria keeps its historical ray direction
-instead of compensating for the negative-Z `Camera.cameraToWorldMatrix` API.
-The resulting capture exposes a separate unresolved mismatch: restoring the
-historical scattering law makes the current projected fog frame severely
-overexposed. That is not claimed as visual parity.
+The cold `0.3.59` witness in
+`artifacts/aetheria-daemon-adaptive-exposure-cold` resolves the tagged package,
+transfers and lowers the 56,170,916-byte provider bundle
+`34dd156038c9c55b96136e10805f35f2bc7f2aa4e8dda8a519e57aa5a83329c8`, and
+passes in 53.3 seconds. EveUnity lowers Aetheria's advertised historical
+histogram exposure as a provider-agnostic camera semantic; the bundled static
+volume profile remains neutral and is no longer a competing exposure owner.
+Average pilot-frame luminance fell from `0.8716` in the restored-scattering
+camera witness to `0.5096`, recovering visible cloud structure. The capture is
+still cyan and visibly posterized, so temporal/color parity remains open.
+Map-channel isolation also passes: the pilot camera excludes the 11 map
+renderers and the map camera includes them.
 
 Current released-package evidence is in
 `artifacts/aetheria-daemon-mapped-body-cold`; despite that retained directory

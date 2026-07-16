@@ -210,7 +210,10 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             float tractorReleasedPower = 1f;
             int tractorBeamParticleSystemCount = 0;
             EveUnityFeedbackEvent pickupCollection = null;
+            EveUnityFeedbackEvent pickupRejection = null;
             int pickupCollectionEventCount = 0;
+            int pickupRejectionEventCount = 0;
+            var pickupRejectionEventIds = new HashSet<string>(StringComparer.Ordinal);
             int initialPickupEntityCount = 0;
             int finalPickupEntityCount = -1;
             bool destructionPickupObserved = false;
@@ -224,6 +227,15 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             var requireSessionGameplay = string.Equals(
                 witnessProfile,
                 "full-session-gameplay",
+                StringComparison.Ordinal);
+            var gameplayScenario = Environment.GetEnvironmentVariable("EVEUNITY_WITNESS_GAMEPLAY_SCENARIO") ??
+                                   "released-client-proof";
+            Assert.That(gameplayScenario,
+                Is.EqualTo("released-client-proof").Or.EqualTo("cargo-capacity-rejection-proof"),
+                "The live witness must select an explicit daemon-owned gameplay scenario.");
+            var expectCargoRejection = string.Equals(
+                gameplayScenario,
+                "cargo-capacity-rejection-proof",
                 StringComparison.Ordinal);
             EveUnityAimPresentationRenderer aimRenderer = null;
             EveUnityBeamPresentation beamPresentation = null;
@@ -311,16 +323,25 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 if (requireSessionGameplay)
                     Assert.That(initialPickupEntityCount, Is.Zero,
                         "The witness scenario must obtain salvage from daemon-owned destruction, not a boot-seeded pickup.");
-                runtime.FeedbackAvailable += feedback =>
-                {
-                    if (!string.Equals(feedback.Kind, "pickup.collected", StringComparison.Ordinal)) return;
-                    pickupCollectionEventCount++;
-                    pickupCollection = feedback;
-                };
-
                 var playerId = runtime.ActiveWorld.PlayerEntityId;
                 var playerFact = host.PresentedEntities.CurrentGeneration.Entities
                     .Single(entity => entity.EntityId == playerId);
+                runtime.FeedbackAvailable += feedback =>
+                {
+                    if (feedback.TargetEntityIndex != playerFact.SourceIndex) return;
+                    if (string.Equals(feedback.Kind, "pickup.collected", StringComparison.Ordinal))
+                    {
+                        pickupCollectionEventCount++;
+                        pickupCollection = feedback;
+                    }
+                    else if (string.Equals(feedback.Kind, "pickup.rejected", StringComparison.Ordinal))
+                    {
+                        pickupRejectionEventCount++;
+                        pickupRejectionEventIds.Add(feedback.EventId);
+                        pickupRejection = feedback;
+                    }
+                };
+
                 var playerPrefab = provider.ResolvePrefab(new EveUnityPlayableWorldAssetBinding(
                     playerFact.AssetRef,
                     playerFact.EntityKind,
@@ -529,7 +550,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                        (observedShot == null ||
                         host.PresentedEntities.CurrentGeneration.Entities.Any(entity =>
                             entity.EntityId == targetEntityId) ||
-                        (!destructionPickupObserved && pickupCollection == null)))
+                        (!destructionPickupObserved && pickupCollection == null && pickupRejection == null)))
                 {
                     yield return new WaitForSecondsRealtime(0.05f);
                     runtime.Refresh();
@@ -544,11 +565,12 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 Assert.That(host.PresentedEntities.CurrentGeneration.Entities.Any(entity =>
                         entity.EntityId == targetEntityId), Is.False,
                     "The low-hull witness raider was not destroyed by daemon combat.");
-                Assert.That(destructionPickupObserved || pickupCollection != null, Is.True,
+                Assert.That(destructionPickupObserved || pickupCollection != null || pickupRejection != null, Is.True,
                     "Daemon destruction did not publish its guaranteed cargo as a pickup.");
                 var collectionDeadline = Time.realtimeSinceStartup + 15f;
                 var nextTractorAimAt = 0f;
-                while (Time.realtimeSinceStartup < collectionDeadline && pickupCollection == null)
+                while (Time.realtimeSinceStartup < collectionDeadline &&
+                       (expectCargoRejection ? pickupRejection == null : pickupCollection == null))
                 {
                     yield return new WaitForSecondsRealtime(0.05f);
                     runtime.Refresh();
@@ -571,19 +593,44 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 }
                 finalPickupEntityCount = host.PresentedEntities.CurrentGeneration.Entities.Count(entity =>
                     string.Equals(entity.EntityKind, "pickup", StringComparison.Ordinal));
-                Assert.That(pickupCollection, Is.Not.Null,
-                    "Destruction-created salvage never reached cargo through a Ymir contact fact.");
-                Assert.That(pickupCollectionEventCount, Is.EqualTo(1),
-                    "One destruction-loot Ymir contact transaction must emit one collection event.");
-                Assert.That(pickupCollection.ItemKey, Is.Not.Empty,
-                    "Destruction loot must retain its canonical typed item identity.");
-                Assert.That(pickupCollection.EventId, Does.StartWith("ymir-fact:"),
-                    "Collection feedback must retain the consumed Ymir fact identity.");
-                Assert.That(pickupCollection.ScalarValue, Is.EqualTo(1));
-                Assert.That(pickupCollection.CargoQuantityBefore, Is.Zero);
-                Assert.That(pickupCollection.CargoQuantityAfter, Is.EqualTo(1));
-                Assert.That(finalPickupEntityCount, Is.Zero,
-                    "Collected destruction loot remained in the provider-authored entity generation.");
+                if (expectCargoRejection)
+                {
+                    Assert.That(pickupRejection, Is.Not.Null,
+                        "Full cargo did not reject destruction salvage from its Ymir contact fact.");
+                    Assert.That(pickupRejectionEventCount, Is.EqualTo(1),
+                        "The first destruction-loot Ymir contact transaction must emit one rejection event.");
+                    Assert.That(pickupRejectionEventIds.Count, Is.EqualTo(pickupRejectionEventCount),
+                        "One Ymir fact identity emitted duplicate player rejection feedback.");
+                    Assert.That(pickupCollectionEventCount, Is.Zero,
+                        "Capacity-rejected salvage was also collected.");
+                    Assert.That(pickupRejection.ItemKey, Is.Not.Empty);
+                    Assert.That(pickupRejection.EventId, Does.StartWith("ymir-fact:"),
+                        "Rejection feedback must retain the consumed Ymir fact identity.");
+                    Assert.That(pickupRejection.Reason, Is.EqualTo("cargo-capacity"));
+                    Assert.That(pickupRejection.ScalarValue, Is.EqualTo(1));
+                    Assert.That(pickupRejection.CargoQuantityAfter,
+                        Is.EqualTo(pickupRejection.CargoQuantityBefore));
+                    Assert.That(finalPickupEntityCount, Is.EqualTo(1),
+                        "Capacity-rejected destruction loot disappeared from provider state.");
+                }
+                else
+                {
+                    Assert.That(pickupCollection, Is.Not.Null,
+                        "Destruction-created salvage never reached cargo through a Ymir contact fact.");
+                    Assert.That(pickupCollectionEventCount, Is.EqualTo(1),
+                        "One destruction-loot Ymir contact transaction must emit one collection event.");
+                    Assert.That(pickupRejectionEventCount, Is.Zero,
+                        "Collectible destruction salvage was also rejected.");
+                    Assert.That(pickupCollection.ItemKey, Is.Not.Empty,
+                        "Destruction loot must retain its canonical typed item identity.");
+                    Assert.That(pickupCollection.EventId, Does.StartWith("ymir-fact:"),
+                        "Collection feedback must retain the consumed Ymir fact identity.");
+                    Assert.That(pickupCollection.ScalarValue, Is.EqualTo(1));
+                    Assert.That(pickupCollection.CargoQuantityBefore, Is.Zero);
+                    Assert.That(pickupCollection.CargoQuantityAfter, Is.EqualTo(1));
+                    Assert.That(finalPickupEntityCount, Is.Zero,
+                        "Collected destruction loot remained in the provider-authored entity generation.");
+                }
                 observedCombat = EveUnityCombatPresentation.Find(runtime.ActiveProjection);
                 Assert.That(observedShot.TargetEntityIndex, Is.EqualTo(targetEntityIndex));
                 Assert.That(observedShot.LockQuality, Is.GreaterThanOrEqualTo(0.99));
@@ -869,6 +916,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 Assert.That(fieldSplats, Is.Not.Null);
                 WriteWitnessFacts(
                     witnessProfile,
+                    gameplayScenario,
                     provider.CurrentAssetBodyTransportKind?.ToString() ?? "",
                     initialVersion,
                     runtime.ActiveVersion,
@@ -915,8 +963,10 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     initialPickupEntityCount,
                     finalPickupEntityCount,
                     pickupCollectionEventCount,
+                    pickupRejectionEventCount,
                     destructionPickupObserved,
                     pickupCollection,
+                    pickupRejection,
                     camera.transform.position,
                     camera.transform.forward,
                     playerMarker.transform.position,
@@ -949,6 +999,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
 
         private static void WriteWitnessFacts(
             string witnessProfile,
+            string gameplayScenario,
             string assetBodyTransport,
             long initialVersion,
             long finalVersion,
@@ -995,8 +1046,10 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             int initialPickupEntityCount,
             int finalPickupEntityCount,
             int pickupCollectionEventCount,
+            int pickupRejectionEventCount,
             bool destructionPickupObserved,
             EveUnityFeedbackEvent pickupCollection,
+            EveUnityFeedbackEvent pickupRejection,
             Vector3 cameraPosition,
             Vector3 cameraForward,
             Vector3 playerPosition,
@@ -1011,9 +1064,11 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
         {
             var path = Environment.GetEnvironmentVariable("EVEUNITY_WITNESS_FACTS_PATH");
             if (string.IsNullOrWhiteSpace(path)) return;
+            var pickupEvent = pickupCollection ?? pickupRejection;
             var document = new WitnessFacts
             {
                 witnessProfile = witnessProfile,
+                gameplayScenario = gameplayScenario,
                 providerAdvertisement = true,
                 providerAssets = true,
                 assetBodyTransport = assetBodyTransport,
@@ -1068,16 +1123,25 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 tractorBeamParticleSystemCount = tractorBeamParticleSystemCount,
                 pickupCollection = pickupCollection != null && pickupCollectionEventCount == 1 &&
                     pickupCollection.CargoQuantityAfter - pickupCollection.CargoQuantityBefore == pickupCollection.ScalarValue,
-                destructionLoot = pickupCollection != null &&
-                    pickupCollection.EventId.StartsWith("ymir-fact:", StringComparison.Ordinal),
+                pickupRejection = pickupRejection != null && pickupRejectionEventCount >= 1 &&
+                    pickupCollectionEventCount == 0 &&
+                    string.Equals(pickupRejection.Reason, "cargo-capacity", StringComparison.Ordinal) &&
+                    pickupRejection.CargoQuantityAfter == pickupRejection.CargoQuantityBefore,
+                destructionLoot = (pickupCollection?.EventId ?? pickupRejection?.EventId ?? "")
+                    .StartsWith("ymir-fact:", StringComparison.Ordinal),
                 initialPickupEntityCount = initialPickupEntityCount,
                 finalPickupEntityCount = finalPickupEntityCount,
                 pickupCollectionEventCount = pickupCollectionEventCount,
-                pickupEventId = pickupCollection?.EventId ?? "",
-                pickupItemKey = pickupCollection?.ItemKey ?? "",
-                pickupQuantity = (float)(pickupCollection?.ScalarValue ?? 0),
-                cargoQuantityBeforePickup = (float)(pickupCollection?.CargoQuantityBefore ?? 0),
-                cargoQuantityAfterPickup = (float)(pickupCollection?.CargoQuantityAfter ?? 0),
+                pickupRejectionEventCount = pickupRejectionEventCount,
+                pickupRejectionEventId = pickupRejection?.EventId ?? "",
+                pickupRejectionReason = pickupRejection?.Reason ?? "",
+                cargoQuantityBeforeRejection = (float)(pickupRejection?.CargoQuantityBefore ?? 0),
+                cargoQuantityAfterRejection = (float)(pickupRejection?.CargoQuantityAfter ?? 0),
+                pickupEventId = pickupEvent?.EventId ?? "",
+                pickupItemKey = pickupEvent?.ItemKey ?? "",
+                pickupQuantity = (float)(pickupEvent?.ScalarValue ?? 0),
+                cargoQuantityBeforePickup = (float)(pickupEvent?.CargoQuantityBefore ?? 0),
+                cargoQuantityAfterPickup = (float)(pickupEvent?.CargoQuantityAfter ?? 0),
                 cameraPosition = cameraPosition,
                 cameraForward = cameraForward,
                 playerPosition = playerPosition,
@@ -1103,6 +1167,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
         private sealed class WitnessFacts
         {
             public string witnessProfile;
+            public string gameplayScenario;
             public bool providerAdvertisement;
             public bool providerAssets;
             public string assetBodyTransport;
@@ -1154,10 +1219,16 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             public float tractorReleasedPower;
             public int tractorBeamParticleSystemCount;
             public bool pickupCollection;
+            public bool pickupRejection;
             public bool destructionLoot;
             public int initialPickupEntityCount;
             public int finalPickupEntityCount;
             public int pickupCollectionEventCount;
+            public int pickupRejectionEventCount;
+            public string pickupRejectionEventId;
+            public string pickupRejectionReason;
+            public float cargoQuantityBeforeRejection;
+            public float cargoQuantityAfterRejection;
             public string pickupEventId;
             public string pickupItemKey;
             public float pickupQuantity;

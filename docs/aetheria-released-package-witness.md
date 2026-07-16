@@ -84,6 +84,17 @@ The remaining visual controls (fog parameters, stellar tint, ambient intensity,
 histogram exposure, grading, and temporal settings) remain provider-owned
 levers; this proof does not claim a final art grade.
 
+The released `0.3.63` warm rejection witness in
+`artifacts/aetheria-daemon-cargo-rejection-0363-warm` selects the daemon-owned
+`cargo-capacity-rejection-proof` scenario. The controlled ship begins with all
+generated cargo bays filled from typed item volume and bay capacity. Combat
+creates the salvage pickup normally; player Ymir Begin contacts emit
+`pickup.rejected` with `cargo-capacity`, preserve cargo at `5` items, and leave
+the pickup live. The final run observed two later player recontacts with two
+distinct `ymir-fact:` identities and no player collection event. The generic
+witness correlates feedback through advertised SoA `SourceIndex` and feedback
+`TargetEntityIndex`; events from other ships are not attributed to the pilot.
+
 Current released-package evidence is in
 `artifacts/aetheria-daemon-mapped-body-cold`; despite that retained directory
 name, `runtime-witness.warm.json` is the current passing run. The warm PlayMode test
@@ -251,8 +262,8 @@ changes cargo from `0` to `1`, and emits one `pickup.collected` feedback event
 whose identity begins with `ymir-fact:`. Aetheria's Ymir body
 mapping excludes stations and non-ship world bodies from pickup collision facts,
 so ambient station contact cannot become a cargo writer. Capacity rejection and
-its `cargo-capacity` reason are covered by the daemon smoke, not claimed as a
-released-client live scenario here.
+its `cargo-capacity` reason are also proven by the released-client live rejection
+scenario described above.
 Effect tuning remains provider art work; the runtime must not compensate with
 an Aetheria-specific beam.
 

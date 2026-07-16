@@ -9,6 +9,8 @@ param(
   [string] $OutputDirectory = "artifacts\aetheria-daemon",
   [ValidateSet("auto", "cold", "warm")]
   [string] $CacheState = "auto",
+  [ValidateSet("released-client-proof", "cargo-capacity-rejection-proof")]
+  [string] $GameplayScenario = "released-client-proof",
   [switch] $SkipAssetBundleBuild
 )
 
@@ -168,6 +170,7 @@ $daemonArguments = @(
   "--client-cultmesh-port", $Port,
   "--tick-interval-ms", 20,
   "--fixed-delta-ms", 20,
+  "--terminus-scenario", $GameplayScenario,
   "--no-odin-announcements"
 )
 $env:AETHERIA_TRACE_EVE_SNAPSHOTS = "1"
@@ -183,6 +186,7 @@ $env:EVEUNITY_ASSET_CACHE_PATH = $assetCachePath
 $env:EVEUNITY_WITNESS_FACTS_PATH = $factsPath
 $env:EVEUNITY_PROVIDER_READY_PATH = $providerReadyPath
 $env:EVEUNITY_WITNESS_PROFILE = $witnessProfile
+$env:EVEUNITY_WITNESS_GAMEPLAY_SCENARIO = $GameplayScenario
 $arguments = @(
   "-batchmode", "-projectPath", $projectRoot,
   "-runTests", "-testPlatform", "PlayMode",
@@ -271,11 +275,21 @@ try {
       @($presentedCelestials | Where-Object { $_.intersectsPilotFrustum }).Count -le 0) {
     throw "Live witness did not prove provider-owned celestial bodies and asteroids reached the generic scene and intersected the pilot frustum. bodies=$($presentedBodies.Count) asteroids=$($presentedAsteroids.Count) invalid=$($invalidCelestials.Count)"
   }
-  if ($witnessProfile -eq "full-session-gameplay" -and
-      (-not $facts.combatPresentation -or [string]::IsNullOrWhiteSpace($facts.shotId) -or
-       [double]$facts.lockProgress -le 0.99 -or -not $facts.pickupCollection -or
-       -not $facts.destructionLoot -or [int]$facts.pickupCollectionEventCount -ne 1)) {
-    throw "Full-session witness did not prove combat and exactly-once destruction-loot Ymir contact collection."
+  if ($witnessProfile -eq "full-session-gameplay") {
+    if (-not $facts.combatPresentation -or [string]::IsNullOrWhiteSpace($facts.shotId) -or
+        [double]$facts.lockProgress -le 0.99 -or -not $facts.destructionLoot) {
+      throw "Full-session witness did not prove combat and Ymir-contact destruction loot."
+    }
+    if ($GameplayScenario -eq "cargo-capacity-rejection-proof") {
+      if ($facts.gameplayScenario -ne $GameplayScenario -or -not $facts.pickupRejection -or
+          [int]$facts.pickupRejectionEventCount -lt 1 -or [int]$facts.pickupCollectionEventCount -ne 0 -or
+          $facts.pickupRejectionReason -ne "cargo-capacity" -or
+          [double]$facts.cargoQuantityBeforeRejection -ne [double]$facts.cargoQuantityAfterRejection) {
+        throw "Full-session rejection witness did not prove player cargo-capacity refusal from distinct Ymir contact facts."
+      }
+    } elseif (-not $facts.pickupCollection -or [int]$facts.pickupCollectionEventCount -ne 1) {
+      throw "Full-session collection witness did not prove exactly-once player destruction-loot collection from a Ymir contact fact."
+    }
   }
   $releaseLock = Get-Content -LiteralPath (Join-Path $repoRoot "ReleaseConsumerProject\Packages\packages-lock.json") -Raw | ConvertFrom-Json
   $releasedPackageClient = $projectRoot -eq "ReleaseConsumerProject"
@@ -379,7 +393,11 @@ try {
       }
     )
     authority = if ($witnessProfile -eq "full-session-gameplay") {
-      "released-generic-runtime-observes-provider-assets-authoritative-gameplay-receipts-ymir-contact-collection-and-camera-channel-separation"
+      if ($GameplayScenario -eq "cargo-capacity-rejection-proof") {
+        "released-generic-runtime-observes-provider-assets-authoritative-gameplay-receipts-ymir-contact-capacity-rejection-and-camera-channel-separation"
+      } else {
+        "released-generic-runtime-observes-provider-assets-authoritative-gameplay-receipts-ymir-contact-collection-and-camera-channel-separation"
+      }
     } else {
       "released-generic-runtime-cold-loads-provider-assets-lowers-playable-world-and-preserves-camera-channel-separation"
     }
@@ -396,6 +414,6 @@ try {
 finally {
   if ($null -ne $unity -and -not $unity.HasExited) { Stop-Process -Id $unity.Id -Force -ErrorAction SilentlyContinue }
   if ($null -ne $daemon -and -not $daemon.HasExited) { Stop-Process -Id $daemon.Id -Force }
-  Remove-Item Env:EVEUNITY_RENDEZVOUS_ENDPOINT, Env:EVEUNITY_PROVIDER_ENDPOINT, Env:EVEUNITY_PROVIDER_ID, Env:EVEUNITY_SURFACE_ID, Env:EVEUNITY_REPLICA_PATH, Env:EVEUNITY_AETHERIA_CAPTURE_PATH, Env:EVEUNITY_AETHERIA_MAP_CAPTURE_PATH, Env:EVEUNITY_DISABLE_AUTO_LAUNCHER, Env:EVEUNITY_ASSET_CACHE_PATH, Env:EVEUNITY_WITNESS_FACTS_PATH, Env:EVEUNITY_PROVIDER_READY_PATH, Env:EVEUNITY_WITNESS_PROFILE -ErrorAction SilentlyContinue
+  Remove-Item Env:EVEUNITY_RENDEZVOUS_ENDPOINT, Env:EVEUNITY_PROVIDER_ENDPOINT, Env:EVEUNITY_PROVIDER_ID, Env:EVEUNITY_SURFACE_ID, Env:EVEUNITY_REPLICA_PATH, Env:EVEUNITY_AETHERIA_CAPTURE_PATH, Env:EVEUNITY_AETHERIA_MAP_CAPTURE_PATH, Env:EVEUNITY_DISABLE_AUTO_LAUNCHER, Env:EVEUNITY_ASSET_CACHE_PATH, Env:EVEUNITY_WITNESS_FACTS_PATH, Env:EVEUNITY_PROVIDER_READY_PATH, Env:EVEUNITY_WITNESS_PROFILE, Env:EVEUNITY_WITNESS_GAMEPLAY_SCENARIO -ErrorAction SilentlyContinue
   Remove-Item Env:AETHERIA_TRACE_EVE_SNAPSHOTS -ErrorAction SilentlyContinue
 }

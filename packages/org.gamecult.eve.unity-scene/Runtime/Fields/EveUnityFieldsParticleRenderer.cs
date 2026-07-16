@@ -101,44 +101,28 @@ namespace GameCult.Eve.UnityScene.Fields
 
             var baseWidth = PositiveInt(field, "textureWidth", 512);
             var baseHeight = PositiveInt(field, "textureHeight", 512);
-            var viewportWidth = (float)(document.Viewport.MaxX - document.Viewport.MinX);
-            var viewportHeight = (float)(document.Viewport.MaxY - document.Viewport.MinY);
-            if (!float.IsFinite(viewportWidth) || !float.IsFinite(viewportHeight) ||
-                viewportWidth <= 0f || viewportHeight <= 0f)
-                return false;
-
-            var center = new Vector2(
-                (float)((document.Viewport.MinX + document.Viewport.MaxX) * 0.5),
-                (float)((document.Viewport.MinY + document.Viewport.MaxY) * 0.5));
-            if (string.Equals(Prop(field, "viewportAnchor"), "active-camera.xz", StringComparison.Ordinal))
-            {
-                var snapLayer = Prop(field, "viewportSnapLayer");
-                var snapTarget = _targets.FirstOrDefault(target =>
-                    string.Equals(target.LayerKey, snapLayer, StringComparison.Ordinal));
-                var snapWidth = snapTarget == null
-                    ? 0
-                    : Mathf.Max(1, Mathf.RoundToInt(baseWidth * Mathf.Max(0.01f, snapTarget.WidthScale)));
-                var snapHeight = snapTarget == null
-                    ? 0
-                    : Mathf.Max(1, Mathf.RoundToInt(baseHeight * Mathf.Max(0.01f, snapTarget.HeightScale)));
-                var snapTexels = PositiveInt(field, "viewportSnapTexels", 0);
-                var cellWorldSize = PositiveFloat(field, "cellWorldSize", 0f);
-                var span = PositiveInt(field, "span", 0);
-                if (!TryValidateSpatialLattice(
-                        viewportWidth,
-                        viewportHeight,
-                        snapWidth,
-                        snapHeight,
-                        span,
-                        cellWorldSize,
-                        snapTexels)) return false;
-                center.x = SnapCameraCoordinate(camera.transform.position.x, viewportWidth, snapWidth, snapTexels);
-                center.y = SnapCameraCoordinate(camera.transform.position.z, viewportHeight, snapHeight, snapTexels);
-            }
+            var snapLayer = Prop(field, "viewportSnapLayer");
+            var snapTarget = _targets.FirstOrDefault(target =>
+                string.Equals(target.LayerKey, snapLayer, StringComparison.Ordinal));
+            var snapWidth = snapTarget == null
+                ? 0
+                : Mathf.Max(1, Mathf.RoundToInt(baseWidth * Mathf.Max(0.01f, snapTarget.WidthScale)));
+            var snapHeight = snapTarget == null
+                ? 0
+                : Mathf.Max(1, Mathf.RoundToInt(baseHeight * Mathf.Max(0.01f, snapTarget.HeightScale)));
+            if (!EveUnityFieldsViewportFrame.TryResolve(
+                    document,
+                    field.Props,
+                    new Vector2(camera.transform.position.x, camera.transform.position.z),
+                    snapWidth,
+                    snapHeight,
+                    out var projected,
+                    out var center)) return false;
+            var viewportWidth = (float)(projected.Viewport.MaxX - projected.Viewport.MinX);
+            var viewportHeight = (float)(projected.Viewport.MaxY - projected.Viewport.MinY);
 
             if (_rasterizedFrameId != document.FrameId || _rasterizedCenter != center)
             {
-                var projected = ProjectViewport(document, center, viewportWidth, viewportHeight);
                 _layers.Render(projected, _targets, baseWidth, baseHeight);
                 _rasterizedFrameId = document.FrameId;
                 _rasterizedCenter = center;
@@ -155,70 +139,6 @@ namespace GameCult.Eve.UnityScene.Fields
             LastGridCenter = center;
             return true;
         }
-
-        public static float SnapCameraCoordinate(
-            float coordinate,
-            float viewportWidth,
-            int snapTargetWidth,
-            float snapTexels)
-        {
-            if (!float.IsFinite(coordinate) || !float.IsFinite(viewportWidth) ||
-                !float.IsFinite(snapTexels) || viewportWidth <= 0f ||
-                snapTargetWidth <= 0 || snapTexels <= 0f)
-                throw new ArgumentOutOfRangeException(nameof(viewportWidth));
-            var snapLength = viewportWidth * snapTexels / snapTargetWidth;
-            var cell = (int)(coordinate / snapLength);
-            return cell * snapLength;
-        }
-
-        public static bool TryValidateSpatialLattice(
-            float viewportWidth,
-            float viewportHeight,
-            int gravityTextureWidth,
-            int gravityTextureHeight,
-            int span,
-            float cellWorldSize,
-            int gravityTexelsPerCell)
-        {
-            if (!float.IsFinite(viewportWidth) || !float.IsFinite(viewportHeight) ||
-                !float.IsFinite(cellWorldSize) || viewportWidth <= 0f || viewportHeight <= 0f ||
-                gravityTextureWidth <= 0 || gravityTextureHeight <= 0 || span <= 0 ||
-                cellWorldSize <= 0f || gravityTexelsPerCell <= 0)
-                return false;
-            var expectedExtent = span * cellWorldSize;
-            var expectedCellFromX = viewportWidth * gravityTexelsPerCell / gravityTextureWidth;
-            var expectedCellFromY = viewportHeight * gravityTexelsPerCell / gravityTextureHeight;
-            const float tolerance = 0.0001f;
-            return Mathf.Abs(viewportWidth - expectedExtent) <= tolerance &&
-                   Mathf.Abs(viewportHeight - expectedExtent) <= tolerance &&
-                   Mathf.Abs(expectedCellFromX - cellWorldSize) <= tolerance &&
-                   Mathf.Abs(expectedCellFromY - cellWorldSize) <= tolerance;
-        }
-
-        private static EveFieldsSplatsDocument ProjectViewport(
-            EveFieldsSplatsDocument source,
-            Vector2 center,
-            float width,
-            float height) =>
-            new EveFieldsSplatsDocument
-            {
-                Schema = source.Schema,
-                FrameId = source.FrameId,
-                PublishedAtUtc = source.PublishedAtUtc,
-                SimulationTimeSeconds = source.SimulationTimeSeconds,
-                RunId = source.RunId,
-                ZoneIndex = source.ZoneIndex,
-                ZoneName = source.ZoneName,
-                Viewport = new EveFieldsViewport
-                {
-                    MinX = center.x - width * 0.5,
-                    MinY = center.y - height * 0.5,
-                    MaxX = center.x + width * 0.5,
-                    MaxY = center.y + height * 0.5
-                },
-                Layers = source.Layers,
-                Splats = source.Splats
-            };
 
         private bool EnsurePrograms(EveUnityFieldParticlesProjection field)
         {

@@ -30,11 +30,14 @@ namespace GameCult.Eve.UnityScene.Fields
         private Matrix4x4 _previousViewProjection;
         private EveUnityFieldsVolumePass? _renderPass;
         private string _activeNodeId = "";
+        private long _rasterizedFrameId = -1;
+        private Vector2 _rasterizedCenter = new Vector2(float.NaN, float.NaN);
 
         public long PresentedFrameId { get; private set; } = -1;
         public int PresentedLayerCount => _targets.Count(target => target.TargetTexture != null);
         public long CompositeCount { get; private set; }
         public bool UsesTemporalHistory => HasTemporalProgram();
+        public Vector2 LastGridCenter { get; private set; }
         public static RenderPassEvent CompositionRenderPassEvent => RenderPassEvent.BeforeRenderingPostProcessing;
 
         public void Bind(EveUnityPlayableWorldClientHost host, IEveUnityFieldsSplatsDocumentSource? source)
@@ -67,20 +70,47 @@ namespace GameCult.Eve.UnityScene.Fields
             if (document == null || document.FrameId < PresentedFrameId) return;
             _document = document;
             PresentedFrameId = document.FrameId;
-            RenderLayers(document);
         }
 
-        private void RenderLayers(EveFieldsSplatsDocument document)
+        private bool TryRenderLayers(
+            EveFieldsSplatsDocument document,
+            Camera camera,
+            out EveFieldsSplatsDocument projected)
         {
+            projected = document;
             var field = ActiveField();
-            if (field == null) return;
+            if (field == null) return false;
             EnsureLayerRenderer();
             EnsureTargets(field);
             var width = PositiveInt(field, "textureWidth", 512);
             var height = PositiveInt(field, "textureHeight", 512);
-            _layers!.Render(document, _targets, width, height);
-            if (!EnsureMaterial(field)) return;
-            ApplyFieldBindings(field, document);
+            var snapLayer = Prop(field, "viewportSnapLayer");
+            var snapTarget = _targets.FirstOrDefault(target =>
+                string.Equals(target.LayerKey, snapLayer, StringComparison.Ordinal));
+            var snapWidth = snapTarget == null
+                ? 0
+                : Mathf.Max(1, Mathf.RoundToInt(width * Mathf.Max(0.01f, snapTarget.WidthScale)));
+            var snapHeight = snapTarget == null
+                ? 0
+                : Mathf.Max(1, Mathf.RoundToInt(height * Mathf.Max(0.01f, snapTarget.HeightScale)));
+            if (!EveUnityFieldsViewportFrame.TryResolve(
+                    document,
+                    field.Props,
+                    new Vector2(camera.transform.position.x, camera.transform.position.z),
+                    snapWidth,
+                    snapHeight,
+                    out projected,
+                    out var center)) return false;
+            if (_rasterizedFrameId != document.FrameId || _rasterizedCenter != center)
+            {
+                _layers!.Render(projected, _targets, width, height);
+                _rasterizedFrameId = document.FrameId;
+                _rasterizedCenter = center;
+            }
+            LastGridCenter = center;
+            if (!EnsureMaterial(field)) return false;
+            ApplyFieldBindings(field, projected);
+            return true;
         }
 
         private void OnBeginCameraRendering(ScriptableRenderContext context, Camera camera)
@@ -101,10 +131,8 @@ namespace GameCult.Eve.UnityScene.Fields
             if (_host == null || _document == null || camera == null ||
                 _host.ActiveCameraTransform != camera.transform)
                 return;
-            if (PresentedLayerCount == 0) RenderLayers(_document);
             var field = ActiveField();
-            if (field == null || !EnsureMaterial(field)) return;
-            ApplyFieldBindings(field, _document);
+            if (field == null || !TryRenderLayers(_document, camera, out _)) return;
             camera.depthTextureMode |= DepthTextureMode.Depth;
             EnsureVolumeTextures(camera, field);
             if (_raymarchTexture == null || !ApplyViewportTextureScaleBindings(field, camera)) return;
@@ -369,6 +397,9 @@ namespace GameCult.Eve.UnityScene.Fields
             _programMetadata = null;
             _assetTexturesByPort.Clear();
             _activeNodeId = "";
+            _rasterizedFrameId = -1;
+            _rasterizedCenter = new Vector2(float.NaN, float.NaN);
+            LastGridCenter = default;
             PresentedFrameId = -1;
             CompositeCount = 0;
             ResetTemporalHistory();

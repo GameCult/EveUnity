@@ -156,7 +156,12 @@ namespace GameCult.Eve.UnityScene
                 ParseFloat(worldRoot.GetProp("keyLightIntensity"), 0f),
                 fieldVolumes,
                 worldRoot.GetProp("cameraLookAt"),
-                fieldParticles);
+                fieldParticles,
+                worldRoot.GetProp("cameraReconstruction"),
+                worldRoot.GetProp("temporalQuality", "high"),
+                ParseFloat(worldRoot.GetProp("temporalHistoryBlend"), 0f),
+                ParseFloat(worldRoot.GetProp("temporalJitterScale"), 0f),
+                ParseFloat(worldRoot.GetProp("temporalSharpening"), 0f));
         }
 
         private static EveUnityFieldVolumeProjection BuildFieldVolume(EveSurfaceComponent component) =>
@@ -411,7 +416,12 @@ namespace GameCult.Eve.UnityScene
             float keyLightIntensity = 0f,
             IReadOnlyList<EveUnityFieldVolumeProjection>? fieldVolumes = null,
             string cameraLookAt = "",
-            IReadOnlyList<EveUnityFieldParticlesProjection>? fieldParticles = null)
+            IReadOnlyList<EveUnityFieldParticlesProjection>? fieldParticles = null,
+            string cameraReconstruction = "",
+            string temporalQuality = "high",
+            float temporalHistoryBlend = 0f,
+            float temporalJitterScale = 0f,
+            float temporalSharpening = 0f)
         {
             WorldRootId = worldRootId ?? "";
             StatePointerId = statePointerId ?? "";
@@ -459,6 +469,11 @@ namespace GameCult.Eve.UnityScene
             FieldVolumes = fieldVolumes ?? Array.Empty<EveUnityFieldVolumeProjection>();
             FieldParticles = fieldParticles ?? Array.Empty<EveUnityFieldParticlesProjection>();
             CameraLookAt = cameraLookAt ?? "";
+            CameraReconstruction = cameraReconstruction ?? "";
+            TemporalQuality = temporalQuality ?? "";
+            TemporalHistoryBlend = temporalHistoryBlend;
+            TemporalJitterScale = temporalJitterScale;
+            TemporalSharpening = temporalSharpening;
         }
 
         public string WorldRootId { get; }
@@ -482,6 +497,16 @@ namespace GameCult.Eve.UnityScene
         public string CameraTargetEntityId { get; }
 
         public string CameraLookAt { get; }
+
+        public string CameraReconstruction { get; }
+
+        public string TemporalQuality { get; }
+
+        public float TemporalHistoryBlend { get; }
+
+        public float TemporalJitterScale { get; }
+
+        public float TemporalSharpening { get; }
 
         public float CameraDistance { get; }
 

@@ -40,6 +40,13 @@ presentation counters, and receipt display state are projections. They are not
 world truth. Temporal targets reset when the volume program, node, or render size
 changes and can never become provider state.
 
+Camera-relative field viewports have one generic resolver. The advertised
+viewport frame owns its extent, spatial-cell scale, raster texels per cell, and
+snap policy; fog volumes and stateless particle programs consume the identical
+projected `EveFieldsViewport`. URP TAA state is likewise derived from the
+world's neutral `temporal-reprojection.v1` camera contract and is restored on
+release.
+
 ## Forbidden Writers
 
 Unity transforms, input drivers, camera rigs, scene sinks, asset caches, and

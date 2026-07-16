@@ -1154,7 +1154,12 @@ namespace GameCult.Eve.UnityScene.Tests
                         PlayableArpgDocument(
                             skyboxAssetRef: "material.environment.skybox",
                             reflectionAssetRef: "texture.environment.reflection",
-                            postProcessProfileAssetRef: "profile.environment.flight"),
+                            postProcessProfileAssetRef: "profile.environment.flight",
+                            cameraReconstruction: "temporal-reprojection.v1",
+                            temporalQuality: "high",
+                            temporalHistoryBlend: "0.99",
+                            temporalJitterScale: "0.1",
+                            temporalSharpening: "0"),
                         Advertisement("aetheria.daemon.game"),
                         "cultmesh://aetheria/eve/surfaces/aetheria.daemon.game",
                         1),
@@ -1205,7 +1210,13 @@ namespace GameCult.Eve.UnityScene.Tests
                 Assert.That(RenderSettings.reflectionIntensity, Is.EqualTo(1f).Within(0.001f));
                 Assert.That(camera.clearFlags, Is.EqualTo(CameraClearFlags.Skybox));
                 Assert.That(camera.GetComponent<UniversalAdditionalCameraData>(), Is.Not.Null);
-                Assert.That(camera.GetComponent<UniversalAdditionalCameraData>().renderPostProcessing, Is.True);
+                var cameraData = camera.GetComponent<UniversalAdditionalCameraData>();
+                Assert.That(cameraData.renderPostProcessing, Is.True);
+                Assert.That(cameraData.antialiasing, Is.EqualTo(AntialiasingMode.TemporalAntiAliasing));
+                Assert.That(cameraData.taaSettings.quality, Is.EqualTo(TemporalAAQuality.High));
+                Assert.That(cameraData.taaSettings.baseBlendFactor, Is.EqualTo(0.99f).Within(0.0001f));
+                Assert.That(cameraData.taaSettings.jitterScale, Is.EqualTo(0.1f).Within(0.0001f));
+                Assert.That(cameraData.taaSettings.contrastAdaptiveSharpening, Is.Zero);
                 var postProcessTransform = hostObject.transform.Find("Eve World Post Process");
                 Assert.That(postProcessTransform, Is.Not.Null);
                 Assert.That(postProcessTransform.GetComponent<Volume>().sharedProfile, Is.SameAs(postProcessProfile));
@@ -1894,7 +1905,12 @@ namespace GameCult.Eve.UnityScene.Tests
             string cameraPositionDamping = "5",
             string cameraNearClipPlane = "0.3",
             string cameraFarClipPlane = "4096",
-            string cameraLookAt = "")
+            string cameraLookAt = "",
+            string cameraReconstruction = "",
+            string temporalQuality = "high",
+            string temporalHistoryBlend = "0",
+            string temporalJitterScale = "0",
+            string temporalSharpening = "0")
         {
             var playableChildren = new List<EveSurfaceComponent>
             {
@@ -2062,6 +2078,11 @@ namespace GameCult.Eve.UnityScene.Tests
                                     ["reflectionAssetRef"] = reflectionAssetRef,
                                     ["reflectionIntensity"] = "1",
                                     ["postProcessProfileAssetRef"] = postProcessProfileAssetRef,
+                                    ["cameraReconstruction"] = cameraReconstruction,
+                                    ["temporalQuality"] = temporalQuality,
+                                    ["temporalHistoryBlend"] = temporalHistoryBlend,
+                                    ["temporalJitterScale"] = temporalJitterScale,
+                                    ["temporalSharpening"] = temporalSharpening,
                                     ["keyLightDirection"] = "0.4,-1,0.25",
                                     ["keyLightColor"] = "1,0.95,0.9",
                                     ["keyLightIntensity"] = "0.75",

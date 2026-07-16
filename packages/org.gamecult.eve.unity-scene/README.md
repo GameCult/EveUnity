@@ -72,6 +72,16 @@ out of Eve's semantic surface while allowing a provider-owned shader to consume
 portable Eve Fields documents. Volume composition runs as a generic URP render
 pass before post-processing so the provider-advertised profile grades both the
 native scene and the provider volume through the same camera pipeline.
+
+Camera-relative field consumers share `viewportAnchor`, `span`,
+`cellWorldSize`, `viewportSnapLayer`, and `viewportSnapTexels` as one viewport
+frame contract. Volume and particle lowerers resolve that frame through the
+same generic path, so a snapped stateless particle lattice cannot drift from
+the field textures it samples. A `world.scene3d` may also request
+`temporal-reprojection.v1`; EveUnity lowers its neutral history blend, jitter,
+quality, and sharpening values to URP TAA and restores the previous camera
+state when the world releases the camera.
+
 Providers may advertise per-layer resolution scales, mipmap use, and filtering
 through `layerTargetDescriptors`; the Unity lowerer applies those native target
 requirements without assigning gameplay or product meaning to the layer keys.

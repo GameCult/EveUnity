@@ -40,6 +40,8 @@ namespace GameCult.Eve.UnityScene
         private UniversalAdditionalCameraData? _postProcessCameraData;
         private bool _createdPostProcessCameraData;
         private bool _previousRenderPostProcessing;
+        private AntialiasingMode _previousAntialiasing;
+        private TemporalAA.Settings _previousTaaSettings;
 
         public EveUnityPlayableWorldClientHost? Host
         {
@@ -307,7 +309,17 @@ namespace GameCult.Eve.UnityScene
                 !IsFinite(world.KeyLightColorR) ||
                 !IsFinite(world.KeyLightColorG) ||
                 !IsFinite(world.KeyLightColorB) ||
-                !IsFinite(world.KeyLightIntensity))
+                !IsFinite(world.KeyLightIntensity) ||
+                !IsFinite(world.TemporalHistoryBlend) ||
+                !IsFinite(world.TemporalJitterScale) ||
+                !IsFinite(world.TemporalSharpening) ||
+                (!string.IsNullOrWhiteSpace(world.CameraReconstruction) &&
+                 !string.Equals(world.CameraReconstruction, "temporal-reprojection.v1", System.StringComparison.Ordinal)) ||
+                (string.Equals(world.CameraReconstruction, "temporal-reprojection.v1", System.StringComparison.Ordinal) &&
+                 (world.TemporalHistoryBlend < 0f || world.TemporalHistoryBlend > 1f ||
+                  world.TemporalJitterScale < 0f || world.TemporalJitterScale > 1f ||
+                  world.TemporalSharpening < 0f || world.TemporalSharpening > 1f ||
+                  !IsTemporalQuality(world.TemporalQuality))))
                 return false;
             var assets = host.NativeAssetProvider;
             if (!string.IsNullOrWhiteSpace(world.SkyboxAssetRef))
@@ -453,12 +465,19 @@ namespace GameCult.Eve.UnityScene
             }
             if (environmentChanged)
                 DynamicGI.UpdateEnvironment();
-            ApplyPostProcess(camera, postProcessProfile);
+            ApplyCameraRendering(camera, postProcessProfile, world);
         }
 
-        private void ApplyPostProcess(Camera? camera, VolumeProfile? profile)
+        private void ApplyCameraRendering(
+            Camera? camera,
+            VolumeProfile? profile,
+            EveUnityPlayableWorldProjection world)
         {
-            if (profile == null)
+            var usesTemporalReprojection = string.Equals(
+                world.CameraReconstruction,
+                "temporal-reprojection.v1",
+                System.StringComparison.Ordinal);
+            if (profile == null && !usesTemporalReprojection)
             {
                 RestorePostProcess();
                 return;
@@ -474,19 +493,59 @@ namespace GameCult.Eve.UnityScene
                 if (_postProcessCameraData == null)
                     _postProcessCameraData = camera.gameObject.AddComponent<UniversalAdditionalCameraData>();
                 _previousRenderPostProcessing = _postProcessCameraData.renderPostProcessing;
+                _previousAntialiasing = _postProcessCameraData.antialiasing;
+                _previousTaaSettings = _postProcessCameraData.taaSettings;
             }
-            _postProcessCameraData.renderPostProcessing = true;
-            if (_postProcessVolumeObject == null)
+            _postProcessCameraData.renderPostProcessing = profile != null || _previousRenderPostProcessing;
+            if (usesTemporalReprojection)
             {
-                _postProcessVolumeObject = new GameObject("Eve World Post Process");
-                _postProcessVolumeObject.transform.SetParent(transform, worldPositionStays: false);
-                _postProcessVolume = _postProcessVolumeObject.AddComponent<Volume>();
-                _postProcessVolume.isGlobal = true;
-                _postProcessVolume.priority = 1000f;
-                _postProcessVolume.weight = 1f;
+                _postProcessCameraData.antialiasing = AntialiasingMode.TemporalAntiAliasing;
+                ref var settings = ref _postProcessCameraData.taaSettings;
+                settings = TemporalAA.Settings.Create();
+                settings.quality = ParseTemporalQuality(world.TemporalQuality);
+                settings.baseBlendFactor = world.TemporalHistoryBlend;
+                settings.jitterScale = world.TemporalJitterScale;
+                settings.contrastAdaptiveSharpening = world.TemporalSharpening;
             }
-            _postProcessVolume!.sharedProfile = profile;
-            _postProcessVolumeObject.SetActive(true);
+            else
+            {
+                _postProcessCameraData.antialiasing = _previousAntialiasing;
+                _postProcessCameraData.taaSettings = _previousTaaSettings;
+            }
+            if (profile != null)
+            {
+                if (_postProcessVolumeObject == null)
+                {
+                    _postProcessVolumeObject = new GameObject("Eve World Post Process");
+                    _postProcessVolumeObject.transform.SetParent(transform, worldPositionStays: false);
+                    _postProcessVolume = _postProcessVolumeObject.AddComponent<Volume>();
+                    _postProcessVolume.isGlobal = true;
+                    _postProcessVolume.priority = 1000f;
+                    _postProcessVolume.weight = 1f;
+                }
+                _postProcessVolume!.sharedProfile = profile;
+                _postProcessVolumeObject.SetActive(true);
+            }
+            else if (_postProcessVolumeObject != null)
+            {
+                _postProcessVolumeObject.SetActive(false);
+            }
+        }
+
+        private static bool IsTemporalQuality(string quality) =>
+            quality == "very-low" || quality == "low" || quality == "medium" ||
+            quality == "high" || quality == "very-high";
+
+        private static TemporalAAQuality ParseTemporalQuality(string quality)
+        {
+            switch (quality)
+            {
+                case "very-low": return TemporalAAQuality.VeryLow;
+                case "low": return TemporalAAQuality.Low;
+                case "medium": return TemporalAAQuality.Medium;
+                case "very-high": return TemporalAAQuality.VeryHigh;
+                default: return TemporalAAQuality.High;
+            }
         }
 
         private void RestorePostProcess()
@@ -503,6 +562,8 @@ namespace GameCult.Eve.UnityScene
                 else
                 {
                     _postProcessCameraData.renderPostProcessing = _previousRenderPostProcessing;
+                    _postProcessCameraData.antialiasing = _previousAntialiasing;
+                    _postProcessCameraData.taaSettings = _previousTaaSettings;
                 }
             }
             _postProcessCameraData = null;

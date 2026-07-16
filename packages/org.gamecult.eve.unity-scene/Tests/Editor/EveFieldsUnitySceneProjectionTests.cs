@@ -62,9 +62,9 @@ namespace GameCult.Eve.UnityScene.Tests
         [TestCase(11f, 6f)]
         [TestCase(-11f, -6f)]
         [TestCase(5.999f, 0f)]
-        public void ParticleRendererSnapsToAnIntegralGravityPixelMultiple(float coordinate, float expected)
+        public void FieldViewportFrameSnapsToAnIntegralGravityPixelMultiple(float coordinate, float expected)
         {
-            Assert.That(EveUnityFieldsParticleRenderer.SnapCameraCoordinate(
+            Assert.That(EveUnityFieldsViewportFrame.SnapCameraCoordinate(
                 coordinate,
                 1536f,
                 2048,
@@ -72,17 +72,54 @@ namespace GameCult.Eve.UnityScene.Tests
         }
 
         [Test]
-        public void ParticleRendererAcceptsAlignedGravityAndParticleLattices()
+        public void FieldViewportFrameAcceptsAlignedGravityAndParticleLattices()
         {
-            Assert.That(EveUnityFieldsParticleRenderer.TryValidateSpatialLattice(
+            Assert.That(EveUnityFieldsViewportFrame.TryValidateSpatialLattice(
                 1536f, 1536f, 2048, 2048, 256, 6f, 8), Is.True);
         }
 
         [Test]
-        public void ParticleRendererRejectsAliasedGravityAndParticleLattices()
+        public void FieldViewportFrameRejectsAliasedGravityAndParticleLattices()
         {
-            Assert.That(EveUnityFieldsParticleRenderer.TryValidateSpatialLattice(
+            Assert.That(EveUnityFieldsViewportFrame.TryValidateSpatialLattice(
                 2000f, 2000f, 2048, 2048, 256, 6f, 8), Is.False);
+        }
+
+        [Test]
+        public void FogAndParticlesResolveTheSameSnappedWorldFrame()
+        {
+            var document = new EveFieldsSplatsDocument
+            {
+                FrameId = 7,
+                Viewport = new EveFieldsViewport
+                {
+                    MinX = -768,
+                    MinY = -768,
+                    MaxX = 768,
+                    MaxY = 768
+                }
+            };
+            var contract = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["viewportAnchor"] = "active-camera.xz",
+                ["span"] = "256",
+                ["cellWorldSize"] = "6",
+                ["viewportSnapTexels"] = "8"
+            };
+
+            Assert.That(EveUnityFieldsViewportFrame.TryResolve(
+                document, contract, new Vector2(11f, -11f), 2048, 2048,
+                out var fog, out var fogCenter), Is.True);
+            Assert.That(EveUnityFieldsViewportFrame.TryResolve(
+                document, contract, new Vector2(11f, -11f), 2048, 2048,
+                out var particles, out var particleCenter), Is.True);
+
+            Assert.That(fogCenter, Is.EqualTo(new Vector2(6f, -6f)));
+            Assert.That(particleCenter, Is.EqualTo(fogCenter));
+            Assert.That(particles.Viewport.MinX, Is.EqualTo(fog.Viewport.MinX));
+            Assert.That(particles.Viewport.MinY, Is.EqualTo(fog.Viewport.MinY));
+            Assert.That(particles.Viewport.MaxX, Is.EqualTo(fog.Viewport.MaxX));
+            Assert.That(particles.Viewport.MaxY, Is.EqualTo(fog.Viewport.MaxY));
         }
 
         [Test]

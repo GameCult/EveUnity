@@ -1159,7 +1159,16 @@ namespace GameCult.Eve.UnityScene.Tests
                             temporalQuality: "high",
                             temporalHistoryBlend: "0.99",
                             temporalJitterScale: "0.1",
-                            temporalSharpening: "0"),
+                            temporalSharpening: "0",
+                            exposureMode: "histogram.v1",
+                            exposureLowPercent: "47.37294",
+                            exposureHighPercent: "99",
+                            exposureMinimumEv: "-3",
+                            exposureMaximumEv: "0.3",
+                            exposureKeyValue: "0.5",
+                            exposureAdaptation: "progressive",
+                            exposureSpeedUp: "2",
+                            exposureSpeedDown: "1"),
                         Advertisement("aetheria.daemon.game"),
                         "cultmesh://aetheria/eve/surfaces/aetheria.daemon.game",
                         1),
@@ -1172,6 +1181,17 @@ namespace GameCult.Eve.UnityScene.Tests
                 host.Configure(rootObject.transform, provider, provider, provider, provider, nativeAssets);
                 host.Connect();
                 hostObject.SetActive(true);
+                var exposedWorld = host.ActiveProjection?.PlayableWorld;
+                Assert.That(exposedWorld, Is.Not.Null);
+                Assert.That(exposedWorld!.ExposureMode, Is.EqualTo("histogram.v1"));
+                Assert.That(exposedWorld.ExposureLowPercent, Is.EqualTo(47.37294f).Within(0.00001f));
+                Assert.That(exposedWorld.ExposureHighPercent, Is.EqualTo(99f));
+                Assert.That(exposedWorld.ExposureMinimumEv, Is.EqualTo(-3f));
+                Assert.That(exposedWorld.ExposureMaximumEv, Is.EqualTo(0.3f).Within(0.00001f));
+                Assert.That(exposedWorld.ExposureKeyValue, Is.EqualTo(0.5f));
+                Assert.That(exposedWorld.ExposureAdaptation, Is.EqualTo("progressive"));
+                Assert.That(exposedWorld.ExposureSpeedUp, Is.EqualTo(2f));
+                Assert.That(exposedWorld.ExposureSpeedDown, Is.EqualTo(1f));
 
                 var rig = hostObject.AddComponent<EveUnityPlayableWorldCameraRig>();
                 rig.Host = host;
@@ -1217,6 +1237,9 @@ namespace GameCult.Eve.UnityScene.Tests
                 Assert.That(cameraData.taaSettings.baseBlendFactor, Is.EqualTo(0.99f).Within(0.0001f));
                 Assert.That(cameraData.taaSettings.jitterScale, Is.EqualTo(0.1f).Within(0.0001f));
                 Assert.That(cameraData.taaSettings.contrastAdaptiveSharpening, Is.Zero);
+                var adaptiveExposure = camera.GetComponent<EveUnityAdaptiveExposureRenderer>();
+                Assert.That(adaptiveExposure, Is.Not.Null);
+                Assert.That(adaptiveExposure.IsConfigured, Is.True);
                 var postProcessTransform = hostObject.transform.Find("Eve World Post Process");
                 Assert.That(postProcessTransform, Is.Not.Null);
                 Assert.That(postProcessTransform.GetComponent<Volume>().sharedProfile, Is.SameAs(postProcessProfile));
@@ -1910,7 +1933,16 @@ namespace GameCult.Eve.UnityScene.Tests
             string temporalQuality = "high",
             string temporalHistoryBlend = "0",
             string temporalJitterScale = "0",
-            string temporalSharpening = "0")
+            string temporalSharpening = "0",
+            string exposureMode = "",
+            string exposureLowPercent = "50",
+            string exposureHighPercent = "95",
+            string exposureMinimumEv = "0",
+            string exposureMaximumEv = "0",
+            string exposureKeyValue = "1",
+            string exposureAdaptation = "progressive",
+            string exposureSpeedUp = "2",
+            string exposureSpeedDown = "1")
         {
             var playableChildren = new List<EveSurfaceComponent>
             {
@@ -2083,6 +2115,15 @@ namespace GameCult.Eve.UnityScene.Tests
                                     ["temporalHistoryBlend"] = temporalHistoryBlend,
                                     ["temporalJitterScale"] = temporalJitterScale,
                                     ["temporalSharpening"] = temporalSharpening,
+                                    ["exposureMode"] = exposureMode,
+                                    ["exposureLowPercent"] = exposureLowPercent,
+                                    ["exposureHighPercent"] = exposureHighPercent,
+                                    ["exposureMinimumEv"] = exposureMinimumEv,
+                                    ["exposureMaximumEv"] = exposureMaximumEv,
+                                    ["exposureKeyValue"] = exposureKeyValue,
+                                    ["exposureAdaptation"] = exposureAdaptation,
+                                    ["exposureSpeedUp"] = exposureSpeedUp,
+                                    ["exposureSpeedDown"] = exposureSpeedDown,
                                     ["keyLightDirection"] = "0.4,-1,0.25",
                                     ["keyLightColor"] = "1,0.95,0.9",
                                     ["keyLightIntensity"] = "0.75",

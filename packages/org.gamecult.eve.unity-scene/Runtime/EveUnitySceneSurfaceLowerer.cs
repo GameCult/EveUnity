@@ -161,7 +161,16 @@ namespace GameCult.Eve.UnityScene
                 worldRoot.GetProp("temporalQuality", "high"),
                 ParseFloat(worldRoot.GetProp("temporalHistoryBlend"), 0f),
                 ParseFloat(worldRoot.GetProp("temporalJitterScale"), 0f),
-                ParseFloat(worldRoot.GetProp("temporalSharpening"), 0f));
+                ParseFloat(worldRoot.GetProp("temporalSharpening"), 0f),
+                worldRoot.GetProp("exposureMode"),
+                ParseFloat(worldRoot.GetProp("exposureLowPercent"), 50f),
+                ParseFloat(worldRoot.GetProp("exposureHighPercent"), 95f),
+                ParseFloat(worldRoot.GetProp("exposureMinimumEv"), 0f),
+                ParseFloat(worldRoot.GetProp("exposureMaximumEv"), 0f),
+                ParseFloat(worldRoot.GetProp("exposureKeyValue"), 1f),
+                worldRoot.GetProp("exposureAdaptation", "progressive"),
+                ParseFloat(worldRoot.GetProp("exposureSpeedUp"), 2f),
+                ParseFloat(worldRoot.GetProp("exposureSpeedDown"), 1f));
         }
 
         private static EveUnityFieldVolumeProjection BuildFieldVolume(EveSurfaceComponent component) =>
@@ -421,7 +430,16 @@ namespace GameCult.Eve.UnityScene
             string temporalQuality = "high",
             float temporalHistoryBlend = 0f,
             float temporalJitterScale = 0f,
-            float temporalSharpening = 0f)
+            float temporalSharpening = 0f,
+            string exposureMode = "",
+            float exposureLowPercent = 50f,
+            float exposureHighPercent = 95f,
+            float exposureMinimumEv = 0f,
+            float exposureMaximumEv = 0f,
+            float exposureKeyValue = 1f,
+            string exposureAdaptation = "progressive",
+            float exposureSpeedUp = 2f,
+            float exposureSpeedDown = 1f)
         {
             WorldRootId = worldRootId ?? "";
             StatePointerId = statePointerId ?? "";
@@ -474,6 +492,15 @@ namespace GameCult.Eve.UnityScene
             TemporalHistoryBlend = temporalHistoryBlend;
             TemporalJitterScale = temporalJitterScale;
             TemporalSharpening = temporalSharpening;
+            ExposureMode = exposureMode ?? "";
+            ExposureLowPercent = exposureLowPercent;
+            ExposureHighPercent = exposureHighPercent;
+            ExposureMinimumEv = exposureMinimumEv;
+            ExposureMaximumEv = exposureMaximumEv;
+            ExposureKeyValue = exposureKeyValue;
+            ExposureAdaptation = exposureAdaptation ?? "";
+            ExposureSpeedUp = exposureSpeedUp;
+            ExposureSpeedDown = exposureSpeedDown;
         }
 
         public string WorldRootId { get; }
@@ -507,6 +534,24 @@ namespace GameCult.Eve.UnityScene
         public float TemporalJitterScale { get; }
 
         public float TemporalSharpening { get; }
+
+        public string ExposureMode { get; }
+
+        public float ExposureLowPercent { get; }
+
+        public float ExposureHighPercent { get; }
+
+        public float ExposureMinimumEv { get; }
+
+        public float ExposureMaximumEv { get; }
+
+        public float ExposureKeyValue { get; }
+
+        public string ExposureAdaptation { get; }
+
+        public float ExposureSpeedUp { get; }
+
+        public float ExposureSpeedDown { get; }
 
         public float CameraDistance { get; }
 

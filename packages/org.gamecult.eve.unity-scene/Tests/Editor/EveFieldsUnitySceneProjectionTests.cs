@@ -43,6 +43,89 @@ namespace GameCult.Eve.UnityScene.Tests
         }
 
         [Test]
+        public void AdaptiveExposureMatchesFossilCompensationAndProgressiveDirection()
+        {
+            var exposureMethod = typeof(EveUnityAdaptiveExposureRenderer).GetMethod(
+                "ExposureForAverageLuminance",
+                BindingFlags.NonPublic | BindingFlags.Static);
+            var adaptationMethod = typeof(EveUnityAdaptiveExposureRenderer).GetMethod(
+                "AdaptExposure",
+                BindingFlags.NonPublic | BindingFlags.Static);
+
+            Assert.That(exposureMethod, Is.Not.Null);
+            Assert.That(adaptationMethod, Is.Not.Null);
+            var brightBound = Mathf.Pow(2f, 0.3f);
+            var exposure = (float)exposureMethod!.Invoke(null, new object[] { brightBound, 0.5f });
+            Assert.That(exposure, Is.EqualTo(0.5f / brightBound).Within(0.000001f));
+
+            var darkening = (float)adaptationMethod!.Invoke(
+                null,
+                new object[] { 1f, 0.25f, 0.5f, 2f, 1f });
+            var brightening = (float)adaptationMethod.Invoke(
+                null,
+                new object[] { 1f, 4f, 0.5f, 2f, 1f });
+            Assert.That(darkening, Is.EqualTo(0.625f).Within(0.000001f));
+            Assert.That(brightening, Is.EqualTo(1f + 3f * (1f - Mathf.Pow(2f, -0.5f))).Within(0.000001f));
+        }
+
+        [Test]
+        public void AdaptiveExposureGpuHistogramClampsBrightFrameToAdvertisedMaximumEv()
+        {
+            Assert.That(SystemInfo.supportsComputeShaders, Is.True);
+            var compute = Resources.Load<ComputeShader>("EveUnity/AdaptiveExposure");
+            Assert.That(compute, Is.Not.Null);
+            var source = new Texture2D(32, 32, TextureFormat.RGBAFloat, false, true);
+            var pixels = Enumerable.Repeat(new Color(16f, 16f, 16f, 1f), 32 * 32).ToArray();
+            source.SetPixels(pixels);
+            source.Apply(false, false);
+            using var histogram = new ComputeBuffer(128, sizeof(uint), ComputeBufferType.Structured);
+            var exposure = new RenderTexture(1, 1, 0, RenderTextureFormat.RFloat, RenderTextureReadWrite.Linear)
+            {
+                enableRandomWrite = true
+            };
+            exposure.Create();
+            try
+            {
+                var clear = compute!.FindKernel("ClearHistogram");
+                compute.SetBuffer(clear, "_Histogram", histogram);
+                compute.Dispatch(clear, 2, 1, 1);
+
+                var build = compute.FindKernel("BuildHistogram");
+                compute.SetBuffer(build, "_Histogram", histogram);
+                compute.SetTexture(build, "_Source", source);
+                compute.SetVector("_HistogramScaleOffsetResolution", new Vector4(1f / 18f, 0.5f, 32f, 32f));
+                compute.Dispatch(build, 1, 1, 1);
+
+                var calculate = compute.FindKernel("CalculateFixedExposure");
+                compute.SetBuffer(calculate, "_Histogram", histogram);
+                compute.SetVector("_ExposureFilterAndBrightness", new Vector4(
+                    0.4737294f,
+                    0.99f,
+                    Mathf.Pow(2f, -3f),
+                    Mathf.Pow(2f, 0.3f)));
+                compute.SetVector("_ExposureAdaptation", new Vector4(1f, 2f, 0.5f, 1f / 60f));
+                compute.SetTexture(calculate, "_DestinationExposure", exposure);
+                compute.Dispatch(calculate, 1, 1, 1);
+
+                var previous = RenderTexture.active;
+                RenderTexture.active = exposure;
+                var readback = new Texture2D(1, 1, TextureFormat.RFloat, false, true);
+                readback.ReadPixels(new Rect(0, 0, 1, 1), 0, 0);
+                readback.Apply();
+                RenderTexture.active = previous;
+                var actual = readback.GetPixel(0, 0).r;
+                UnityEngine.Object.DestroyImmediate(readback);
+                Assert.That(actual, Is.EqualTo(0.5f / Mathf.Pow(2f, 0.3f)).Within(0.001f));
+            }
+            finally
+            {
+                exposure.Release();
+                UnityEngine.Object.DestroyImmediate(exposure);
+                UnityEngine.Object.DestroyImmediate(source);
+            }
+        }
+
+        [Test]
         public void RasterizerConsumesPluginOwnedDocumentContract()
         {
             var render = typeof(EveFieldsSplatRasterizer).GetMethod(

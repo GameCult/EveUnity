@@ -1,0 +1,98 @@
+#pragma kernel ClearHistogram
+#pragma kernel BuildHistogram
+#pragma kernel CalculateFixedExposure
+#pragma kernel CalculateProgressiveExposure
+
+RWStructuredBuffer<uint> _Histogram;
+Texture2D<float4> _Source;
+SamplerState sampler_LinearClamp;
+Texture2D<float> _PreviousExposure;
+RWTexture2D<float> _DestinationExposure;
+
+float4 _HistogramScaleOffsetResolution;
+float4 _ExposureFilterAndBrightness;
+float4 _ExposureAdaptation;
+
+groupshared uint GroupHistogram[128];
+
+[numthreads(64, 1, 1)]
+void ClearHistogram(uint threadId : SV_DispatchThreadID)
+{
+    if (threadId < 128) _Histogram[threadId] = 0;
+}
+
+[numthreads(16, 16, 1)]
+void BuildHistogram(uint2 dispatchId : SV_DispatchThreadID, uint2 groupId : SV_GroupThreadID)
+{
+    uint localId = groupId.y * 16 + groupId.x;
+    if (localId < 128) GroupHistogram[localId] = 0;
+    GroupMemoryBarrierWithGroupSync();
+
+    float2 pixel = float2(dispatchId) * 2.0;
+    if (pixel.x < _HistogramScaleOffsetResolution.z && pixel.y < _HistogramScaleOffsetResolution.w)
+    {
+        float2 uv = pixel / _HistogramScaleOffsetResolution.zw;
+        float2 distanceFromCenter = abs(uv - 0.5.xx);
+        float vignette = saturate(1.0 - dot(distanceFromCenter, distanceFromCenter));
+        uint weight = (uint)(64.0 * vignette * vignette);
+        float3 color = _Source.SampleLevel(sampler_LinearClamp, uv, 0).rgb;
+        float luminance = max(1e-6, dot(color, float3(0.2126729, 0.7151522, 0.0721750)));
+        float normalizedLogLuminance = saturate(
+            log2(luminance) * _HistogramScaleOffsetResolution.x + _HistogramScaleOffsetResolution.y);
+        uint bin = (uint)(normalizedLogLuminance * 127.0);
+        InterlockedAdd(GroupHistogram[bin], weight);
+    }
+
+    GroupMemoryBarrierWithGroupSync();
+    if (localId < 128) InterlockedAdd(_Histogram[localId], GroupHistogram[localId]);
+}
+
+float LuminanceForBin(uint bin)
+{
+    float normalized = (float)bin / 128.0;
+    return exp2((normalized - _HistogramScaleOffsetResolution.y) / _HistogramScaleOffsetResolution.x);
+}
+
+float CalculateExposure()
+{
+    float total = 0.0;
+    for (uint index = 0; index < 128; index++) total += (float)_Histogram[index];
+
+    float discardDark = total * _ExposureFilterAndBrightness.x;
+    float includeThrough = total * _ExposureFilterAndBrightness.y;
+    float weightedLuminance = 0.0;
+    float includedWeight = 0.0;
+    for (uint index = 0; index < 128; index++)
+    {
+        float count = (float)_Histogram[index];
+        float darkOffset = min(discardDark, count);
+        count -= darkOffset;
+        discardDark -= darkOffset;
+        includeThrough -= darkOffset;
+        count = min(includeThrough, count);
+        includeThrough -= count;
+        weightedLuminance += LuminanceForBin(index) * count;
+        includedWeight += count;
+    }
+
+    float average = weightedLuminance / max(includedWeight, 1e-6);
+    average = clamp(average, _ExposureFilterAndBrightness.z, _ExposureFilterAndBrightness.w);
+    return _ExposureAdaptation.z / max(average, 1e-6);
+}
+
+[numthreads(1, 1, 1)]
+void CalculateFixedExposure(uint3 id : SV_DispatchThreadID)
+{
+    _DestinationExposure[uint2(0, 0)] = CalculateExposure();
+}
+
+[numthreads(1, 1, 1)]
+void CalculateProgressiveExposure(uint3 id : SV_DispatchThreadID)
+{
+    float nextExposure = CalculateExposure();
+    float previousExposure = _PreviousExposure[uint2(0, 0)];
+    float delta = nextExposure - previousExposure;
+    float speed = delta > 0.0 ? _ExposureAdaptation.x : _ExposureAdaptation.y;
+    _DestinationExposure[uint2(0, 0)] = previousExposure +
+        delta * (1.0 - exp2(-_ExposureAdaptation.w * speed));
+}

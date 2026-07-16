@@ -38,6 +38,7 @@ namespace GameCult.Eve.UnityScene
         private GameObject? _postProcessVolumeObject;
         private Volume? _postProcessVolume;
         private UniversalAdditionalCameraData? _postProcessCameraData;
+        private EveUnityAdaptiveExposureRenderer? _adaptiveExposure;
         private bool _createdPostProcessCameraData;
         private bool _previousRenderPostProcessing;
         private AntialiasingMode _previousAntialiasing;
@@ -477,7 +478,11 @@ namespace GameCult.Eve.UnityScene
                 world.CameraReconstruction,
                 "temporal-reprojection.v1",
                 System.StringComparison.Ordinal);
-            if (profile == null && !usesTemporalReprojection)
+            var usesAdaptiveExposure = string.Equals(
+                world.ExposureMode,
+                "histogram.v1",
+                System.StringComparison.Ordinal);
+            if (profile == null && !usesTemporalReprojection && !usesAdaptiveExposure)
             {
                 RestorePostProcess();
                 return;
@@ -530,6 +535,25 @@ namespace GameCult.Eve.UnityScene
             {
                 _postProcessVolumeObject.SetActive(false);
             }
+
+            if (usesAdaptiveExposure)
+            {
+                if (_adaptiveExposure == null)
+                    _adaptiveExposure = camera.gameObject.AddComponent<EveUnityAdaptiveExposureRenderer>();
+                _adaptiveExposure.Configure(
+                    world.ExposureLowPercent,
+                    world.ExposureHighPercent,
+                    world.ExposureMinimumEv,
+                    world.ExposureMaximumEv,
+                    world.ExposureKeyValue,
+                    world.ExposureAdaptation,
+                    world.ExposureSpeedUp,
+                    world.ExposureSpeedDown);
+            }
+            else
+            {
+                ReleaseAdaptiveExposure();
+            }
         }
 
         private static bool IsTemporalQuality(string quality) =>
@@ -550,6 +574,7 @@ namespace GameCult.Eve.UnityScene
 
         private void RestorePostProcess()
         {
+            ReleaseAdaptiveExposure();
             if (_postProcessCameraData != null)
             {
                 if (_createdPostProcessCameraData)
@@ -577,6 +602,16 @@ namespace GameCult.Eve.UnityScene
             }
             _postProcessVolumeObject = null;
             _postProcessVolume = null;
+        }
+
+        private void ReleaseAdaptiveExposure()
+        {
+            if (_adaptiveExposure == null) return;
+            if (Application.isPlaying)
+                Destroy(_adaptiveExposure);
+            else
+                DestroyImmediate(_adaptiveExposure);
+            _adaptiveExposure = null;
         }
 
         private void RestoreAmbientEnvironment()

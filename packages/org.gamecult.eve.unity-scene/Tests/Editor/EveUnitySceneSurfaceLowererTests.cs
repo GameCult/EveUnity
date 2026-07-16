@@ -1345,7 +1345,7 @@ namespace GameCult.Eve.UnityScene.Tests
         }
 
         [Test]
-        public void ProviderPrefabKeepsAuthoredScaleWhileFallbackUsesSemanticRadius()
+        public void SemanticScaleWrapsProviderAuthoredScaleAndFallbackGeometry()
         {
             var root = new GameObject("world");
             var prefab = new GameObject("provider-prefab");
@@ -1360,7 +1360,7 @@ namespace GameCult.Eve.UnityScene.Tests
                     "prefab.ship", "ship", "provider-asset-ref"));
 
                 var instance = root.transform.GetChild(0);
-                Assert.That(instance.localScale, Is.EqualTo(Vector3.one));
+                Assert.That(instance.localScale, Is.EqualTo(Vector3.one * 12f));
                 Assert.That(instance.GetChild(0).localScale, Is.EqualTo(new Vector3(2f, 3f, 4f)));
 
                 var fallbackSink = new EveUnityGameObjectPlayableWorldSceneSink(

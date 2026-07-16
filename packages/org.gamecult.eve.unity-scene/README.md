@@ -82,6 +82,12 @@ the field textures it samples. A `world.scene3d` may also request
 quality, and sharpening values to URP TAA and restores the previous camera
 state when the world releases the camera.
 
+Native volume programs also advertise the projection convention consumed by
+their history matrix. `non-render-target-projection.previous-view.v1` preserves
+the projection convention used by legacy `Graphics.Blit` temporal shaders even
+when EveUnity executes the program through a render-target-backed URP pass;
+providers must not rely on a runtime guessing that Y-axis convention.
+
 `field.particles3d` may advertise provider material textures, viewport-relative
 texture scales, and a logical render-frame index port. These are presentation
 inputs: EveUnity binds the selected provider assets and current display frame

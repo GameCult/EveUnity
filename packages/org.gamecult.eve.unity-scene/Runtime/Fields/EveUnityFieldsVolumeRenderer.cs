@@ -140,6 +140,7 @@ namespace GameCult.Eve.UnityScene.Fields
             ApplyQuality(field, _historyTextureIndex < 0);
 
             var gpuProjection = GL.GetGPUProjectionMatrix(camera.projectionMatrix, true);
+            var nonRenderTargetProjection = GL.GetGPUProjectionMatrix(camera.projectionMatrix, false);
             var viewProjection = gpuProjection * camera.worldToCameraMatrix;
             SetMatrixPort("cameraInverseViewProjection", viewProjection.inverse);
             SetMatrixPort("cameraToWorld", CameraTransformToWorld(camera));
@@ -170,6 +171,7 @@ namespace GameCult.Eve.UnityScene.Fields
                             _programMetadata,
                             _previousViewProjection,
                             gpuProjection,
+                            nonRenderTargetProjection,
                             _previousView));
                 SetFloatPort("resetHistory", _historyTextureIndex < 0 ? 1f : 0f);
             }
@@ -496,13 +498,17 @@ namespace GameCult.Eve.UnityScene.Fields
             IReadOnlyDictionary<string, string>? metadata,
             Matrix4x4 previousViewProjection,
             Matrix4x4 currentGpuProjection,
+            Matrix4x4 currentNonRenderTargetProjection,
             Matrix4x4 previousView)
         {
-            return metadata != null &&
-                   metadata.TryGetValue("unity.volume.matrixSemantic.previousViewProjection", out var semantic) &&
-                   string.Equals(semantic, "current-projection.previous-view.v1", StringComparison.Ordinal)
-                ? currentGpuProjection * previousView
-                : previousViewProjection;
+            if (metadata == null ||
+                !metadata.TryGetValue("unity.volume.matrixSemantic.previousViewProjection", out var semantic))
+                return previousViewProjection;
+            if (string.Equals(semantic, "current-projection.previous-view.v1", StringComparison.Ordinal))
+                return currentGpuProjection * previousView;
+            if (string.Equals(semantic, "non-render-target-projection.previous-view.v1", StringComparison.Ordinal))
+                return currentNonRenderTargetProjection * previousView;
+            return previousViewProjection;
         }
 
         private bool HasTemporalProgram() => ProgramPass("temporal") >= 0;
@@ -583,7 +589,8 @@ namespace GameCult.Eve.UnityScene.Fields
                 return Fail("Native volume temporal pass is missing a required history port.", out error);
             if (metadata.TryGetValue("unity.volume.matrixSemantic.previousViewProjection", out var semantic) &&
                 !string.Equals(semantic, "previous-view-projection.v1", StringComparison.Ordinal) &&
-                !string.Equals(semantic, "current-projection.previous-view.v1", StringComparison.Ordinal))
+                !string.Equals(semantic, "current-projection.previous-view.v1", StringComparison.Ordinal) &&
+                !string.Equals(semantic, "non-render-target-projection.previous-view.v1", StringComparison.Ordinal))
                 return Fail("Native volume temporal pass has an unsupported previous-view-projection semantic.", out error);
             if (metadata.TryGetValue("unity.volume.quality.bootstrap", out var bootstrapQuality) &&
                 (!metadata.TryGetValue(

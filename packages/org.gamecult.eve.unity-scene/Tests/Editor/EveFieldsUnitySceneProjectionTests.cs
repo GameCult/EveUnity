@@ -341,6 +341,7 @@ namespace GameCult.Eve.UnityScene.Tests
                 metadata,
                 previousViewProjection,
                 currentProjection,
+                Matrix4x4.identity,
                 previousView);
 
             Assert.That(resolved, Is.EqualTo(currentProjection * previousView));
@@ -356,9 +357,32 @@ namespace GameCult.Eve.UnityScene.Tests
                 RequiredVolumeProgramMetadata(),
                 previousViewProjection,
                 Matrix4x4.Scale(Vector3.one * 2f),
+                Matrix4x4.identity,
                 Matrix4x4.Rotate(Quaternion.Euler(10f, 20f, 30f)));
 
             Assert.That(resolved, Is.EqualTo(previousViewProjection));
+        }
+
+        [Test]
+        public void VolumeRendererUsesNonRenderTargetProjectionWhenAdvertised()
+        {
+            var metadata = RequiredVolumeProgramMetadata();
+            metadata["unity.volume.matrixSemantic.previousViewProjection"] =
+                "non-render-target-projection.previous-view.v1";
+            var previousViewProjection = Matrix4x4.Translate(new Vector3(1f, 2f, 3f));
+            var renderTargetProjection = Matrix4x4.Scale(new Vector3(2f, -3f, 4f));
+            var nonRenderTargetProjection = Matrix4x4.Scale(new Vector3(2f, 3f, 4f));
+            var previousView = Matrix4x4.Rotate(Quaternion.Euler(10f, 20f, 30f));
+
+            var resolved = EveUnityFieldsVolumeRenderer.ResolvePreviousViewProjection(
+                metadata,
+                previousViewProjection,
+                renderTargetProjection,
+                nonRenderTargetProjection,
+                previousView);
+
+            Assert.That(resolved, Is.EqualTo(nonRenderTargetProjection * previousView));
+            Assert.That(resolved, Is.Not.EqualTo(renderTargetProjection * previousView));
         }
 
         [Test]

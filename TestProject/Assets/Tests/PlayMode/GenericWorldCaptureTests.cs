@@ -777,6 +777,28 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 var fieldParticles = fieldParticlesForMap;
                 Assert.That(fieldParticles, Is.Not.Null,
                     "The generic client did not install its field-particle lowerer.");
+                var particleProjection = host.ActiveWorld.FieldParticles.Single();
+                var particleComputeBinding = new EveUnityPlayableWorldAssetBinding(
+                    particleProjection.ComputeProgramAssetRef, "", "provider-asset-ref");
+                var particleMaterialBinding = new EveUnityPlayableWorldAssetBinding(
+                    particleProjection.MaterialAssetRef, "", "provider-asset-ref");
+                var particleCompute = host.NativeAssetProvider.ResolveAsset(
+                    particleComputeBinding, typeof(ComputeShader)) as ComputeShader;
+                var particleMaterial = host.NativeAssetProvider.ResolveAsset(
+                    particleMaterialBinding, typeof(Material)) as Material;
+                Assert.That(particleCompute, Is.Not.Null,
+                    $"Provider asset '{particleProjection.ComputeProgramAssetRef}' did not lower as a ComputeShader.");
+                Assert.That(particleMaterial, Is.Not.Null,
+                    $"Provider asset '{particleProjection.MaterialAssetRef}' did not lower as a Material.");
+                var particleMetadata = host.NativeAssetProvider as IEveUnityNativeAssetMetadataProvider;
+                Assert.That(particleMetadata, Is.Not.Null);
+                Assert.That(particleMetadata.TryResolveAssetMetadata(
+                    particleComputeBinding, out var particleComputeMetadata), Is.True);
+                Assert.That(particleMetadata.TryResolveAssetMetadata(
+                    particleMaterialBinding, out var particleMaterialMetadata), Is.True);
+                Assert.That(EveUnityFieldsParticleRenderer.TryValidateProgramMetadata(
+                    particleComputeMetadata, particleMaterialMetadata, out var particleAbiError), Is.True,
+                    particleAbiError);
                 Assert.That(fieldParticles.ProgramReady, Is.True,
                     "The generic field-particle lowerer rejected the advertised provider ABI or assets.");
                 Assert.That(fieldParticles.PresentedFrameId, Is.GreaterThanOrEqualTo(0));

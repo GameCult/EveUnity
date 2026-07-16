@@ -4,8 +4,8 @@
 
 The released-package cold world witness passes with:
 
-- `org.gamecult.eve.unity-scene` `0.3.62`, commit
-  `ed92fa7be0e2e7e386ab50ad36d6fd954d2d86a5`;
+- `org.gamecult.eve.unity-scene` `0.3.63`, commit
+  `3135d24bb84f40719b121b51634811c85af0a7af`;
 - `org.gamecult.eve.plugin-fields` `0.2.3`, commit
   `c5a4a75c1b727499b16c2dae1895f29e2a9f72f0`;
 - `org.gamecult.eve.surface` `0.2.2`, commit
@@ -69,6 +69,20 @@ and returns to `0`; one Ymir `begin` fact produces exactly one
 command participates in the transaction. The event identity begins
 `ymir-fact:` and contains the retained Box3D session, step, contact episode,
 and begin-fact identity.
+
+The released `0.3.63` warm HD witness in
+`artifacts/aetheria-daemon-temporal-projection-0363-warm-hd` makes the native
+volume history projection convention an explicit provider-program semantic.
+Aetheria advertises the non-render-target projection convention used by its
+historical `Graphics.Blit` temporal pass; the generic URP lowerer applies that
+convention without naming Aetheria or interpreting fog. The witness captures
+the naturally rendered camera target after 359 volume composites instead of
+issuing a second out-of-band `Camera.Render()`. Package tests pass 105/105 and
+the released gameplay witness still proves movement, combat, destruction loot,
+one Ymir contact collection, held tractor input, and camera-channel isolation.
+The remaining visual controls (fog parameters, stellar tint, ambient intensity,
+histogram exposure, grading, and temporal settings) remain provider-owned
+levers; this proof does not claim a final art grade.
 
 Current released-package evidence is in
 `artifacts/aetheria-daemon-mapped-body-cold`; despite that retained directory

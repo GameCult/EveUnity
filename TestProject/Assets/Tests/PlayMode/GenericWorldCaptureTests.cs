@@ -716,7 +716,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 Assert.That(captureFieldVolume.CompositeCount - initialCompositeCount,
                     Is.GreaterThanOrEqualTo(temporalSettlingFrames),
                     "The pilot capture ran before the advertised temporal reconstruction had settled.");
-                camera.Render();
+                yield return null;
                 RenderTexture.active = target;
                 pixels = new Texture2D(captureWidth, captureHeight, TextureFormat.RGB24, false);
                 pixels.ReadPixels(new Rect(0, 0, captureWidth, captureHeight), 0, 0);

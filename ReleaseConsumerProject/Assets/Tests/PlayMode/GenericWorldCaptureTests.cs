@@ -808,6 +808,22 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     particleAbiError);
                 Assert.That(fieldParticles.ProgramReady, Is.True,
                     "The generic field-particle lowerer rejected the advertised provider ABI or assets.");
+                var liveParticleMaterial = typeof(EveUnityFieldsParticleRenderer)
+                    .GetField("_material", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+                    ?.GetValue(fieldParticles) as Material;
+                Assert.That(liveParticleMaterial, Is.Not.Null);
+                var ditherTextureProperty = particleMaterialMetadata["unity.particles.texturePort.dither"];
+                var ditherCoordinatesProperty = particleMaterialMetadata["unity.particles.vectorPort.ditherCoordinates"];
+                var renderFrameProperty = particleMaterialMetadata["unity.particles.intPort.frameIndex"];
+                var liveDitherTexture = liveParticleMaterial.GetTexture(ditherTextureProperty);
+                Assert.That(liveDitherTexture, Is.Not.Null,
+                    "The generic lowerer did not bind the advertised provider dither texture.");
+                Assert.That(liveParticleMaterial.GetVector(ditherCoordinatesProperty).x,
+                    Is.EqualTo((float)camera.pixelWidth / liveDitherTexture.width).Within(0.0001f));
+                Assert.That(liveParticleMaterial.GetVector(ditherCoordinatesProperty).y,
+                    Is.EqualTo((float)camera.pixelHeight / liveDitherTexture.height).Within(0.0001f));
+                Assert.That(liveParticleMaterial.GetInt(renderFrameProperty), Is.GreaterThan(0),
+                    "The generic lowerer did not advance the advertised render-frame port.");
                 Assert.That(fieldParticles.PresentedFrameId, Is.GreaterThanOrEqualTo(0));
                 Assert.That(fieldParticles.ParticleCount, Is.EqualTo(65536));
                 Assert.That(fieldParticles.DispatchCount, Is.GreaterThan(0));

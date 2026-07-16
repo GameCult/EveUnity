@@ -2,22 +2,24 @@
 
 ## Current result
 
-The warm-cache released-package witness passes with:
+The released-package witness passes in separate cold-lowering and warm-gameplay
+profiles with:
 
-- `org.gamecult.eve.unity-scene` `0.3.44`, commit
-  `03ce78031f28d7bfae4dcdc477a7273c6ecae55b`;
+- `org.gamecult.eve.unity-scene` `0.3.50`, commit
+  `7c8442e12264806a53a9e0e08b7b090dcddb8c90`;
 - `org.gamecult.eve.plugin-fields` `0.2.3`, commit
   `c5a4a75c1b727499b16c2dae1895f29e2a9f72f0`;
 - `org.gamecult.eve.surface` `0.2.2`, commit
   `140e1bd963a0033e66777a3b2c5fe6e9c97dfe32`;
 - `org.gamecult.eve.unity-uitoolkit` `0.1.1`, commit
   `4d0cbe0185bdc4fc65eb63503a7c5cb578539669`;
-- `org.gamecult.cultlib` `1.0.13`, commit
-  `feb5c71513e71d681699f462fe3682b3168c6f73`;
+- `org.gamecult.cultlib` `1.0.14`, commit
+  `4b7162022a8976f7941b5a7a69acf50f1b6d532b`;
 - the generic `ReleaseConsumerProject` client connected directly to the
   Aetheria daemon.
 
-Evidence is in `artifacts/aetheria-daemon-fossil-fog-producers`. The PlayMode test
+Evidence is in `artifacts/aetheria-daemon-cultlib-1014-cold-final` and
+`artifacts/aetheria-daemon-cultlib-1014-warm-final`. The warm PlayMode test
 passed and recorded provider-owned reconciled movement, look, targeting,
 tractor press, tractor release, contact-gated cargo collection, and action
 receipts. The daemon-owned look direction reached the SoA body rotation,
@@ -50,7 +52,7 @@ Fields splat layers. Its surface contract contains logical ports such as
 names or pass indices. The selected `unity-scene` provider asset variant owns
 that concrete shader ABI through `unity.volume.*` metadata. The released
 generic lowerer resolved the provider shader and dither texture, rasterized all
-four layers, and composited `21` pilot-camera frames from daemon frame `223`.
+four layers, and composited `91` pilot-camera frames through daemon frame `643`.
 The provider variant advertises the fossil shader's raymarch, temporal-history,
 and composite passes plus their logical ports. EveUnity allocates and resets the
 history targets generically; a partial temporal ABI fails closed.
@@ -64,19 +66,20 @@ daemon lock progress `1.0`; Unity does not manufacture or smooth that value.
 Camera-channel facts:
 
 - provider-authored player renderers: `13`, including the lowered tractor effect;
-- pilot changed pixels: `191,353`;
-- pilot average luminance: `0.0283105`;
-- pilot bright pixels: `705`;
-- map-channel renderers: `11`;
-- map changed pixels: `4,444`;
+- pilot changed pixels: `196,179`;
+- pilot average luminance: `0.0993295`;
+- pilot bright pixels: `1,348`;
+- map-channel renderers: `10`;
+- map changed pixels: `4,627`;
 - native cockpit progress bars: `7`;
 - daemon tractor power at capture: `1.0` after the held input completed its
   authored ramp;
 - daemon tractor power after the advertised release: `0`;
 - provider tractor particle systems: `1`;
-- pickup entities before/after collection: `1` / `0`;
+- pickup entities before/after destruction and collection: `0` / `0`;
 - provider `pickup.collected` events: exactly `1`;
-- collected item and quantity: `scrap-metal`, `1`;
+- collected item and quantity: one canonical `aetheria.item_definition:*` key,
+  quantity `1`;
 - authoritative cargo quantity before/after: `0` / `1`;
 - the pilot camera excludes the advertised map layer;
 - the player prefab's embedded layer-14 map icon contributes exactly `0` pilot
@@ -87,7 +90,7 @@ Visual inspection confirms that map glyphs are absent from the pilot frame and
 present in the map-only frame. This is transport, authority, field-production,
 and lowering proof, not visual parity: the current pilot capture is nearly black
 with sparse clipped geometry instead of the fossil's bright blue gravity-shaped
-fog sea. Release `0.3.44` adds generic lowering for Eve Fields `0.2.3`'s
+fog sea. Release `0.3.50` includes generic lowering for Eve Fields `0.2.3`'s
 `AnimatedRadialCosine` source alongside `PowerPulse`, dither-scale,
 temporal-history, and finite-look-at semantics. Aetheria publishes the fossil
 global animated simplex/cellular/ambient producer stack, body-owned radial wave
@@ -119,10 +122,12 @@ build removes the fossil's embedded tractor object from player/ship prefabs, so
 the standalone `beam.presentation` prefab is the only tractor renderer. Its
 cyan/yellow dotted band is visible in the pilot capture and absent from the map
 capture.
-The same released run begins with one provider-owned pickup in the entity SoA.
-Held tractor input produces a Ymir Begin contact fact; the daemon consumes that
-fact once, removes the pickup once, changes cargo from `0` to `1`, and emits one
-`pickup.collected` feedback event carrying the exact delta. Aetheria's Ymir body
+The warm gameplay run begins with no pickup. A daemon-authoritative shot destroys
+the deterministic salvage target and creates one provider-owned pickup carrying
+a canonical generated cargo item. Held tractor input produces a Ymir Begin
+contact fact; the daemon consumes that fact once, removes the pickup once,
+changes cargo from `0` to `1`, and emits one `pickup.collected` feedback event
+whose identity begins with `ymir-fact:`. Aetheria's Ymir body
 mapping excludes stations and non-ship world bodies from pickup collision facts,
 so ambient station contact cannot become a cargo writer. Capacity rejection and
 its `cargo-capacity` reason are covered by the daemon smoke, not claimed as a
@@ -138,19 +143,23 @@ Primary artifacts:
 - `aetheria-daemon-world.png`: pilot-camera capture;
 - `aetheria-daemon-map.png`: map-only capture.
 
-## Cold delivery is not currently proven
+## Cold delivery proof
 
-The current `46,412,252` byte Unity bundle (SHA-256
-`bc45d84b54666e813bfccca12496ba4a3533ed08896dfc57de726749574fa796`)
-times out from an empty cache. Its bytes are
-still transported through batched snapshot records rather than the intended
-mapped/network body transport. Increasing the Unity timeout would hide the
-transport fault and is not an accepted fix.
+The `cold-start-lowering` profile starts with zero bodies and zero partials. It
+receives the `46,412,384` byte Unity bundle through the managed
+`cultmesh.content.v1` session, verifies SHA-256
+`f5960f240ecfd56de417e8e51fde34cfb962fc6fcf0840cc373190e7dbc6048f`,
+atomically promotes one `.body`, and leaves zero partials under the unchanged
+300-second deadline. The full witness took `84.991` seconds; the Unity test took
+`43.212` seconds. It then lowered provider assets, movement, environment, four
+field layers across `127` composites, and both camera channels. The pilot camera
+excluded map objects and the map camera included them.
 
-A cold witness may be claimed only when an empty cache receives the bundle over
-the intended body transport, atomically promotes the hash-addressed `.body`,
-leaves no `.partial` file, and completes the same released-client assertions.
-
-`artifacts/render-channel-witness-gravity-cold-4` records a historical 0.3.18
-cold run. It remains useful regression evidence, but it does not describe the
-health of the current transport path.
+Cold asset acquisition and transient gameplay are deliberately separate proof
+profiles. Starting Unity before the provider means download time is not a
+stable lifetime for a boot-seeded enemy or pickup. The cold profile proves
+delivery and lowering; `full-session-gameplay` starts a fresh warm authoritative
+session and proves combat, destruction-created loot, Ymir contact collection,
+and exactly-once receipts. Neither profile claims negotiated mapped/zero-copy
+CDN delivery: the released path is the managed network content session and
+still copies/fragments bytes in process.

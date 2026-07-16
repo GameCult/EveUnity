@@ -13,10 +13,10 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$expectedEveUnityCommit = "e6ba1a36f6f0bce8df2c9834c25a8a980f03413c"
+$expectedEveUnityCommit = "7c8442e12264806a53a9e0e08b7b090dcddb8c90"
 $expectedEveFieldsCommit = "c5a4a75c1b727499b16c2dae1895f29e2a9f72f0"
 $expectedEveUnityUiToolkitCommit = "4d0cbe0185bdc4fc65eb63503a7c5cb578539669"
-$expectedCultLibCommit = "feb5c71513e71d681699f462fe3682b3168c6f73"
+$expectedCultLibCommit = "4b7162022a8976f7941b5a7a69acf50f1b6d532b"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $projectRoot = $ClientProject
 $outputRoot = if ([IO.Path]::IsPathRooted($OutputDirectory)) { $OutputDirectory } else { Join-Path $repoRoot $OutputDirectory }
@@ -65,6 +65,11 @@ if ($CacheState -eq "warm" -and -not $cacheWasWarm) {
   throw "Warm witness requested without an existing verified bundle cache at $assetCachePath"
 }
 $observedCacheState = if ($cacheWasWarm) { "warm" } else { "cold" }
+$witnessProfile = if ($observedCacheState -eq "cold") {
+  "cold-start-lowering"
+} else {
+  "full-session-gameplay"
+}
 $witnessStartedAt = [DateTimeOffset]::UtcNow
 foreach ($ephemeralPath in @(
   $replicaPath,
@@ -161,7 +166,7 @@ $daemonArguments = @(
   "--client-cultmesh-host", "127.0.0.1",
   "--client-cultmesh-advertise-host", "127.0.0.1",
   "--client-cultmesh-port", $Port,
-  "--tick-interval-ms", 250,
+  "--tick-interval-ms", 20,
   "--fixed-delta-ms", 20,
   "--no-odin-announcements"
 )
@@ -177,6 +182,7 @@ $env:EVEUNITY_DISABLE_AUTO_LAUNCHER = "1"
 $env:EVEUNITY_ASSET_CACHE_PATH = $assetCachePath
 $env:EVEUNITY_WITNESS_FACTS_PATH = $factsPath
 $env:EVEUNITY_PROVIDER_READY_PATH = $providerReadyPath
+$env:EVEUNITY_WITNESS_PROFILE = $witnessProfile
 $arguments = @(
   "-batchmode", "-projectPath", $projectRoot,
   "-runTests", "-testPlatform", "PlayMode",
@@ -231,9 +237,20 @@ try {
     }
   }
   $facts = Get-Content -LiteralPath $factsPath -Raw | ConvertFrom-Json
-  if (-not $facts.combatPresentation -or [string]::IsNullOrWhiteSpace($facts.shotId) -or
-      [double]$facts.lockProgress -le 0.99) {
-    throw "Live witness did not observe daemon-owned selection, completed lock, and a resolved shot."
+  if ($facts.witnessProfile -ne $witnessProfile) {
+    throw "Live witness ran the wrong proof profile. expected=$witnessProfile actual=$($facts.witnessProfile)"
+  }
+  if (-not $facts.providerAssets -or -not $facts.environmentPresentation -or
+      -not $facts.movement -or -not $facts.pilotCameraExcludesMapChannel -or
+      -not $facts.mapCameraIncludesMapChannel -or [int]$facts.fieldVolumeLayerCount -le 0 -or
+      [long]$facts.fieldVolumeCompositeCount -le 0) {
+    throw "Live witness did not prove provider assets, movement, Fields lowering, and camera-channel separation."
+  }
+  if ($witnessProfile -eq "full-session-gameplay" -and
+      (-not $facts.combatPresentation -or [string]::IsNullOrWhiteSpace($facts.shotId) -or
+       [double]$facts.lockProgress -le 0.99 -or -not $facts.pickupCollection -or
+       -not $facts.destructionLoot -or [int]$facts.pickupCollectionEventCount -ne 1)) {
+    throw "Full-session witness did not prove combat and exactly-once destruction-loot Ymir contact collection."
   }
   $releaseLock = Get-Content -LiteralPath (Join-Path $repoRoot "ReleaseConsumerProject\Packages\packages-lock.json") -Raw | ConvertFrom-Json
   $releasedPackageClient = $projectRoot -eq "ReleaseConsumerProject"
@@ -297,6 +314,7 @@ try {
     generatedAtUtc = [DateTimeOffset]::UtcNow.ToString("O")
     execution = [ordered]@{
       cacheState = $observedCacheState
+      profile = $witnessProfile
       durationMs = $durationMs
       testDurationMs = $testDurationMs
     }
@@ -335,7 +353,11 @@ try {
         sizeBytes = $resultsArtifact.Length
       }
     )
-    authority = "released-generic-runtime-observes-provider-assets-authoritative-combat-receipts-and-camera-channel-separation"
+    authority = if ($witnessProfile -eq "full-session-gameplay") {
+      "released-generic-runtime-observes-provider-assets-authoritative-gameplay-receipts-ymir-contact-collection-and-camera-channel-separation"
+    } else {
+      "released-generic-runtime-cold-loads-provider-assets-lowers-playable-world-and-preserves-camera-channel-separation"
+    }
   }
   $witness | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $witnessPath -Encoding UTF8
   $stateWitnessPath = Join-Path $outputRoot "runtime-witness.$observedCacheState.json"
@@ -349,6 +371,6 @@ try {
 finally {
   if ($null -ne $unity -and -not $unity.HasExited) { Stop-Process -Id $unity.Id -Force -ErrorAction SilentlyContinue }
   if ($null -ne $daemon -and -not $daemon.HasExited) { Stop-Process -Id $daemon.Id -Force }
-  Remove-Item Env:EVEUNITY_RENDEZVOUS_ENDPOINT, Env:EVEUNITY_PROVIDER_ENDPOINT, Env:EVEUNITY_PROVIDER_ID, Env:EVEUNITY_SURFACE_ID, Env:EVEUNITY_REPLICA_PATH, Env:EVEUNITY_AETHERIA_CAPTURE_PATH, Env:EVEUNITY_AETHERIA_MAP_CAPTURE_PATH, Env:EVEUNITY_DISABLE_AUTO_LAUNCHER, Env:EVEUNITY_ASSET_CACHE_PATH, Env:EVEUNITY_WITNESS_FACTS_PATH, Env:EVEUNITY_PROVIDER_READY_PATH -ErrorAction SilentlyContinue
+  Remove-Item Env:EVEUNITY_RENDEZVOUS_ENDPOINT, Env:EVEUNITY_PROVIDER_ENDPOINT, Env:EVEUNITY_PROVIDER_ID, Env:EVEUNITY_SURFACE_ID, Env:EVEUNITY_REPLICA_PATH, Env:EVEUNITY_AETHERIA_CAPTURE_PATH, Env:EVEUNITY_AETHERIA_MAP_CAPTURE_PATH, Env:EVEUNITY_DISABLE_AUTO_LAUNCHER, Env:EVEUNITY_ASSET_CACHE_PATH, Env:EVEUNITY_WITNESS_FACTS_PATH, Env:EVEUNITY_PROVIDER_READY_PATH, Env:EVEUNITY_WITNESS_PROFILE -ErrorAction SilentlyContinue
   Remove-Item Env:AETHERIA_TRACE_EVE_SNAPSHOTS -ErrorAction SilentlyContinue
 }

@@ -210,6 +210,21 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             int pickupCollectionEventCount = 0;
             int initialPickupEntityCount = 0;
             int finalPickupEntityCount = -1;
+            bool destructionPickupObserved = false;
+            int maximumTrajectoryCount = 0;
+            bool hitMarkerObserved = false;
+            var witnessProfile = Environment.GetEnvironmentVariable("EVEUNITY_WITNESS_PROFILE") ??
+                                 "full-session-gameplay";
+            Assert.That(witnessProfile,
+                Is.EqualTo("cold-start-lowering").Or.EqualTo("full-session-gameplay"),
+                "The witness profile must name an explicit proof boundary.");
+            var requireSessionGameplay = string.Equals(
+                witnessProfile,
+                "full-session-gameplay",
+                StringComparison.Ordinal);
+            EveUnityAimPresentationRenderer aimRenderer = null;
+            EveUnityBeamPresentation beamPresentation = null;
+            EveUnityBeamPresentationRenderer beamRenderer = null;
 
             try
             {
@@ -280,8 +295,9 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 Assert.That(host.PresentedEntities.CurrentGeneration.Entities.Count, Is.GreaterThan(0));
                 initialPickupEntityCount = host.PresentedEntities.CurrentGeneration.Entities.Count(entity =>
                     string.Equals(entity.EntityKind, "pickup", StringComparison.Ordinal));
-                Assert.That(initialPickupEntityCount, Is.GreaterThan(0),
-                    "The daemon fixture did not publish its physical starter pickup through the entity SoA.");
+                if (requireSessionGameplay)
+                    Assert.That(initialPickupEntityCount, Is.Zero,
+                        "The witness scenario must obtain salvage from daemon-owned destruction, not a boot-seeded pickup.");
                 runtime.FeedbackAvailable += feedback =>
                 {
                     if (!string.Equals(feedback.Kind, "pickup.collected", StringComparison.Ordinal)) return;
@@ -343,6 +359,8 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 AssertReconciledProviderReceipt(runtime.LastReceipt, release.CommandId,
                     provider.Selection.ProviderId, provider.Selection.SurfaceId, releaseVersion);
 
+                if (requireSessionGameplay)
+                {
                 var movementVersion = runtime.ActiveVersion;
                 var focus = runtime.SubmitFocusIntent(playerId);
                 var focusDeadline = Time.realtimeSinceStartup + 12f;
@@ -399,10 +417,10 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     provider.Selection.ProviderId, provider.Selection.SurfaceId, lookVersion);
                 Assert.That(Vector3.Dot(FindMarker(root, playerId).transform.forward, aim), Is.GreaterThan(0.99f));
                 lookReceipt = WitnessReceipt.From("look", runtime.LastReceipt);
-                var aimRenderer = root.GetComponent<EveUnityAimPresentationRenderer>();
+                aimRenderer = root.GetComponent<EveUnityAimPresentationRenderer>();
                 Assert.That(aimRenderer, Is.Not.Null);
 
-                var beamPresentation = EveUnityBeamPresentation.FindAll(runtime.ActiveProjection).SingleOrDefault();
+                beamPresentation = EveUnityBeamPresentation.FindAll(runtime.ActiveProjection).SingleOrDefault();
                 Assert.That(beamPresentation, Is.Not.Null,
                     "The provider did not advertise its continuous beam presentation.");
                 Assert.That(beamPresentation.ActivationActionId, Is.Not.Empty,
@@ -429,7 +447,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 Assert.That(provider.ResolvePrefab(new EveUnityPlayableWorldAssetBinding(
                         beamPresentation.AssetRole, beamPresentation.AssetRole, "provider-asset-ref")), Is.Not.Null,
                     $"The provider asset catalog did not resolve beam role '{beamPresentation.AssetRole}'.");
-                var beamRenderer = root.GetComponent<EveUnityBeamPresentationRenderer>();
+                beamRenderer = root.GetComponent<EveUnityBeamPresentationRenderer>();
                 Assert.That(beamRenderer, Is.Not.Null);
                 beamRenderer.RefreshNow();
                 Assert.That(beamRenderer.ActiveBeamCount, Is.EqualTo(1));
@@ -439,28 +457,6 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 tractorBeamParticleSystemCount = beamRenderer.ActiveParticleSystemCount;
                 Assert.That(tractorBeamParticleSystemCount, Is.GreaterThan(0),
                     "The generic beam lowerer did not instantiate the provider-owned effect prefab.");
-                var pickupDeadline = Time.realtimeSinceStartup + 12f;
-                while (Time.realtimeSinceStartup < pickupDeadline &&
-                       (pickupCollection == null ||
-                        host.PresentedEntities.CurrentGeneration.Entities.Any(entity =>
-                            string.Equals(entity.EntityKind, "pickup", StringComparison.Ordinal))))
-                {
-                    yield return new WaitForSecondsRealtime(0.1f);
-                    runtime.Refresh();
-                }
-                finalPickupEntityCount = host.PresentedEntities.CurrentGeneration.Entities.Count(entity =>
-                    string.Equals(entity.EntityKind, "pickup", StringComparison.Ordinal));
-                Assert.That(pickupCollection, Is.Not.Null,
-                    "The released client did not observe provider-owned feedback for Ymir contact collection.");
-                Assert.That(pickupCollectionEventCount, Is.EqualTo(1),
-                    "One Ymir contact transaction must emit one client-visible collection event.");
-                Assert.That(pickupCollection.ItemKey, Is.EqualTo("scrap-metal"));
-                Assert.That(pickupCollection.ScalarValue, Is.EqualTo(1));
-                Assert.That(pickupCollection.CargoQuantityBefore, Is.Zero);
-                Assert.That(pickupCollection.CargoQuantityAfter, Is.EqualTo(1));
-                Assert.That(finalPickupEntityCount, Is.EqualTo(initialPickupEntityCount - 1),
-                    "Collected pickup remained in the provider-authored entity generation.");
-
                 targetFact = host.PresentedEntities.CurrentGeneration.Entities
                     .Single(entity => entity.EntityId == targetEntityId);
                 playerFact = host.PresentedEntities.CurrentGeneration.Entities
@@ -511,22 +507,74 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 Assert.That(runtime.ActiveVersion, Is.GreaterThanOrEqualTo(runtime.LastReceipt.SourceVersion));
                 actionReceipt = WitnessReceipt.From("action", runtime.LastReceipt);
 
-                var shotDeadline = Time.realtimeSinceStartup + 15f;
-                while (Time.realtimeSinceStartup < shotDeadline && observedShot == null)
-                {
-                    yield return new WaitForSecondsRealtime(0.05f);
-                    runtime.Refresh();
-                }
-                Assert.That(observedShot, Is.Not.Null,
-                    "A reconciled fire request never reached daemon-owned lock acquisition and shot resolution.");
-                observedCombat = EveUnityCombatPresentation.Find(runtime.ActiveProjection);
-                Assert.That(observedShot.TargetEntityIndex, Is.EqualTo(targetEntityIndex));
-                Assert.That(observedShot.LockQuality, Is.GreaterThanOrEqualTo(0.99));
                 var trajectories = root.GetComponent<EveUnityShotTrajectoryRenderer>();
                 var combatRenderer = root.GetComponent<EveUnityCombatPresentationRenderer>();
                 Assert.That(trajectories, Is.Not.Null);
-                Assert.That(trajectories.ActiveTrajectoryCount, Is.GreaterThan(0));
                 Assert.That(combatRenderer, Is.Not.Null);
+                var shotDeadline = Time.realtimeSinceStartup + 20f;
+                while (Time.realtimeSinceStartup < shotDeadline &&
+                       (observedShot == null ||
+                        host.PresentedEntities.CurrentGeneration.Entities.Any(entity =>
+                            entity.EntityId == targetEntityId) ||
+                        (!destructionPickupObserved && pickupCollection == null)))
+                {
+                    yield return new WaitForSecondsRealtime(0.05f);
+                    runtime.Refresh();
+                    destructionPickupObserved |= host.PresentedEntities.CurrentGeneration.Entities.Any(entity =>
+                        string.Equals(entity.EntityKind, "pickup", StringComparison.Ordinal));
+                    maximumTrajectoryCount = Math.Max(maximumTrajectoryCount, trajectories.ActiveTrajectoryCount);
+                    combatRenderer.RefreshNow();
+                    hitMarkerObserved |= combatRenderer.HitMarkerVisible;
+                }
+                Assert.That(observedShot, Is.Not.Null,
+                    "A reconciled fire request never reached daemon-owned lock acquisition and shot resolution.");
+                Assert.That(host.PresentedEntities.CurrentGeneration.Entities.Any(entity =>
+                        entity.EntityId == targetEntityId), Is.False,
+                    "The low-hull witness raider was not destroyed by daemon combat.");
+                Assert.That(destructionPickupObserved || pickupCollection != null, Is.True,
+                    "Daemon destruction did not publish its guaranteed cargo as a pickup.");
+                var collectionDeadline = Time.realtimeSinceStartup + 15f;
+                var nextTractorAimAt = 0f;
+                while (Time.realtimeSinceStartup < collectionDeadline && pickupCollection == null)
+                {
+                    yield return new WaitForSecondsRealtime(0.05f);
+                    runtime.Refresh();
+                    maximumTrajectoryCount = Math.Max(maximumTrajectoryCount, trajectories.ActiveTrajectoryCount);
+                    combatRenderer.RefreshNow();
+                    hitMarkerObserved |= combatRenderer.HitMarkerVisible;
+                    var pickupFact = host.PresentedEntities.CurrentGeneration.Entities.FirstOrDefault(entity =>
+                        string.Equals(entity.EntityKind, "pickup", StringComparison.Ordinal));
+                    if (pickupFact == null || Time.realtimeSinceStartup < nextTractorAimAt)
+                        continue;
+                    playerFact = host.PresentedEntities.CurrentGeneration.Entities
+                        .Single(entity => entity.EntityId == playerId);
+                    var tractorAim = pickupFact.Position - playerFact.Position;
+                    tractorAim.y = 0;
+                    if (tractorAim.sqrMagnitude <= 0.0001f)
+                        continue;
+                    tractorAim.Normalize();
+                    runtime.SubmitLookDirectionIntent(playerId, tractorAim.x, 0f, tractorAim.z);
+                    nextTractorAimAt = Time.realtimeSinceStartup + 0.25f;
+                }
+                finalPickupEntityCount = host.PresentedEntities.CurrentGeneration.Entities.Count(entity =>
+                    string.Equals(entity.EntityKind, "pickup", StringComparison.Ordinal));
+                Assert.That(pickupCollection, Is.Not.Null,
+                    "Destruction-created salvage never reached cargo through a Ymir contact fact.");
+                Assert.That(pickupCollectionEventCount, Is.EqualTo(1),
+                    "One destruction-loot Ymir contact transaction must emit one collection event.");
+                Assert.That(pickupCollection.ItemKey, Is.Not.Empty,
+                    "Destruction loot must retain its canonical typed item identity.");
+                Assert.That(pickupCollection.EventId, Does.StartWith("ymir-fact:"),
+                    "Collection feedback must retain the consumed Ymir fact identity.");
+                Assert.That(pickupCollection.ScalarValue, Is.EqualTo(1));
+                Assert.That(pickupCollection.CargoQuantityBefore, Is.Zero);
+                Assert.That(pickupCollection.CargoQuantityAfter, Is.EqualTo(1));
+                Assert.That(finalPickupEntityCount, Is.Zero,
+                    "Collected destruction loot remained in the provider-authored entity generation.");
+                observedCombat = EveUnityCombatPresentation.Find(runtime.ActiveProjection);
+                Assert.That(observedShot.TargetEntityIndex, Is.EqualTo(targetEntityIndex));
+                Assert.That(observedShot.LockQuality, Is.GreaterThanOrEqualTo(0.99));
+                Assert.That(maximumTrajectoryCount, Is.GreaterThan(0));
                 combatRenderer.RefreshNow();
                 if (observedCombat != null && !string.IsNullOrWhiteSpace(observedCombat.SelectedTargetEntityId))
                 {
@@ -534,7 +582,16 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     Assert.That(combatRenderer.LockVisible, Is.True);
                 }
                 if (observedShot.Hit && (observedShot.AppliedDamage > 0 || observedShot.ShieldAbsorbedDamage > 0))
-                    Assert.That(combatRenderer.HitMarkerVisible, Is.True);
+                    Assert.That(hitMarkerObserved, Is.True);
+                }
+
+                aimRenderer ??= root.GetComponent<EveUnityAimPresentationRenderer>();
+                Assert.That(aimRenderer, Is.Not.Null);
+                beamPresentation ??= EveUnityBeamPresentation.FindAll(runtime.ActiveProjection).SingleOrDefault();
+                Assert.That(beamPresentation, Is.Not.Null,
+                    "The provider did not advertise its continuous beam presentation.");
+                beamRenderer ??= root.GetComponent<EveUnityBeamPresentationRenderer>();
+                finalPickupEntityCount = Math.Max(0, finalPickupEntityCount);
 
                 var camera = cameraObject.AddComponent<Camera>();
                 camera.clearFlags = CameraClearFlags.SolidColor;
@@ -715,6 +772,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 Assert.That(fieldViewport, Is.Not.Null);
                 Assert.That(fieldSplats, Is.Not.Null);
                 WriteWitnessFacts(
+                    witnessProfile,
                     initialVersion,
                     runtime.ActiveVersion,
                     movementDistance,
@@ -739,7 +797,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     observedCombat?.ShieldRatio ?? shieldRatioBefore,
                     hullRatioBefore,
                     observedCombat?.HullRatio ?? hullRatioBefore,
-                    (float)observedShot.LockQuality,
+                    (float)(observedShot?.LockQuality ?? 0),
                     aimDotDistance,
                     playerViewportWidth,
                     playerViewportHeight,
@@ -754,6 +812,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     initialPickupEntityCount,
                     finalPickupEntityCount,
                     pickupCollectionEventCount,
+                    destructionPickupObserved,
                     pickupCollection,
                     camera.transform.position,
                     camera.transform.forward,
@@ -783,6 +842,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
         }
 
         private static void WriteWitnessFacts(
+            string witnessProfile,
             long initialVersion,
             long finalVersion,
             float movementDistance,
@@ -822,6 +882,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             int initialPickupEntityCount,
             int finalPickupEntityCount,
             int pickupCollectionEventCount,
+            bool destructionPickupObserved,
             EveUnityFeedbackEvent pickupCollection,
             Vector3 cameraPosition,
             Vector3 cameraForward,
@@ -838,6 +899,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             if (string.IsNullOrWhiteSpace(path)) return;
             var document = new WitnessFacts
             {
+                witnessProfile = witnessProfile,
                 providerAdvertisement = true,
                 providerAssets = true,
                 environmentPresentation = environmentPresentation,
@@ -879,9 +941,12 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 tractorBeamParticleSystemCount = tractorBeamParticleSystemCount,
                 pickupCollection = pickupCollection != null && pickupCollectionEventCount == 1 &&
                     pickupCollection.CargoQuantityAfter - pickupCollection.CargoQuantityBefore == pickupCollection.ScalarValue,
+                destructionLoot = destructionPickupObserved && pickupCollection != null &&
+                    pickupCollection.EventId.StartsWith("ymir-fact:", StringComparison.Ordinal),
                 initialPickupEntityCount = initialPickupEntityCount,
                 finalPickupEntityCount = finalPickupEntityCount,
                 pickupCollectionEventCount = pickupCollectionEventCount,
+                pickupEventId = pickupCollection?.EventId ?? "",
                 pickupItemKey = pickupCollection?.ItemKey ?? "",
                 pickupQuantity = (float)(pickupCollection?.ScalarValue ?? 0),
                 cargoQuantityBeforePickup = (float)(pickupCollection?.CargoQuantityBefore ?? 0),
@@ -909,6 +974,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
         [Serializable]
         private sealed class WitnessFacts
         {
+            public string witnessProfile;
             public bool providerAdvertisement;
             public bool providerAssets;
             public bool environmentPresentation;
@@ -949,9 +1015,11 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             public float tractorReleasedPower;
             public int tractorBeamParticleSystemCount;
             public bool pickupCollection;
+            public bool destructionLoot;
             public int initialPickupEntityCount;
             public int finalPickupEntityCount;
             public int pickupCollectionEventCount;
+            public string pickupEventId;
             public string pickupItemKey;
             public float pickupQuantity;
             public float cargoQuantityBeforePickup;

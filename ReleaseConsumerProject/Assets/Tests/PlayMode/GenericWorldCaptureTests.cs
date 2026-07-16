@@ -12,6 +12,7 @@ using GameCult.Eve.UnityScene.Fields;
 using GameCult.Mesh;
 using NUnit.Framework;
 using UnityEngine;
+using UnityEngine.Rendering.Universal;
 using UnityEngine.TestTools;
 using UnityEngine.UIElements;
 
@@ -811,6 +812,13 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 Assert.That(fieldParticles.ParticleCount, Is.EqualTo(65536));
                 Assert.That(fieldParticles.DispatchCount, Is.GreaterThan(0));
                 Assert.That(fieldParticles.DrawCount, Is.GreaterThan(0));
+                Assert.That(fieldVolume.LastGridCenter, Is.EqualTo(fieldParticles.LastGridCenter),
+                    "Fog and stateless particles were lowered against different world-grid frames.");
+                var pilotCameraData = camera.GetUniversalAdditionalCameraData();
+                Assert.That(pilotCameraData.antialiasing, Is.EqualTo(AntialiasingMode.TemporalAntiAliasing),
+                    "The advertised temporal reconstruction contract did not reach the pilot camera.");
+                Assert.That(pilotCameraData.taaSettings.baseBlendFactor, Is.EqualTo(0.99f).Within(0.0001f));
+                Assert.That(pilotCameraData.taaSettings.jitterScale, Is.EqualTo(0.1f).Within(0.0001f));
                 var fieldDocument = typeof(EveUnityFieldsVolumeRenderer)
                     .GetField("_document", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
                     ?.GetValue(fieldVolume);

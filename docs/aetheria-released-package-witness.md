@@ -118,7 +118,7 @@ present in the map-only frame. This is transport, authority, field-production,
 and lowering proof, not visual parity: the current pilot capture contains the
 blue fog field and provider geometry, but nearby ships remain too dark and the
 celestial composition lacks the fossil capture's readable close body. Release
-`0.3.55` includes generic lowering for Eve Fields `0.2.3`'s
+`0.3.56` includes generic lowering for Eve Fields `0.2.3`'s
 `AnimatedRadialCosine` source alongside `PowerPulse`, dither-scale,
 temporal-history, and finite-look-at semantics. Aetheria publishes the fossil
 global animated simplex/cellular/ambient producer stack, body-owned radial wave
@@ -131,6 +131,16 @@ presentation/composition or provider art calibration rather than missing state
 delivery. Color, lighting, patch structure, readable world geometry, and
 gravity-wave visual parity remain open. EveUnity must not compensate with
 Aetheria-specific lighting or fog rules.
+
+The `0.3.56` run also closes two camera-contract omissions. Aetheria advertises
+the fossil pilot camera's neutral temporal-reprojection values; the released
+generic lowerer applies URP TAA with `0.99` history blend, `0.1` jitter scale,
+high quality, and zero sharpening. Fog and Stardust now consume one generic
+camera-relative viewport-frame resolver rather than projecting the same splat
+document independently. The live witness fails unless their snapped grid
+centers are identical; this run resolved both to `(-6,-6)` after movement.
+The capture is still visibly rough and is not a visual-parity claim.
+
 Substance is not part of this path; later texture baking belongs in Blender.
 Aetheria currently bundles ambientCG's 1K `Metal012` color, normal, and
 metalness maps under CC0. The same pre-generated maps now replace dead

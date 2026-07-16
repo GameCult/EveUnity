@@ -6,7 +6,8 @@
     "GameCult.Eve.Surface",
     "GameCult.Eve.UnityUIToolkit",
     "GameCult.Eve.UnityScene",
-    "GameCult.Eve.UnityScene.CultMesh"
+    "GameCult.Eve.UnityScene.CultMesh",
+    "Unity.RenderPipelines.Universal.Runtime"
   ],
   "includePlatforms": [],
   "excludePlatforms": [],

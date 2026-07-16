@@ -137,6 +137,7 @@ namespace GameCult.Eve.UnityScene.Fields
             camera.depthTextureMode |= DepthTextureMode.Depth;
             EnsureVolumeTextures(camera, field);
             if (_raymarchTexture == null || !ApplyViewportTextureScaleBindings(field, camera)) return;
+            ApplyQuality(field, _historyTextureIndex < 0);
 
             var gpuProjection = GL.GetGPUProjectionMatrix(camera.projectionMatrix, true);
             var viewProjection = gpuProjection * camera.worldToCameraMatrix;
@@ -244,10 +245,6 @@ namespace GameCult.Eve.UnityScene.Fields
                     SetTexturePort(binding.Value, texture);
                 }
             }
-            var quality = Prop(field, "quality").Trim().ToLowerInvariant();
-            if (TryProgramValue($"unity.volume.quality.{quality}.keyword", out var keyword) &&
-                !string.IsNullOrWhiteSpace(keyword))
-                _material.EnableKeyword(keyword);
             foreach (var feature in Prop(field, "features").Split(';'))
             {
                 var logicalFeature = feature.Trim();
@@ -257,6 +254,34 @@ namespace GameCult.Eve.UnityScene.Fields
                     _material.EnableKeyword(featureKeyword);
             }
             return true;
+        }
+
+        private void ApplyQuality(EveUnityFieldVolumeProjection field, bool bootstrap)
+        {
+            if (_material == null || _programMetadata == null) return;
+            foreach (var binding in _programMetadata)
+            {
+                if (binding.Key.StartsWith("unity.volume.quality.", StringComparison.Ordinal) &&
+                    binding.Key.EndsWith(".keyword", StringComparison.Ordinal) &&
+                    !string.IsNullOrWhiteSpace(binding.Value))
+                    _material.DisableKeyword(binding.Value);
+            }
+            var quality = ResolveQuality(_programMetadata, Prop(field, "quality"), bootstrap);
+            if (TryProgramValue($"unity.volume.quality.{quality}.keyword", out var keyword) &&
+                !string.IsNullOrWhiteSpace(keyword))
+                _material.EnableKeyword(keyword);
+        }
+
+        public static string ResolveQuality(
+            IReadOnlyDictionary<string, string>? metadata,
+            string steadyQuality,
+            bool bootstrap)
+        {
+            if (bootstrap && metadata != null &&
+                metadata.TryGetValue("unity.volume.quality.bootstrap", out var bootstrapQuality) &&
+                !string.IsNullOrWhiteSpace(bootstrapQuality))
+                return bootstrapQuality.Trim().ToLowerInvariant();
+            return (steadyQuality ?? "").Trim().ToLowerInvariant();
         }
 
         private void ApplyFieldBindings(EveUnityFieldVolumeProjection field, EveFieldsSplatsDocument document)
@@ -560,6 +585,11 @@ namespace GameCult.Eve.UnityScene.Fields
                 !string.Equals(semantic, "previous-view-projection.v1", StringComparison.Ordinal) &&
                 !string.Equals(semantic, "current-projection.previous-view.v1", StringComparison.Ordinal))
                 return Fail("Native volume temporal pass has an unsupported previous-view-projection semantic.", out error);
+            if (metadata.TryGetValue("unity.volume.quality.bootstrap", out var bootstrapQuality) &&
+                (!metadata.TryGetValue(
+                    $"unity.volume.quality.{bootstrapQuality.Trim().ToLowerInvariant()}.keyword",
+                    out var bootstrapKeyword) || string.IsNullOrWhiteSpace(bootstrapKeyword)))
+                return Fail("Native volume temporal pass has no keyword for its bootstrap quality.", out error);
             return true;
         }
 

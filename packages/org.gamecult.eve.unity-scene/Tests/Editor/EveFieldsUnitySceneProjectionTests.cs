@@ -377,6 +377,32 @@ namespace GameCult.Eve.UnityScene.Tests
         }
 
         [Test]
+        public void VolumeRendererUsesAdvertisedBootstrapQualityOnlyForEmptyHistory()
+        {
+            var metadata = RequiredVolumeProgramMetadata();
+            metadata["unity.volume.quality.bootstrap"] = "ultra";
+            metadata["unity.volume.quality.ultra.keyword"] = "ULTRA_QUALITY";
+
+            Assert.That(EveUnityFieldsVolumeRenderer.ResolveQuality(metadata, "high", true), Is.EqualTo("ultra"));
+            Assert.That(EveUnityFieldsVolumeRenderer.ResolveQuality(metadata, "high", false), Is.EqualTo("high"));
+        }
+
+        [Test]
+        public void VolumeProgramRejectsBootstrapQualityWithoutAdvertisedKeyword()
+        {
+            var metadata = RequiredVolumeProgramMetadata();
+            metadata["unity.volume.pass.temporal"] = "1";
+            metadata["unity.volume.texturePort.currentSample"] = "_CurrentVolume";
+            metadata["unity.volume.texturePort.history"] = "_HistoryVolume";
+            metadata["unity.volume.matrixPort.previousViewProjection"] = "_PreviousViewProjection";
+            metadata["unity.volume.floatPort.resetHistory"] = "_ResetHistory";
+            metadata["unity.volume.quality.bootstrap"] = "ultra";
+
+            Assert.That(EveUnityFieldsVolumeRenderer.TryValidateProgramMetadata(metadata, out var error), Is.False);
+            Assert.That(error, Does.Contain("bootstrap quality"));
+        }
+
+        [Test]
         public void VolumeProgramRejectsPartialTemporalLifecycle()
         {
             var metadata = RequiredVolumeProgramMetadata();

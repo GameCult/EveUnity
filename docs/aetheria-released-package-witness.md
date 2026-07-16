@@ -4,8 +4,8 @@
 
 The released-package warm-gameplay witness passes with:
 
-- `org.gamecult.eve.unity-scene` `0.3.57`, commit
-  `0974154fa7c7982c9a8ea0ca006d2698a53e1235`;
+- `org.gamecult.eve.unity-scene` `0.3.58`, commit
+  `02203ff134570c301ce58969397c296ee14e69ee`;
 - `org.gamecult.eve.plugin-fields` `0.2.3`, commit
   `c5a4a75c1b727499b16c2dae1895f29e2a9f72f0`;
 - `org.gamecult.eve.surface` `0.2.2`, commit
@@ -16,6 +16,17 @@ The released-package warm-gameplay witness passes with:
   `419053ebe2325848051c4f4d8ba352cd4286c424`;
 - the generic `ReleaseConsumerProject` client connected directly to the
   Aetheria daemon.
+
+The cold `0.3.58` camera-contract witness in
+`artifacts/aetheria-daemon-gravity-fog-historical` resolves the tagged package,
+transfers and lowers bundle
+`e299b50ded9c9ba8964c567964c30342b9b13323665b20e740210b4806dd6e66`, and
+passes in 51.0 seconds. EveUnity now supplies the positive-Z camera transform
+used by Unity shader globals, so Aetheria keeps its historical ray direction
+instead of compensating for the negative-Z `Camera.cameraToWorldMatrix` API.
+The resulting capture exposes a separate unresolved mismatch: restoring the
+historical scattering law makes the current projected fog frame severely
+overexposed. That is not claimed as visual parity.
 
 Current released-package evidence is in
 `artifacts/aetheria-daemon-mapped-body-cold`; despite that retained directory

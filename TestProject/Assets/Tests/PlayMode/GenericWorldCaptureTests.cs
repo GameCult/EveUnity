@@ -647,6 +647,11 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 cameraRig.CameraTransform = camera.transform;
                 cameraRig.RenderPolicySource = provider;
                 Assert.That(cameraRig.ApplyRig(0f), Is.True);
+                var activePipelineAsset = GraphicsSettings.currentRenderPipeline as UniversalRenderPipelineAsset;
+                Assert.That(activePipelineAsset, Is.Not.Null,
+                    "The generic client has no active URP asset for the advertised grading space.");
+                Assert.That(activePipelineAsset.colorGradingMode, Is.EqualTo(ColorGradingMode.HighDynamicRange),
+                    "The advertised HDR-before-tonemap grading space did not reach the active URP pipeline.");
                 var reflection = provider.ResolveAsset(new EveUnityPlayableWorldAssetBinding(
                     runtime.ActiveWorld.ReflectionAssetRef, "", "provider-asset-ref"), typeof(Cubemap)) as Cubemap;
                 Assert.That(runtime.ActiveWorld.SkyboxAssetRef, Is.Empty,

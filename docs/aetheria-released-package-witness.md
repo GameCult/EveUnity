@@ -4,8 +4,8 @@
 
 The released-package cold world witness passes with:
 
-- `org.gamecult.eve.unity-scene` `0.3.61`, commit
-  `887de62db84526511ae99a9d59429ae05c86476c`;
+- `org.gamecult.eve.unity-scene` `0.3.62`, commit
+  `ed92fa7be0e2e7e386ab50ad36d6fd954d2d86a5`;
 - `org.gamecult.eve.plugin-fields` `0.2.3`, commit
   `c5a4a75c1b727499b16c2dae1895f29e2a9f72f0`;
 - `org.gamecult.eve.surface` `0.2.2`, commit
@@ -52,6 +52,14 @@ The flat grey opacity slabs disappear. The released client test passes in 52.7
 seconds with 238 fog composites and Stardust draws; the pilot camera still
 excludes map renderers and the map camera includes them. Remaining visual work
 is color/composition parity, not broken fog opacity or an unsettled witness.
+
+The released `0.3.62` warm HD witness in
+`artifacts/aetheria-daemon-hdr-grading-warm-hd` lowers the provider's
+`hdr-before-tonemap.v1` grading-space contract. This restores the fossil
+profile's HDR ordering—grading before ACES—rather than inheriting the released
+consumer project's default LDR grading after tonemapping. EveUnity restores the
+consumer's prior pipeline mode when the camera is released and fails closed
+when the requested grading space cannot be lowered.
 
 Current released-package evidence is in
 `artifacts/aetheria-daemon-mapped-body-cold`; despite that retained directory

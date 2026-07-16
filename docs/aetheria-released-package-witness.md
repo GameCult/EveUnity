@@ -61,6 +61,15 @@ consumer project's default LDR grading after tonemapping. EveUnity restores the
 consumer's prior pipeline mode when the camera is released and fails closed
 when the requested grading space cannot be lowered.
 
+The asserted rerun in `artifacts/aetheria-daemon-hdr-grading-asserted-warm-hd`
+also completes the live destruction-loot path on the same released client. One
+daemon destruction produces the canonical pickup; tractor power reaches `1`
+and returns to `0`; one Ymir `begin` fact produces exactly one
+`pickup.collected` event; cargo changes from `0` to `1`; and no client pickup
+command participates in the transaction. The event identity begins
+`ymir-fact:` and contains the retained Box3D session, step, contact episode,
+and begin-fact identity.
+
 Current released-package evidence is in
 `artifacts/aetheria-daemon-mapped-body-cold`; despite that retained directory
 name, `runtime-witness.warm.json` is the current passing run. The warm PlayMode test

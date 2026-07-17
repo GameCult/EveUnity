@@ -182,7 +182,10 @@ namespace GameCult.Eve.UnityUIToolkit.Tests
                 ["label"] = "Iron Ore",
                 ["sourceKind"] = "cargo",
                 ["x"] = "1",
-                ["y"] = "2"
+                ["y"] = "2",
+                ["shapeWidth"] = "2",
+                ["shapeHeight"] = "3",
+                ["rotation"] = "Clockwise"
             });
             var grid = new EveSurfaceComponent(
                 "cargo",
@@ -206,6 +209,8 @@ namespace GameCult.Eve.UnityUIToolkit.Tests
             Assert.That(loweredItem.text, Is.EqualTo("Iron Ore"));
             Assert.That(loweredItem.style.left.value.value, Is.EqualTo(34f));
             Assert.That(loweredItem.style.top.value.value, Is.EqualTo(68f));
+            Assert.That(loweredItem.style.width.value.value, Is.EqualTo(100f));
+            Assert.That(loweredItem.style.height.value.value, Is.EqualTo(66f));
         }
 
         private static EveSurfaceDocument Document(EveSurfaceComponent root, string surfaceId = "test-surface")

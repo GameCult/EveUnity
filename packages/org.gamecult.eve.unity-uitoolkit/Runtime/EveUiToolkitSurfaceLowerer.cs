@@ -335,11 +335,23 @@ namespace GameCult.Eve.UnityUIToolkit
                 return;
             var cellSize = Math.Max(1f, ParseNumber(parent.GetProp("cellSize"), 72f));
             var gap = Math.Max(0f, ParseNumber(parent.GetProp("cellGap"), 4f));
+            var widthCells = Math.Max(1, ParseInt(child.GetProp("shapeWidth"), 1));
+            var heightCells = Math.Max(1, ParseInt(child.GetProp("shapeHeight"), 1));
+            var rotation = child.GetProp("rotation");
+            if (string.Equals(rotation, "Clockwise", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(rotation, "CounterClockwise", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(rotation, "Right", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(rotation, "Left", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(rotation, "Rotate90", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(rotation, "Rotate270", StringComparison.OrdinalIgnoreCase))
+            {
+                (widthCells, heightCells) = (heightCells, widthCells);
+            }
             element.style.position = Position.Absolute;
             element.style.left = Math.Max(0, ParseInt(child.GetProp("x"), 0)) * (cellSize + gap);
             element.style.top = Math.Max(0, ParseInt(child.GetProp("y"), 0)) * (cellSize + gap);
-            element.style.width = cellSize;
-            element.style.height = cellSize;
+            element.style.width = widthCells * cellSize + Math.Max(0, widthCells - 1) * gap;
+            element.style.height = heightCells * cellSize + Math.Max(0, heightCells - 1) * gap;
         }
 
         private static VisualElement? InventoryGridAncestor(VisualElement? element)

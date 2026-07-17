@@ -35,6 +35,8 @@ namespace GameCult.Eve.UnityScene
         private string _lookOwnerKey = "";
         private readonly Dictionary<string, HeldBindingState> _heldBindings =
             new Dictionary<string, HeldBindingState>(StringComparer.Ordinal);
+        private readonly Dictionary<string, PerformedBindingState> _performedBindings =
+            new Dictionary<string, PerformedBindingState>(StringComparer.Ordinal);
 
         public Func<string, bool?>? DigitalControlReader { get; set; }
 
@@ -126,6 +128,26 @@ namespace GameCult.Eve.UnityScene
                 issuedAt);
         }
 
+        public EveSurfaceCommandRequest? SubmitViewDirectionAction(
+            string actionId,
+            DateTimeOffset? issuedAt = null)
+        {
+            var resolvedHost = ResolveHost();
+            if (resolvedHost?.ActiveWorld == null || string.IsNullOrWhiteSpace(actionId))
+                return null;
+            var view = cameraTransform ?? resolvedHost.ActiveCameraTransform;
+            if (view == null || view.forward.sqrMagnitude <= 0.000001f)
+                return null;
+            var direction = view.forward.normalized;
+            return resolvedHost.SubmitAdvertisedActionViewDirectionIntent(
+                resolvedHost.ActiveWorld.PlayerEntityId,
+                actionId,
+                direction.x,
+                direction.y,
+                direction.z,
+                issuedAt);
+        }
+
         public EveSurfaceCommandRequest? SubmitLookInput(
             float horizontalDelta,
             DateTimeOffset? issuedAt = null)
@@ -199,10 +221,16 @@ namespace GameCult.Eve.UnityScene
             _nextCommandAt = Time.unscaledTime + Math.Max(0.01f, commandIntervalSeconds);
             SubmitMoveVectorInput(Input.GetAxisRaw(horizontalAxis), Input.GetAxisRaw(verticalAxis));
             SubmitPendingLookInput();
-            SubmitChangedHeldActions();
+            SubmitChangedAdvertisedActions();
 
             if (!string.IsNullOrWhiteSpace(actionButton) && Input.GetButtonDown(actionButton))
                 SubmitPrimaryAction();
+        }
+
+        public void SubmitChangedAdvertisedActions()
+        {
+            SubmitChangedHeldActions();
+            SubmitChangedPerformedActions();
         }
 
         private void SubmitChangedHeldActions()
@@ -245,6 +273,43 @@ namespace GameCult.Eve.UnityScene
             }
         }
 
+        private void SubmitChangedPerformedActions()
+        {
+            var resolvedHost = ResolveHost();
+            var capability = resolvedHost?.InputCapability;
+            if (resolvedHost?.ActiveWorld == null || capability == null)
+                return;
+
+            var profile = (capability.DefaultProfiles ?? Array.Empty<EveInputProfileDocument>())
+                .FirstOrDefault(value => string.Equals(value.DeviceClass, "keyboard-mouse", StringComparison.Ordinal));
+            var retained = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var binding in profile?.Bindings ?? Array.Empty<EveInputBindingDocument>())
+            {
+                var action = (capability.Actions ?? Array.Empty<EveInputActionDocument>())
+                    .FirstOrDefault(candidate => string.Equals(candidate.ActionId, binding.ActionId, StringComparison.Ordinal));
+                if (action == null ||
+                    !string.Equals(action.Availability, "available", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(action.InputValue?.Model, EveUnityAdvertisedInputAction.ButtonHoldValueModel, StringComparison.Ordinal) ||
+                    (!string.IsNullOrWhiteSpace(action.InputValue?.Model) &&
+                     !string.Equals(action.InputValue.Model, EveUnityAdvertisedInputAction.ViewDirectionValueModel, StringComparison.Ordinal)) ||
+                    !TryReadDigitalGesture(binding.Gesture, out var pressed))
+                    continue;
+
+                var stateKey = string.IsNullOrWhiteSpace(binding.BindingId) ? binding.ActionId : binding.BindingId;
+                retained.Add(stateKey);
+                var wasPressed = _performedBindings.TryGetValue(stateKey, out var previous) && previous.Pressed;
+                _performedBindings[stateKey] = new PerformedBindingState(binding.ActionId, pressed);
+                if (!pressed || wasPressed) continue;
+                if (string.Equals(action.InputValue?.Model, EveUnityAdvertisedInputAction.ViewDirectionValueModel, StringComparison.Ordinal))
+                    SubmitViewDirectionAction(binding.ActionId);
+                else
+                    resolvedHost.SubmitAdvertisedActionIntent(resolvedHost.ActiveWorld.PlayerEntityId, binding.ActionId);
+            }
+
+            foreach (var stale in _performedBindings.Keys.Where(key => !retained.Contains(key)).ToArray())
+                _performedBindings.Remove(stale);
+        }
+
         private bool TryReadDigitalGesture(EveInputGestureDocument? gesture, out bool pressed)
         {
             pressed = false;
@@ -283,6 +348,7 @@ namespace GameCult.Eve.UnityScene
             foreach (var state in _heldBindings.Values)
                 if (state.Pressed) TrySubmitRelease(state.ActionId);
             _heldBindings.Clear();
+            _performedBindings.Clear();
         }
 
         private void TrySubmitRelease(string actionId)
@@ -319,6 +385,18 @@ namespace GameCult.Eve.UnityScene
         private readonly struct HeldBindingState
         {
             public HeldBindingState(string actionId, bool pressed)
+            {
+                ActionId = actionId ?? "";
+                Pressed = pressed;
+            }
+
+            public string ActionId { get; }
+            public bool Pressed { get; }
+        }
+
+        private readonly struct PerformedBindingState
+        {
+            public PerformedBindingState(string actionId, bool pressed)
             {
                 ActionId = actionId ?? "";
                 Pressed = pressed;

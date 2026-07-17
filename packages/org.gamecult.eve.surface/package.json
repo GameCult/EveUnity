@@ -1,12 +1,23 @@
 {
     "name": "org.gamecult.eve.surface",
     "displayName": "Eve Surface Contract",
-    "version": "0.2.2",
+    "version": "0.2.3",
     "unity": "2021.3",
     "description": "Unity-compatible DTOs for gamecult.eve.surface.v1 documents.",
     "dependencies": {
         "org.gamecult.cultlib": "1.0.8"
     },
+    "files": [
+        "Runtime",
+        "Runtime.meta",
+        "README.md",
+        "README.md.meta",
+        "Directory.Build.props",
+        "Directory.Build.props.meta",
+        "GameCult.Eve.Surface.csproj",
+        "GameCult.Eve.Surface.csproj.meta",
+        "package.json.meta"
+    ],
     "keywords": [
         "Eve",
         "CultUI",

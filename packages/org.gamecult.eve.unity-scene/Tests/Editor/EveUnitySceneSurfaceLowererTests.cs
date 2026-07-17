@@ -1115,6 +1115,108 @@ namespace GameCult.Eve.UnityScene.Tests
         }
 
         [Test]
+        public void PlayableWorldInputDriverPerformsAdvertisedViewDirectionBindingOnPressEdge()
+        {
+            var rootObject = new GameObject("generic-eve-world-root");
+            var hostObject = new GameObject("generic-eve-client");
+            var cameraObject = new GameObject("generic-eve-camera");
+            hostObject.SetActive(false);
+
+            try
+            {
+                cameraObject.transform.rotation = Quaternion.Euler(30f, 90f, 0f);
+                var capability = new EveInputCapabilityDocument
+                {
+                    ProviderId = "generic-provider",
+                    CapabilityId = "pilot.input",
+                    Actions = new[]
+                    {
+                        new EveInputActionDocument
+                        {
+                            ActionId = "pilot.target-reticle",
+                            Operation = "generic.commands.TargetReticle",
+                            Availability = "available",
+                            InputValue = new EveInputValueDocument
+                            {
+                                Model = EveUnityAdvertisedInputAction.ViewDirectionValueModel,
+                                PayloadKeys = new[] { "directionX", "directionY", "directionZ" }
+                            }
+                        }
+                    },
+                    DefaultProfiles = new[]
+                    {
+                        new EveInputProfileDocument
+                        {
+                            ProfileId = "keyboard-mouse",
+                            DeviceClass = "keyboard-mouse",
+                            Bindings = new[]
+                            {
+                                new EveInputBindingDocument
+                                {
+                                    BindingId = "target.reticle.r",
+                                    ActionId = "pilot.target-reticle",
+                                    Gesture = new EveInputGestureDocument
+                                    {
+                                        Kind = "direct",
+                                        Controls = new[] { "keyboard.r" }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                };
+                var provider = hostObject.AddComponent<FakePlayableWorldProviderComponent>();
+                provider.Set(
+                    new EveUnitySceneProviderSurfaceDocument(
+                        PlayableArpgDocument(),
+                        Advertisement("aetheria.daemon.game"),
+                        "cultmesh://generic/eve/surfaces/game",
+                        1),
+                    new EveUnityPlayableWorldAssetManifestDocument(
+                        "cultmesh://generic/assets/manifest",
+                        Array.Empty<EveUnityPlayableWorldAssetManifestDocumentEntry>(),
+                        "generic-provider"),
+                    capability);
+                var host = hostObject.AddComponent<EveUnityPlayableWorldClientHost>();
+                host.Configure(rootObject.transform, provider, provider, provider, provider);
+                host.Connect();
+                var pressed = false;
+                var driver = hostObject.AddComponent<EveUnityPlayableWorldInputDriver>();
+                driver.Host = host;
+                driver.CameraTransform = cameraObject.transform;
+                driver.DigitalControlReader = control => control == "keyboard.r" ? pressed : (bool?)null;
+
+                driver.SubmitChangedAdvertisedActions();
+                pressed = true;
+                driver.SubmitChangedAdvertisedActions();
+                driver.SubmitChangedAdvertisedActions();
+
+                Assert.That(provider.Submitted.Count, Is.EqualTo(1));
+                var request = provider.Submitted.Single();
+                Assert.That(request.Payload.GetString("commandId"), Is.EqualTo("generic.commands.TargetReticle"));
+                Assert.That(request.Payload.GetString("entityId"), Is.EqualTo("player-vanguard"));
+                Assert.That(request.Payload.GetString("actionId"), Is.EqualTo("pilot.target-reticle"));
+                var expected = cameraObject.transform.forward.normalized;
+                Assert.That(request.Payload.GetDouble("directionX", 0), Is.EqualTo(expected.x).Within(0.000001));
+                Assert.That(request.Payload.GetDouble("directionY", 0), Is.EqualTo(expected.y).Within(0.000001));
+                Assert.That(request.Payload.GetDouble("directionZ", 0), Is.EqualTo(expected.z).Within(0.000001));
+
+                pressed = false;
+                driver.SubmitChangedAdvertisedActions();
+                pressed = true;
+                driver.SubmitChangedAdvertisedActions();
+                Assert.That(provider.Submitted.Count, Is.EqualTo(2),
+                    "a released and re-pressed generic binding must perform exactly once per press edge");
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(cameraObject);
+                UnityEngine.Object.DestroyImmediate(hostObject);
+                UnityEngine.Object.DestroyImmediate(rootObject);
+            }
+        }
+
+        [Test]
         public void PlayableWorldCameraRigFollowsAdvertisedPlayerEntityWithoutProviderTypes()
         {
             var rootObject = new GameObject("generic-eve-world-root");
@@ -2775,7 +2877,8 @@ namespace GameCult.Eve.UnityScene.Tests
             IEveUnityPlayableWorldAssetManifestDocumentSource,
             IEveUnitySceneCommandSink,
             IEveUnitySceneCommandReceiptSource,
-            IEveUnityProviderRefreshSource
+            IEveUnityProviderRefreshSource,
+            IEveUnityInputCapabilitySource
         {
             public List<EveSurfaceCommandRequest> Submitted { get; } = new List<EveSurfaceCommandRequest>();
 
@@ -2798,6 +2901,9 @@ namespace GameCult.Eve.UnityScene.Tests
                     Array.Empty<EveUnityPlayableWorldAssetManifestDocumentEntry>(),
                     "aetheria");
 
+            public EveInputCapabilityDocument CurrentInputCapability { get; private set; } =
+                new EveInputCapabilityDocument();
+
             EveUnitySceneProviderSurfaceDocument IEveUnitySceneProviderSurfaceDocumentSource.CurrentDocument =>
                 CurrentSurfaceDocument;
 
@@ -2815,10 +2921,12 @@ namespace GameCult.Eve.UnityScene.Tests
 
             public void Set(
                 EveUnitySceneProviderSurfaceDocument surfaceDocument,
-                EveUnityPlayableWorldAssetManifestDocument assetManifest)
+                EveUnityPlayableWorldAssetManifestDocument assetManifest,
+                EveInputCapabilityDocument? inputCapability = null)
             {
                 CurrentSurfaceDocument = surfaceDocument;
                 CurrentDocument = assetManifest;
+                CurrentInputCapability = inputCapability ?? new EveInputCapabilityDocument();
             }
 
             public void Refresh()

@@ -15,6 +15,13 @@ selection filters; they are not product knowledge required by the client.
 
 The package never imports provider product assemblies.
 
+Advertised input bindings are performed from the provider's semantic action
+catalog. Direct and chord gestures submit once per press edge; held values
+submit their advertised press/release scalar. `view-direction.v1` samples the
+active world camera's normalized world-space forward direction into the three
+advertised payload keys. Providers own what that ray means; EveUnity never
+selects targets or imports provider gameplay policy.
+
 `IEveUnityPresentedEntityRegistry` exposes each committed SoA generation as
 immutable entity facts plus presentation transforms, addressable by Eve entity
 id or source index. Camera, selection, and provider UI adapters consume that

@@ -227,6 +227,21 @@ namespace GameCult.Eve.UnityScene
                 issuedAt);
         }
 
+        public EveSurfaceCommandRequest SubmitAdvertisedActionViewDirectionIntent(
+            string entityId,
+            string actionId,
+            float directionX,
+            float directionY,
+            float directionZ,
+            DateTimeOffset? issuedAt = null)
+        {
+            var action = EveUnityAdvertisedInputAction.Resolve(InputCapability, actionId);
+            return RequireRuntime().SubmitCommandIntent(
+                action.Operation,
+                action.BuildViewDirectionPayload(entityId, directionX, directionY, directionZ),
+                issuedAt);
+        }
+
         public void Disconnect()
         {
             if (_cameraOwner is EveUnityPlayableWorldCameraRig rig)

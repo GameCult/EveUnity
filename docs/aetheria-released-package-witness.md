@@ -1,8 +1,49 @@
 # Aetheria released-package witness
 
-## Current result
+## Current integration gate
 
-The released-package cold world witness passes with:
+The generic `ReleaseConsumerProject` is pinned to released Git packages:
+
+- `org.gamecult.eve.unity-scene` `0.3.65` and
+  `org.gamecult.eve.surface` `0.2.4`, commit
+  `e08fa08335f99e9edddeb706912eecfad07cb281`;
+- `org.gamecult.eve.plugin-fields` `0.2.3`, commit
+  `c5a4a75c1b727499b16c2dae1895f29e2a9f72f0`;
+- `org.gamecult.eve.unity-uitoolkit` `0.1.1`, commit
+  `4d0cbe0185bdc4fc65eb63503a7c5cb578539669`;
+- `org.gamecult.cultlib` `1.0.16`, commit
+  `69caf2d027c49227e62ffa24452fc7d717f86ca5`.
+
+The hand-run integration gate is the warm released-package witness:
+
+```powershell
+pwsh -File .\scripts\run-aetheria-daemon-world-witness.ps1 `
+  -CacheState warm `
+  -AssetCacheDirectory artifacts\aetheria-daemon-temporal-projection-0363-warm-hd\asset-cache `
+  -OutputDirectory artifacts\aetheria-manual-integration `
+  -PrimeWarmCacheFromProviderBundle
+```
+
+It connects directly to the Aetheria daemon and must produce one passing
+PlayMode result, a pilot capture, a map-only capture, and typed witness facts.
+The current assertions require provider-owned assets, movement, camera-channel
+isolation, combat, destruction-created loot, daemon-owned XZ proximity
+collection or capacity refusal, held tractor input, and authoritative receipts.
+They do not require or accept Ymir contact identity as the owner of looting.
+The explicit prime flag rebuilds the provider bundle and installs that exact
+content-hashed body into the local warm cache. This is convenient local setup,
+not CDN-transfer evidence. On later runs, use `-SkipAssetBundleBuild` and omit
+the prime flag when neither provider assets nor their catalog changed.
+
+Cold transfer is not a passing integration gate. The current bundle is
+`56,193,661` bytes and recent cold runs still exceed the 300-second witness
+deadline while asset bytes travel through batched snapshot records. Do not
+increase the timeout or describe this as proven; the intended repair is mapped
+or network-body transport. `-CacheState cold` remains a diagnostic run.
+
+## Historical witness ledger
+
+An earlier released-package cold world witness passed with:
 
 - `org.gamecult.eve.unity-scene` `0.3.63`, commit
   `3135d24bb84f40719b121b51634811c85af0a7af`;
@@ -275,9 +316,15 @@ Primary artifacts:
 - `aetheria-daemon-world.png`: pilot-camera capture;
 - `aetheria-daemon-map.png`: map-only capture.
 
-## Cold delivery proof
+## Cold delivery status
 
-Cold CDN transfer passes with the current released package set. The
+Cold CDN transfer is currently failing and is not part of the passing readiness
+gate. The latest retained failing runs time out after 300 seconds before the
+provider bundle is promoted. The current transport still carries large asset
+payloads through batched snapshot records instead of the intended mapped or
+network body path.
+
+The following is historical evidence, not a current claim. A prior
 `cold-start-lowering` run in `artifacts/aetheria-daemon-current-cold` began with
 zero cached bodies, received one typed manifest snapshot, transferred bounded
 payload chunks through the managed CultMesh content session, and atomically
@@ -288,9 +335,9 @@ lowered the shield-free provider hull, and preserved pilot/map camera isolation
 within the unchanged 300-second deadline; total witness time was `102,912.852`
 milliseconds.
 
-The separate passing `full-session-gameplay` witness starts from the verified
-warm body and proves movement, combat, destruction-created canonical loot, Ymir
-contact collection, and exactly-once cargo mutation. This proves cold acquisition
+The separate historical `full-session-gameplay` witness started from the verified
+warm body and proved movement, combat, destruction-created canonical loot, and
+exactly-once cargo mutation. This proved cold acquisition
 and local mapped reuse, not provider-to-client network zero-copy, shared-memory
 delivery, or GPU zero-copy. Managed network bytes are still copied and fragmented
 before the transfer owner commits the mapped file.

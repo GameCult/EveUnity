@@ -7,10 +7,12 @@ param(
   [string] $ClientProject = "ReleaseConsumerProject",
   [int] $Port = 3076,
   [string] $OutputDirectory = "artifacts\aetheria-daemon",
+  [string] $AssetCacheDirectory = "",
   [ValidateSet("auto", "cold", "warm")]
-  [string] $CacheState = "auto",
+  [string] $CacheState = "warm",
   [ValidateSet("released-client-proof", "cargo-capacity-rejection-proof")]
   [string] $GameplayScenario = "released-client-proof",
+  [switch] $PrimeWarmCacheFromProviderBundle,
   [switch] $SkipAssetBundleBuild
 )
 
@@ -18,10 +20,17 @@ $ErrorActionPreference = "Stop"
 $expectedEveUnityCommit = "e08fa08335f99e9edddeb706912eecfad07cb281"
 $expectedEveFieldsCommit = "c5a4a75c1b727499b16c2dae1895f29e2a9f72f0"
 $expectedEveUnityUiToolkitCommit = "4d0cbe0185bdc4fc65eb63503a7c5cb578539669"
-$expectedCultLibCommit = "419053ebe2325848051c4f4d8ba352cd4286c424"
+$expectedCultLibCommit = "69caf2d027c49227e62ffa24452fc7d717f86ca5"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $projectRoot = $ClientProject
 $outputRoot = if ([IO.Path]::IsPathRooted($OutputDirectory)) { $OutputDirectory } else { Join-Path $repoRoot $OutputDirectory }
+$assetCachePath = if ([string]::IsNullOrWhiteSpace($AssetCacheDirectory)) {
+  Join-Path $outputRoot "asset-cache"
+} elseif ([IO.Path]::IsPathRooted($AssetCacheDirectory)) {
+  $AssetCacheDirectory
+} else {
+  Join-Path $repoRoot $AssetCacheDirectory
+}
 $resultsPath = Join-Path $outputRoot "results.xml"
 $unityLogPath = Join-Path $outputRoot "unity.log"
 $bundleBuildLogPath = Join-Path $outputRoot "asset-bundle-build.log"
@@ -32,7 +41,6 @@ $factsPath = Join-Path $outputRoot "witness-facts.json"
 $providerReadyPath = Join-Path $outputRoot "provider-ready.txt"
 $witnessPath = Join-Path $outputRoot "runtime-witness.json"
 $replicaPath = Join-Path $outputRoot "eve-unity-replica.cc"
-$assetCachePath = Join-Path $outputRoot "asset-cache"
 $statePath = Join-Path $outputRoot "aetheria-witness-state.cc"
 $providerBundlePath = Join-Path $AetheriaRoot "Build\EveAssets\StandaloneWindows64\aetheria-world"
 $daemonProject = Join-Path $AetheriaRoot "Aetheria.State.Daemon\Aetheria.State.Daemon.csproj"
@@ -63,10 +71,7 @@ if ($CacheState -eq "cold" -and ($initialBodyCount -ne 0 -or $initialPartialCoun
   throw "Cold witness cache was not empty before Unity launch. bodies=$initialBodyCount partials=$initialPartialCount"
 }
 $cacheWasWarm = @(Get-ChildItem -LiteralPath $assetCachePath -Filter *.body -File -ErrorAction SilentlyContinue).Count -gt 0
-if ($CacheState -eq "warm" -and -not $cacheWasWarm) {
-  throw "Warm witness requested without an existing verified bundle cache at $assetCachePath"
-}
-$observedCacheState = if ($cacheWasWarm) { "warm" } else { "cold" }
+$observedCacheState = if ($CacheState -eq "warm") { "warm" } elseif ($cacheWasWarm) { "warm" } else { "cold" }
 $witnessProfile = if ($observedCacheState -eq "cold") {
   "cold-start-lowering"
 } else {
@@ -119,14 +124,35 @@ if (-not $SkipAssetBundleBuild) {
   Write-Host "AssetBundle builder PID: $($bundleBuilder.Id)"
   Write-Host "AssetBundle build log: $bundleBuildLogPath"
   Write-Host "Poll: Get-Content '$bundleBuildLogPath' -Tail 20"
-  if (-not $bundleBuilder.WaitForExit(240000)) {
+  if (-not $bundleBuilder.WaitForExit(360000)) {
     Stop-Process -Id $bundleBuilder.Id -Force -ErrorAction SilentlyContinue
-    throw "Aetheria AssetBundle build exceeded 240 seconds. See $bundleBuildLogPath"
+    throw "Aetheria AssetBundle build exceeded 360 seconds. See $bundleBuildLogPath"
   }
   if ($bundleBuilder.ExitCode -ne 0) {
     Get-Content $bundleBuildLogPath -Tail 160
     throw "Aetheria AssetBundle build failed with exit code $($bundleBuilder.ExitCode)"
   }
+}
+if ($PrimeWarmCacheFromProviderBundle) {
+  if ($CacheState -ne "warm") {
+    throw "Local provider-bundle priming is only valid for an explicitly warm witness."
+  }
+  if (-not (Test-Path -LiteralPath $providerBundlePath)) {
+    throw "Provider-owned Aetheria bundle is missing: $providerBundlePath"
+  }
+  New-Item -ItemType Directory -Force -Path $assetCachePath | Out-Null
+  $primeHash = (Get-FileHash -LiteralPath $providerBundlePath -Algorithm SHA256).Hash.ToLowerInvariant()
+  $primeTarget = Join-Path $assetCachePath "$primeHash.body"
+  if (-not (Test-Path -LiteralPath $primeTarget)) {
+    $primePartial = Join-Path $assetCachePath "$primeHash.partial.local-prime"
+    Copy-Item -LiteralPath $providerBundlePath -Destination $primePartial -Force
+    if ((Get-FileHash -LiteralPath $primePartial -Algorithm SHA256).Hash.ToLowerInvariant() -ne $primeHash) {
+      Remove-Item -LiteralPath $primePartial -Force -ErrorAction SilentlyContinue
+      throw "Locally primed provider bundle failed its content-hash check."
+    }
+    Move-Item -LiteralPath $primePartial -Destination $primeTarget -Force
+  }
+  Write-Host "Warm cache primed locally from the provider bundle; this is not CDN-transfer evidence: $primeTarget"
 }
 if ($CacheState -eq "warm") {
   if (-not (Test-Path -LiteralPath $providerBundlePath)) {
@@ -278,17 +304,17 @@ try {
   if ($witnessProfile -eq "full-session-gameplay") {
     if (-not $facts.combatPresentation -or [string]::IsNullOrWhiteSpace($facts.shotId) -or
         [double]$facts.lockProgress -le 0.99 -or -not $facts.destructionLoot) {
-      throw "Full-session witness did not prove combat and Ymir-contact destruction loot."
+      throw "Full-session witness did not prove combat and daemon-proximity destruction loot."
     }
     if ($GameplayScenario -eq "cargo-capacity-rejection-proof") {
       if ($facts.gameplayScenario -ne $GameplayScenario -or -not $facts.pickupRejection -or
           [int]$facts.pickupRejectionEventCount -lt 1 -or [int]$facts.pickupCollectionEventCount -ne 0 -or
           $facts.pickupRejectionReason -ne "cargo-capacity" -or
           [double]$facts.cargoQuantityBeforeRejection -ne [double]$facts.cargoQuantityAfterRejection) {
-        throw "Full-session rejection witness did not prove player cargo-capacity refusal from distinct Ymir contact facts."
+        throw "Full-session rejection witness did not prove player cargo-capacity refusal at daemon pickup proximity."
       }
     } elseif (-not $facts.pickupCollection -or [int]$facts.pickupCollectionEventCount -ne 1) {
-      throw "Full-session collection witness did not prove exactly-once player destruction-loot collection from a Ymir contact fact."
+      throw "Full-session collection witness did not prove exactly-once player destruction-loot collection at daemon pickup proximity."
     }
   }
   $releaseLock = Get-Content -LiteralPath (Join-Path $repoRoot "ReleaseConsumerProject\Packages\packages-lock.json") -Raw | ConvertFrom-Json

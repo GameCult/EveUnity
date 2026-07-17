@@ -522,7 +522,13 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 var inputDriver = root.GetComponent<EveUnityPlayableWorldInputDriver>() ??
                     root.AddComponent<EveUnityPlayableWorldInputDriver>();
                 inputDriver.Host = host;
-                var action = inputDriver.SubmitPrimaryAction();
+                var primaryActionId = EveUnityPlayableWorldInputDriver.ResolvePrimaryActionId(host.InputCapability);
+                Assert.That(primaryActionId, Is.Not.Empty,
+                    "The advertised input capability did not bind a primary action for this generic client.");
+                var primaryAction = EveUnityAdvertisedInputAction.Resolve(host.InputCapability, primaryActionId);
+                Assert.That(primaryAction.IsButtonHold, Is.True,
+                    "The witness primary action must be driven through its advertised held-input semantics.");
+                var action = inputDriver.SubmitActionValue(primaryActionId, 1f);
                 Assert.That(action, Is.Not.Null,
                     "The advertised input capability did not bind a primary action for this generic client.");
                 var actionDeadline = Time.realtimeSinceStartup + 12f;
@@ -569,6 +575,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     "Daemon destruction did not publish its guaranteed cargo as a pickup.");
                 var collectionDeadline = Time.realtimeSinceStartup + 15f;
                 var nextTractorAimAt = 0f;
+                var salvageApproachActive = false;
                 while (Time.realtimeSinceStartup < collectionDeadline &&
                        (expectCargoRejection ? pickupRejection == null : pickupCollection == null))
                 {
@@ -589,23 +596,27 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                         continue;
                     tractorAim.Normalize();
                     runtime.SubmitLookDirectionIntent(playerId, tractorAim.x, 0f, tractorAim.z);
+                    runtime.SubmitMoveVectorIntent(playerId, 0f, 1f, 1f);
+                    salvageApproachActive = true;
                     nextTractorAimAt = Time.realtimeSinceStartup + 0.25f;
                 }
+                if (salvageApproachActive)
+                    runtime.SubmitMoveVectorIntent(playerId, 0f, 0f, 0f);
                 finalPickupEntityCount = host.PresentedEntities.CurrentGeneration.Entities.Count(entity =>
                     string.Equals(entity.EntityKind, "pickup", StringComparison.Ordinal));
                 if (expectCargoRejection)
                 {
                     Assert.That(pickupRejection, Is.Not.Null,
-                        "Full cargo did not reject destruction salvage from its Ymir contact fact.");
+                        "Full cargo did not reject destruction salvage at daemon pickup proximity.");
                     Assert.That(pickupRejectionEventCount, Is.EqualTo(1),
-                        "The first destruction-loot Ymir contact transaction must emit one rejection event.");
+                        "The first destruction-loot proximity attempt must emit one rejection event.");
                     Assert.That(pickupRejectionEventIds.Count, Is.EqualTo(pickupRejectionEventCount),
-                        "One Ymir fact identity emitted duplicate player rejection feedback.");
+                        "One daemon proximity attempt emitted duplicate player rejection feedback.");
                     Assert.That(pickupCollectionEventCount, Is.Zero,
                         "Capacity-rejected salvage was also collected.");
                     Assert.That(pickupRejection.ItemKey, Is.Not.Empty);
-                    Assert.That(pickupRejection.EventId, Does.StartWith("ymir-fact:"),
-                        "Rejection feedback must retain the consumed Ymir fact identity.");
+                    Assert.That(pickupRejection.EventId, Does.StartWith("frame:"),
+                        "Capacity feedback must retain its daemon frame/zone/pickup attempt identity.");
                     Assert.That(pickupRejection.Reason, Is.EqualTo("cargo-capacity"));
                     Assert.That(pickupRejection.ScalarValue, Is.EqualTo(1));
                     Assert.That(pickupRejection.CargoQuantityAfter,
@@ -616,15 +627,15 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 else
                 {
                     Assert.That(pickupCollection, Is.Not.Null,
-                        "Destruction-created salvage never reached cargo through a Ymir contact fact.");
+                        "Destruction-created salvage never reached cargo through daemon pickup proximity.");
                     Assert.That(pickupCollectionEventCount, Is.EqualTo(1),
-                        "One destruction-loot Ymir contact transaction must emit one collection event.");
+                        "One durable destruction pickup must emit one collection event.");
                     Assert.That(pickupRejectionEventCount, Is.Zero,
                         "Collectible destruction salvage was also rejected.");
                     Assert.That(pickupCollection.ItemKey, Is.Not.Empty,
                         "Destruction loot must retain its canonical typed item identity.");
-                    Assert.That(pickupCollection.EventId, Does.StartWith("ymir-fact:"),
-                        "Collection feedback must retain the consumed Ymir fact identity.");
+                    Assert.That(pickupCollection.EventId, Does.StartWith("zone:"),
+                        "Collection feedback must retain its stable daemon zone/pickup identity.");
                     Assert.That(pickupCollection.ScalarValue, Is.EqualTo(1));
                     Assert.That(pickupCollection.CargoQuantityBefore, Is.Zero);
                     Assert.That(pickupCollection.CargoQuantityAfter, Is.EqualTo(1));
@@ -1127,8 +1138,8 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     pickupCollectionEventCount == 0 &&
                     string.Equals(pickupRejection.Reason, "cargo-capacity", StringComparison.Ordinal) &&
                     pickupRejection.CargoQuantityAfter == pickupRejection.CargoQuantityBefore,
-                destructionLoot = (pickupCollection?.EventId ?? pickupRejection?.EventId ?? "")
-                    .StartsWith("ymir-fact:", StringComparison.Ordinal),
+                destructionLoot = pickupEvent != null && !string.IsNullOrWhiteSpace(pickupEvent.EventId) &&
+                    !string.IsNullOrWhiteSpace(pickupEvent.ItemKey) && pickupEvent.ScalarValue > 0,
                 initialPickupEntityCount = initialPickupEntityCount,
                 finalPickupEntityCount = finalPickupEntityCount,
                 pickupCollectionEventCount = pickupCollectionEventCount,

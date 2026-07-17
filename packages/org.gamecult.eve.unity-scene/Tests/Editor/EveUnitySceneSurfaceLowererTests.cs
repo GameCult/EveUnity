@@ -1217,6 +1217,121 @@ namespace GameCult.Eve.UnityScene.Tests
         }
 
         [Test]
+        public void GenericActionBarSelectsSuggestionsAndSubmitsScalarThroughAdvertisedOperation()
+        {
+            var rootObject = new GameObject("generic-eve-world-root");
+            var hostObject = new GameObject("generic-eve-client");
+            hostObject.SetActive(false);
+
+            try
+            {
+                var capability = new EveInputCapabilityDocument
+                {
+                    ProviderId = "generic-provider",
+                    CapabilityId = "pilot.input",
+                    Actions = new[]
+                    {
+                        new EveInputActionDocument
+                        {
+                            ActionId = "equipment.0.temperature",
+                            Label = "Target Temperature",
+                            Operation = "generic.commands.SetTemperature",
+                            Availability = "available",
+                            ActionBar = true,
+                            IconRef = "item.thermostat.icon",
+                            Payload = new Dictionary<string, string>(StringComparer.Ordinal)
+                            {
+                                ["equipmentIndex"] = "0",
+                                ["behaviorIndex"] = "3"
+                            },
+                            InputValue = new EveInputValueDocument
+                            {
+                                Model = EveUnityAdvertisedInputAction.ScalarValueModel,
+                                PayloadKey = "scalarValue",
+                                CurrentValue = 300,
+                                Unit = "kelvin"
+                            }
+                        },
+                        new EveInputActionDocument
+                        {
+                            ActionId = "pilot.interact",
+                            Label = "Interact",
+                            Operation = "generic.commands.Interact",
+                            Availability = "available"
+                        },
+                        new EveInputActionDocument
+                        {
+                            ActionId = "pilot.hidden",
+                            Label = "Hidden",
+                            Operation = "generic.commands.Hidden",
+                            Availability = "available"
+                        }
+                    },
+                    DefaultProfiles = new[]
+                    {
+                        new EveInputProfileDocument
+                        {
+                            ProfileId = "keyboard-mouse",
+                            DeviceClass = "keyboard-mouse",
+                            Bindings = new[]
+                            {
+                                new EveInputBindingDocument
+                                {
+                                    BindingId = "interact.f",
+                                    ActionId = "pilot.interact",
+                                    ActionBar = true,
+                                    Gesture = new EveInputGestureDocument
+                                    {
+                                        Kind = "direct",
+                                        Controls = new[] { "keyboard.f" }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                };
+                Assert.That(EveUnityInputActionBar.SelectActions(capability)
+                        .Select(action => action.ActionId),
+                    Is.EqualTo(new[] { "pilot.interact", "equipment.0.temperature" }));
+
+                var provider = hostObject.AddComponent<FakePlayableWorldProviderComponent>();
+                provider.Set(
+                    new EveUnitySceneProviderSurfaceDocument(
+                        PlayableArpgDocument(),
+                        Advertisement("aetheria.daemon.game"),
+                        "cultmesh://generic/eve/surfaces/game",
+                        1),
+                    new EveUnityPlayableWorldAssetManifestDocument(
+                        "cultmesh://generic/assets/manifest",
+                        Array.Empty<EveUnityPlayableWorldAssetManifestDocumentEntry>(),
+                        "generic-provider"),
+                    capability);
+                var host = hostObject.AddComponent<EveUnityPlayableWorldClientHost>();
+                host.Configure(rootObject.transform, provider, provider, provider, provider);
+                host.Connect();
+                var bar = hostObject.GetComponent<EveUnityInputActionBar>();
+                Assert.That(bar, Is.Not.Null);
+                bar!.RefreshNow();
+                Assert.That(bar.PresentedActionIds,
+                    Is.EquivalentTo(new[] { "pilot.interact", "equipment.0.temperature" }));
+
+                bar.SubmitScalar("equipment.0.temperature", "425.5");
+
+                var request = provider.Submitted.Single();
+                Assert.That(request.Payload.GetString("commandId"), Is.EqualTo("generic.commands.SetTemperature"));
+                Assert.That(request.Payload.GetString("entityId"), Is.EqualTo("player-vanguard"));
+                Assert.That(request.Payload.GetString("actionId"), Is.EqualTo("equipment.0.temperature"));
+                Assert.That(request.Payload.GetString("equipmentIndex"), Is.EqualTo("0"));
+                Assert.That(request.Payload.GetDouble("scalarValue", 0), Is.EqualTo(425.5).Within(0.000001));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(hostObject);
+                UnityEngine.Object.DestroyImmediate(rootObject);
+            }
+        }
+
+        [Test]
         public void PlayableWorldCameraRigFollowsAdvertisedPlayerEntityWithoutProviderTypes()
         {
             var rootObject = new GameObject("generic-eve-world-root");

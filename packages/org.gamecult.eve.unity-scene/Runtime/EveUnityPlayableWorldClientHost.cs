@@ -118,6 +118,9 @@ namespace GameCult.Eve.UnityScene
             var fieldParticles = GetComponent<EveUnityFieldsParticleRenderer>();
             if (fieldParticles == null) fieldParticles = gameObject.AddComponent<EveUnityFieldsParticleRenderer>();
             fieldParticles.Bind(this, providerSurfaceDocuments as IEveUnityFieldsSplatsDocumentSource);
+            var actionBar = GetComponent<EveUnityInputActionBar>();
+            if (actionBar == null) actionBar = gameObject.AddComponent<EveUnityInputActionBar>();
+            actionBar.Bind(this);
 
             var presentation = Runtime.Connect();
             ConnectionEpoch++;
@@ -220,7 +223,10 @@ namespace GameCult.Eve.UnityScene
             float inputValue,
             DateTimeOffset? issuedAt = null)
         {
-            var action = EveUnityAdvertisedInputAction.Resolve(InputCapability, actionId);
+            var action = EveUnityAdvertisedInputAction.Resolve(
+                InputCapability,
+                actionId,
+                requireAvailable: inputValue != 0f);
             return RequireRuntime().SubmitCommandIntent(
                 action.Operation,
                 action.BuildPayload(entityId, inputValue),
@@ -239,6 +245,19 @@ namespace GameCult.Eve.UnityScene
             return RequireRuntime().SubmitCommandIntent(
                 action.Operation,
                 action.BuildViewDirectionPayload(entityId, directionX, directionY, directionZ),
+                issuedAt);
+        }
+
+        public EveSurfaceCommandRequest SubmitAdvertisedActionScalarIntent(
+            string entityId,
+            string actionId,
+            double value,
+            DateTimeOffset? issuedAt = null)
+        {
+            var action = EveUnityAdvertisedInputAction.Resolve(InputCapability, actionId);
+            return RequireRuntime().SubmitCommandIntent(
+                action.Operation,
+                action.BuildScalarPayload(entityId, value),
                 issuedAt);
         }
 

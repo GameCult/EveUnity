@@ -30,6 +30,8 @@ namespace GameCult.Eve.Surface
         [Key(6)] public string SourceRef { get; set; } = "";
         [Key(7)] public Dictionary<string, string> Payload { get; set; } = new Dictionary<string, string>(StringComparer.Ordinal);
         [Key(8)] public EveInputValueDocument? InputValue { get; set; }
+        [Key(9)] public string IconRef { get; set; } = "";
+        [Key(10)] public bool ActionBar { get; set; }
     }
 
     [MessagePackObject]
@@ -38,6 +40,11 @@ namespace GameCult.Eve.Surface
         [Key(0)] public string Model { get; set; } = "";
         [Key(1)] public string PayloadKey { get; set; } = "";
         [Key(2)] public string[] PayloadKeys { get; set; } = Array.Empty<string>();
+        [Key(3)] public double? CurrentValue { get; set; }
+        [Key(4)] public double? MinimumValue { get; set; }
+        [Key(5)] public double? MaximumValue { get; set; }
+        [Key(6)] public double? StepValue { get; set; }
+        [Key(7)] public string Unit { get; set; } = "";
     }
 
     [MessagePackObject]

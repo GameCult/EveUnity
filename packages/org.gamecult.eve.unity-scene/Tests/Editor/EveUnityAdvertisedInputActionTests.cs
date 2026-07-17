@@ -66,6 +66,34 @@ namespace GameCult.Eve.UnityScene.Tests
         }
 
         [Test]
+        public void UnavailableActionCanOnlyBeResolvedForReleaseCleanup()
+        {
+            var capability = new EveInputCapabilityDocument
+            {
+                Actions = new[]
+                {
+                    new EveInputActionDocument
+                    {
+                        ActionId = "pilot.scoop",
+                        Operation = "provider.commands.SetPower",
+                        Availability = "unavailable",
+                        InputValue = new EveInputValueDocument
+                        {
+                            Model = EveUnityAdvertisedInputAction.ButtonHoldValueModel,
+                            PayloadKey = "active"
+                        }
+                    }
+                }
+            };
+
+            Assert.Throws<InvalidOperationException>(() =>
+                EveUnityAdvertisedInputAction.Resolve(capability, "pilot.scoop"));
+            Assert.DoesNotThrow(() =>
+                EveUnityAdvertisedInputAction.Resolve(capability, "pilot.scoop", requireAvailable: false)
+                    .BuildPayload("entity.4", 0));
+        }
+
+        [Test]
         public void ViewDirectionUsesAdvertisedKeysAndNormalizesWithoutMutatingCapability()
         {
             var sourcePayload = new Dictionary<string, string>(StringComparer.Ordinal)
@@ -144,6 +172,51 @@ namespace GameCult.Eve.UnityScene.Tests
                 }
             }, "pilot.target-reticle");
             Assert.Throws<ArgumentOutOfRangeException>(() => action.BuildViewDirectionPayload("entity.4", 0f, 0f, 0f));
+        }
+
+        [Test]
+        public void ScalarUsesAdvertisedStateAndRangeWithoutMutatingCapability()
+        {
+            var sourcePayload = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["scalarValue"] = "300",
+                ["equipmentIndex"] = "2"
+            };
+            var action = EveUnityAdvertisedInputAction.Resolve(new EveInputCapabilityDocument
+            {
+                Actions = new[]
+                {
+                    new EveInputActionDocument
+                    {
+                        ActionId = "equipment.2.temperature",
+                        Operation = "provider.commands.SetTemperature",
+                        Availability = "available",
+                        Payload = sourcePayload,
+                        InputValue = new EveInputValueDocument
+                        {
+                            Model = EveUnityAdvertisedInputAction.ScalarValueModel,
+                            PayloadKey = "scalarValue",
+                            CurrentValue = 300,
+                            MinimumValue = 100,
+                            MaximumValue = 600,
+                            StepValue = 5,
+                            Unit = "kelvin"
+                        }
+                    }
+                }
+            }, "equipment.2.temperature");
+
+            var payload = action.BuildScalarPayload("entity.4", 425.5);
+
+            Assert.That(action.IsScalar, Is.True);
+            Assert.That(action.CurrentValue, Is.EqualTo(300));
+            Assert.That(action.Unit, Is.EqualTo("kelvin"));
+            Assert.That(payload["scalarValue"], Is.EqualTo("425.5"));
+            Assert.That(payload["equipmentIndex"], Is.EqualTo("2"));
+            Assert.That(sourcePayload["scalarValue"], Is.EqualTo("300"));
+            Assert.Throws<ArgumentOutOfRangeException>(() => action.BuildScalarPayload("entity.4", 99));
+            Assert.Throws<ArgumentOutOfRangeException>(() => action.BuildScalarPayload("entity.4", 601));
+            Assert.Throws<ArgumentOutOfRangeException>(() => action.BuildScalarPayload("entity.4", double.NaN));
         }
     }
 }

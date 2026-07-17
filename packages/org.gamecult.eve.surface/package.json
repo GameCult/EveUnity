@@ -1,7 +1,7 @@
 {
     "name": "org.gamecult.eve.surface",
     "displayName": "Eve Surface Contract",
-    "version": "0.2.3",
+    "version": "0.2.4",
     "unity": "2021.3",
     "description": "Unity-compatible DTOs for gamecult.eve.surface.v1 documents.",
     "dependencies": {

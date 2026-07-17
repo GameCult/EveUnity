@@ -22,6 +22,14 @@ active world camera's normalized world-space forward direction into the three
 advertised payload keys. Providers own what that ray means; EveUnity never
 selects targets or imports provider gameplay policy.
 
+`EveUnityInputActionBar` lowers provider suggestions and profile-visible actions
+from that same catalog. It resolves `iconRef` through the provider asset
+manifest, disables unavailable actions, preserves press/release behavior for
+held controls, samples the active camera for view-direction controls, and
+submits `scalar.v1` values from an explicit numeric field. Its named UI Toolkit
+elements and classes are presentation levers; the component never imports a
+provider assembly or mutates provider-owned current values optimistically.
+
 `IEveUnityPresentedEntityRegistry` exposes each committed SoA generation as
 immutable entity facts plus presentation transforms, addressable by Eve entity
 id or source index. Camera, selection, and provider UI adapters consume that

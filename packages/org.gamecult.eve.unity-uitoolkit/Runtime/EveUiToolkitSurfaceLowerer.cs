@@ -13,6 +13,10 @@ namespace GameCult.Eve.UnityUIToolkit
     public sealed class EveUiToolkitSurfaceLowerer
     {
         private readonly EveUiToolkitSurfaceOptions _options;
+        private EveSurfaceComponent? _inventoryDragSource;
+        private Vector2 _inventoryDragStart;
+        private bool _inventoryPointerMoved;
+        private bool _suppressInventoryClick;
 
         public EveUiToolkitSurfaceLowerer(EveUiToolkitSurfaceOptions? options = null)
         {
@@ -43,7 +47,11 @@ namespace GameCult.Eve.UnityUIToolkit
             ApplyGeneratedLayout(element, component);
 
             foreach (var child in component.Children)
-                element.Add(LowerComponent(child, document, commandSink));
+            {
+                var loweredChild = LowerComponent(child, document, commandSink);
+                PositionInventoryChild(component, child, loweredChild);
+                element.Add(loweredChild);
+            }
 
             foreach (var slot in component.EmbeddedDocuments)
             {
@@ -97,6 +105,12 @@ namespace GameCult.Eve.UnityUIToolkit
                     element.style.alignItems = Align.Stretch;
                     return element;
                 }
+                case EveInventoryInteraction.GridKind:
+                    return InventoryGrid(component, document, commandSink);
+                case EveInventoryInteraction.ItemKind:
+                    return InventoryItem(component, document, commandSink);
+                case EveInventoryInteraction.DragSessionKind:
+                    return InventoryDragSession(component);
                 case "partition":
                 {
                     var element = new VisualElement();
@@ -209,6 +223,167 @@ namespace GameCult.Eve.UnityUIToolkit
                 }
             }
         }
+
+        private VisualElement InventoryGrid(
+            EveSurfaceComponent component,
+            EveSurfaceDocument document,
+            Action<EveSurfaceCommandRequest>? commandSink)
+        {
+            var grid = new VisualElement();
+            grid.AddToClassList("eve-inventory-grid");
+            grid.style.position = Position.Relative;
+            var columns = Math.Max(1, ParseInt(component.GetProp("columns"), 6));
+            var rows = Math.Max(1, ParseInt(component.GetProp("rows"), 3));
+            var cellSize = Math.Max(1f, ParseNumber(component.GetProp("cellSize"), 72f));
+            var gap = Math.Max(0f, ParseNumber(component.GetProp("cellGap"), 4f));
+            grid.style.width = columns * cellSize + Math.Max(0, columns - 1) * gap;
+            grid.style.height = rows * cellSize + Math.Max(0, rows - 1) * gap;
+            for (var index = 0; index < Math.Min(columns * rows, 256); index++)
+            {
+                var cell = new VisualElement();
+                cell.AddToClassList("eve-inventory-cell");
+                cell.style.position = Position.Absolute;
+                cell.style.left = (index % columns) * (cellSize + gap);
+                cell.style.top = (index / columns) * (cellSize + gap);
+                cell.style.width = cellSize;
+                cell.style.height = cellSize;
+                grid.Add(cell);
+            }
+            grid.RegisterCallback<ClickEvent>(evt =>
+            {
+                if (_inventoryDragSource == null || _suppressInventoryClick)
+                    return;
+                if (TryEmitInventoryDrop(document, _inventoryDragSource, component, grid, evt.position, commandSink))
+                    _inventoryDragSource = null;
+            });
+            return grid;
+        }
+
+        private VisualElement InventoryItem(
+            EveSurfaceComponent component,
+            EveSurfaceDocument document,
+            Action<EveSurfaceCommandRequest>? commandSink)
+        {
+            var item = new Button { text = component.GetProp("label", component.GetProp("itemKey")) };
+            item.AddToClassList("eve-inventory-item");
+            item.RegisterCallback<PointerDownEvent>(evt =>
+            {
+                if (!ParseBool(component.GetProp("draggable", "true")))
+                    return;
+                _inventoryDragSource = component;
+                _inventoryDragStart = evt.position;
+                _inventoryPointerMoved = false;
+                item.CapturePointer(evt.pointerId);
+                evt.StopPropagation();
+            });
+            item.RegisterCallback<PointerMoveEvent>(evt =>
+            {
+                if (_inventoryDragSource != component)
+                    return;
+                var pointerPosition = new Vector2(evt.position.x, evt.position.y);
+                if ((pointerPosition - _inventoryDragStart).sqrMagnitude > 16f)
+                    _inventoryPointerMoved = true;
+            });
+            item.RegisterCallback<PointerUpEvent>(evt =>
+            {
+                if (_inventoryDragSource != component)
+                    return;
+                item.ReleasePointer(evt.pointerId);
+                if (_inventoryPointerMoved)
+                {
+                    var picked = item.panel?.Pick(evt.position);
+                    var targetElement = InventoryGridAncestor(picked);
+                    if (targetElement?.userData is EveSurfaceComponent target)
+                        TryEmitInventoryDrop(document, component, target, targetElement, evt.position, commandSink);
+                    _inventoryDragSource = null;
+                    _suppressInventoryClick = true;
+                }
+                evt.StopPropagation();
+            });
+            item.RegisterCallback<ClickEvent>(evt =>
+            {
+                if (_suppressInventoryClick)
+                {
+                    _suppressInventoryClick = false;
+                    evt.StopPropagation();
+                    return;
+                }
+                _inventoryDragSource = component;
+                evt.StopPropagation();
+            });
+            return item;
+        }
+
+        private static VisualElement InventoryDragSession(EveSurfaceComponent component)
+        {
+            var panel = new VisualElement();
+            panel.AddToClassList("eve-inventory-drag-session");
+            var active = ParseBool(component.GetProp("active"));
+            panel.Add(BodyLabel(active
+                ? component.GetProp("itemKey", "Dragging")
+                : "No active drag"));
+            return panel;
+        }
+
+        private static void PositionInventoryChild(
+            EveSurfaceComponent parent,
+            EveSurfaceComponent child,
+            VisualElement element)
+        {
+            if (!string.Equals(parent.Kind, EveInventoryInteraction.GridKind, StringComparison.Ordinal) ||
+                !string.Equals(child.Kind, EveInventoryInteraction.ItemKind, StringComparison.Ordinal))
+                return;
+            var cellSize = Math.Max(1f, ParseNumber(parent.GetProp("cellSize"), 72f));
+            var gap = Math.Max(0f, ParseNumber(parent.GetProp("cellGap"), 4f));
+            element.style.position = Position.Absolute;
+            element.style.left = Math.Max(0, ParseInt(child.GetProp("x"), 0)) * (cellSize + gap);
+            element.style.top = Math.Max(0, ParseInt(child.GetProp("y"), 0)) * (cellSize + gap);
+            element.style.width = cellSize;
+            element.style.height = cellSize;
+        }
+
+        private static VisualElement? InventoryGridAncestor(VisualElement? element)
+        {
+            while (element != null)
+            {
+                if (element.userData is EveSurfaceComponent component &&
+                    string.Equals(component.Kind, EveInventoryInteraction.GridKind, StringComparison.Ordinal))
+                    return element;
+                element = element.parent;
+            }
+            return null;
+        }
+
+        private static bool TryEmitInventoryDrop(
+            EveSurfaceDocument document,
+            EveSurfaceComponent source,
+            EveSurfaceComponent target,
+            VisualElement targetElement,
+            Vector2 panelPosition,
+            Action<EveSurfaceCommandRequest>? commandSink)
+        {
+            if (commandSink == null)
+                return false;
+            var local = targetElement.WorldToLocal(panelPosition);
+            var pitch = Math.Max(1f, ParseNumber(target.GetProp("cellSize"), 72f) +
+                Math.Max(0f, ParseNumber(target.GetProp("cellGap"), 4f)));
+            var x = Math.Max(0, (int)Math.Floor(local.x / pitch));
+            var y = Math.Max(0, (int)Math.Floor(local.y / pitch));
+            if (!EveInventoryInteraction.TryCreateDropRequest(
+                    document, source, target, x, y, "unity-uitoolkit", out var request) || request == null)
+                return false;
+            commandSink(request);
+            return true;
+        }
+
+        private static int ParseInt(string value, int fallback) =>
+            int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) ? parsed : fallback;
+
+        private static bool ParseBool(string value) =>
+            bool.TryParse(value, out var parsed) && parsed;
+
+        private static float ParseNumber(string value, float fallback) =>
+            float.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed) ? parsed : fallback;
 
         private static void EmitCommand(
             EveSurfaceDocument document,

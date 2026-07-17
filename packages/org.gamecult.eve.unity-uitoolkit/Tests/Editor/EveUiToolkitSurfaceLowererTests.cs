@@ -142,6 +142,72 @@ namespace GameCult.Eve.UnityUIToolkit.Tests
             Assert.That(root.style.bottom.value.value, Is.EqualTo(32f));
         }
 
+        [Test]
+        public void InventoryDropBuildsAdvertisedTypedOperationPayload()
+        {
+            var source = Component("ore", EveInventoryInteraction.ItemKind, new Dictionary<string, string>
+            {
+                ["sourceKind"] = "cargo",
+                ["sourceEntityKey"] = "zone.0.entity.1",
+                ["sourceIndex"] = "2",
+                ["itemKey"] = "ore",
+                ["quantity"] = "4",
+                ["x"] = "3",
+                ["y"] = "5"
+            });
+            var target = Component("equipment", EveInventoryInteraction.GridKind, new Dictionary<string, string>
+            {
+                ["targetKind"] = "equipment",
+                ["targetEntityKey"] = "zone.0.entity.1",
+                ["targetIndex"] = "-1",
+                ["dropCommand.cargo"] = "aetheria.daemon.commands.EquipItem"
+            });
+
+            Assert.That(EveInventoryInteraction.TryCreateDropRequest(
+                Document(target), source, target, 7, 9, "unity-test", out var request), Is.True);
+            Assert.That(request, Is.Not.Null);
+            Assert.That(request!.Command, Is.EqualTo("aetheria.daemon.commands.EquipItem"));
+            Assert.That(request.Payload.GetString("originEntityKey"), Is.EqualTo("zone.0.entity.1"));
+            Assert.That(request.Payload.GetString("originCargoIndex"), Is.EqualTo("2"));
+            Assert.That(request.Payload.GetString("destinationX"), Is.EqualTo("7"));
+            Assert.That(request.Payload.GetString("destinationY"), Is.EqualTo("9"));
+            Assert.That(request.Payload.GetString("hasDestinationPosition"), Is.EqualTo("true"));
+        }
+
+        [Test]
+        public void InventoryGridAndItemsLowerToNativeSpatialElements()
+        {
+            var item = Component("ore", EveInventoryInteraction.ItemKind, new Dictionary<string, string>
+            {
+                ["label"] = "Iron Ore",
+                ["sourceKind"] = "cargo",
+                ["x"] = "1",
+                ["y"] = "2"
+            });
+            var grid = new EveSurfaceComponent(
+                "cargo",
+                EveInventoryInteraction.GridKind,
+                new Dictionary<string, string>
+                {
+                    ["columns"] = "4",
+                    ["rows"] = "3",
+                    ["cellSize"] = "32",
+                    ["cellGap"] = "2"
+                },
+                new[] { item });
+
+            var root = new EveUiToolkitSurfaceLowerer().Lower(Document(grid));
+            var loweredItem = root.Query<Button>(className: "eve-inventory-item").First();
+
+            Assert.That(root.ClassListContains("eve-inventory-grid"), Is.True);
+            Assert.That(root.style.width.value.value, Is.EqualTo(134f));
+            Assert.That(root.style.height.value.value, Is.EqualTo(100f));
+            Assert.That(loweredItem, Is.Not.Null);
+            Assert.That(loweredItem.text, Is.EqualTo("Iron Ore"));
+            Assert.That(loweredItem.style.left.value.value, Is.EqualTo(34f));
+            Assert.That(loweredItem.style.top.value.value, Is.EqualTo(68f));
+        }
+
         private static EveSurfaceDocument Document(EveSurfaceComponent root, string surfaceId = "test-surface")
         {
             return new EveSurfaceDocument(

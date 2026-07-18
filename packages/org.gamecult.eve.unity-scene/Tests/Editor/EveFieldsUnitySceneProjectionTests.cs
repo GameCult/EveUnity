@@ -159,6 +159,13 @@ namespace GameCult.Eve.UnityScene.Tests
         public void UrpRendererFeatureOwnsGenericWorldEffectScheduling()
         {
             Assert.That(typeof(EveUnityRendererFeature).IsSubclassOf(typeof(ScriptableRendererFeature)), Is.True);
+            var supportsCamera = typeof(EveUnityRendererFeature).GetMethod(
+                "SupportsCamera",
+                BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.That(supportsCamera, Is.Not.Null);
+            Assert.That(supportsCamera!.Invoke(null, new object[] { CameraType.Game }), Is.True);
+            Assert.That(supportsCamera.Invoke(null, new object[] { CameraType.SceneView }), Is.True);
+            Assert.That(supportsCamera.Invoke(null, new object[] { CameraType.Preview }), Is.False);
             AssertRenderOrder(typeof(EveUnityFieldsVolumeRenderer), 100);
             AssertRenderOrder(typeof(EveUnityFieldsParticleRenderer), 200);
             AssertRenderOrder(typeof(EveUnityAdaptiveExposureRenderer), 300);

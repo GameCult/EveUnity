@@ -22,6 +22,10 @@ resource declarations; effects that sample camera color request an intermediate
 color texture and never read the back buffer. Do not schedule these effects from
 `RenderPipelineManager` callbacks. The provider owns programs, assets, and
 parameters; the Universal Renderer owns when and where they execute.
+Provider volume programs render through both Game and SceneView cameras. Each
+camera owns separate raymarch and temporal-history targets, so editor preview
+cannot resize or contaminate the playable camera's history. Presentation-only
+exposure remains bound to the leased Game camera.
 
 Advertised input bindings are performed from the provider's semantic action
 catalog. Direct and chord gestures submit once per press edge; held values

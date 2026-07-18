@@ -52,8 +52,11 @@ namespace GameCult.Eve.UnityScene
         public override void AddRenderPasses(ScriptableRenderer renderer, ref RenderingData renderingData)
         {
             var camera = renderingData.cameraData.camera;
-            if (camera == null || renderingData.cameraData.cameraType != CameraType.Game) return;
+            if (camera == null || !SupportsCamera(renderingData.cameraData.cameraType)) return;
             EveUnityRenderPassRegistry.Enqueue(camera, renderer);
         }
+
+        internal static bool SupportsCamera(CameraType cameraType) =>
+            cameraType == CameraType.Game || cameraType == CameraType.SceneView;
     }
 }

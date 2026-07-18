@@ -24,11 +24,8 @@ namespace GameCult.Eve.UnityScene.Fields
         private IReadOnlyDictionary<string, string>? _programMetadata;
         private readonly Dictionary<string, Texture> _assetTexturesByPort =
             new Dictionary<string, Texture>(StringComparer.Ordinal);
-        private RenderTexture? _raymarchTexture;
-        private readonly RenderTexture?[] _historyTextures = new RenderTexture?[2];
-        private int _historyTextureIndex = -1;
-        private Matrix4x4 _previousViewProjection;
-        private Matrix4x4 _previousView;
+        private readonly Dictionary<int, CameraRenderState> _cameraRenderStates =
+            new Dictionary<int, CameraRenderState>();
         private EveUnityFieldsVolumePass? _renderPass;
         private string _activeNodeId = "";
         private long _rasterizedFrameId = -1;
@@ -118,12 +115,15 @@ namespace GameCult.Eve.UnityScene.Fields
         bool IEveUnityRenderPassSource.TryEnqueuePass(Camera camera, ScriptableRenderer renderer)
         {
             if (_host == null || _document == null || camera == null ||
-                _host.ActiveCameraTransform != camera.transform)
+                !CanRenderCamera(_host, camera))
                 return false;
             _renderPass ??= new EveUnityFieldsVolumePass(this);
             renderer.EnqueuePass(_renderPass);
             return true;
         }
+
+        internal static bool CanRenderCamera(EveUnityPlayableWorldClientHost host, Camera camera) =>
+            camera.cameraType == CameraType.SceneView || host.ActiveCameraTransform == camera.transform;
 
         private void RenderVolume(
             UnsafeCommandBuffer commands,
@@ -132,14 +132,15 @@ namespace GameCult.Eve.UnityScene.Fields
             TextureHandle depthTarget)
         {
             if (_host == null || _document == null || camera == null ||
-                _host.ActiveCameraTransform != camera.transform)
+                !CanRenderCamera(_host, camera))
                 return;
             var field = ActiveField();
             if (field == null || !TryRenderLayers(_document, camera, out _)) return;
             camera.depthTextureMode |= DepthTextureMode.Depth;
-            EnsureVolumeTextures(camera, field);
-            if (_raymarchTexture == null || !ApplyViewportTextureScaleBindings(field, camera)) return;
-            ApplyQuality(field, _historyTextureIndex < 0);
+            var state = CameraState(camera);
+            EnsureVolumeTextures(camera, field, state);
+            if (state.RaymarchTexture == null || !ApplyViewportTextureScaleBindings(field, camera)) return;
+            ApplyQuality(field, state.HistoryTextureIndex < 0);
 
             var gpuProjection = GL.GetGPUProjectionMatrix(camera.projectionMatrix, true);
             var nonRenderTargetProjection = GL.GetGPUProjectionMatrix(camera.projectionMatrix, false);
@@ -154,33 +155,33 @@ namespace GameCult.Eve.UnityScene.Fields
             var temporalPass = ProgramPass("temporal");
             var useTemporalHistory = temporalPass >= 0;
             var historyWriteIndex = -1;
-            RenderTexture finalCloudTexture = _raymarchTexture;
+            RenderTexture finalCloudTexture = state.RaymarchTexture;
 
             if (useTemporalHistory)
             {
-                historyWriteIndex = _historyTextureIndex < 0 ? 0 : (_historyTextureIndex + 1) % _historyTextures.Length;
-                var historyReadTexture = _historyTextureIndex < 0
-                    ? _raymarchTexture
-                    : _historyTextures[_historyTextureIndex];
-                finalCloudTexture = _historyTextures[historyWriteIndex]!;
-                SetTexturePort("currentSample", _raymarchTexture);
+                historyWriteIndex = state.HistoryTextureIndex < 0 ? 0 : (state.HistoryTextureIndex + 1) % state.HistoryTextures.Length;
+                var historyReadTexture = state.HistoryTextureIndex < 0
+                    ? state.RaymarchTexture
+                    : state.HistoryTextures[state.HistoryTextureIndex];
+                finalCloudTexture = state.HistoryTextures[historyWriteIndex]!;
+                SetTexturePort("currentSample", state.RaymarchTexture);
                 SetTexturePort("history", historyReadTexture!);
                 SetMatrixPort(
                     "previousViewProjection",
-                    _historyTextureIndex < 0
+                    state.HistoryTextureIndex < 0
                         ? viewProjection
                         : ResolvePreviousViewProjection(
                             _programMetadata,
-                            _previousViewProjection,
+                            state.PreviousViewProjection,
                             gpuProjection,
                             nonRenderTargetProjection,
-                            _previousView));
-                SetFloatPort("resetHistory", _historyTextureIndex < 0 ? 1f : 0f);
+                            state.PreviousView));
+                SetFloatPort("resetHistory", state.HistoryTextureIndex < 0 ? 1f : 0f);
             }
             SetTexturePort("cloud", finalCloudTexture);
 
-            commands.SetRenderTarget(_raymarchTexture);
-            commands.SetViewport(new Rect(0f, 0f, _raymarchTexture.width, _raymarchTexture.height));
+            commands.SetRenderTarget(state.RaymarchTexture);
+            commands.SetViewport(new Rect(0f, 0f, state.RaymarchTexture.width, state.RaymarchTexture.height));
             commands.ClearRenderTarget(false, true, Color.clear);
             commands.DrawProcedural(Matrix4x4.identity, _material!, raymarchPass, MeshTopology.Triangles, 3, 1);
             if (useTemporalHistory)
@@ -198,9 +199,9 @@ namespace GameCult.Eve.UnityScene.Fields
             commands.DrawProcedural(Matrix4x4.identity, _material!, compositePass, MeshTopology.Triangles, 3, 1);
             if (useTemporalHistory)
             {
-                _historyTextureIndex = historyWriteIndex;
-                _previousViewProjection = viewProjection;
-                _previousView = camera.worldToCameraMatrix;
+                state.HistoryTextureIndex = historyWriteIndex;
+                state.PreviousViewProjection = viewProjection;
+                state.PreviousView = camera.worldToCameraMatrix;
             }
             CompositeCount++;
         }
@@ -406,31 +407,51 @@ namespace GameCult.Eve.UnityScene.Fields
             if (_layers == null) _layers = gameObject.AddComponent<EveFieldsSplatLayerRenderer>();
         }
 
-        private void EnsureVolumeTextures(Camera camera, EveUnityFieldVolumeProjection field)
+        private CameraRenderState CameraState(Camera camera)
+        {
+            var cameraId = camera.GetInstanceID();
+            if (_cameraRenderStates.TryGetValue(cameraId, out var state)) return state;
+            state = new CameraRenderState();
+            _cameraRenderStates.Add(cameraId, state);
+            return state;
+        }
+
+        private void EnsureVolumeTextures(
+            Camera camera,
+            EveUnityFieldVolumeProjection field,
+            CameraRenderState state)
         {
             var downsample = Mathf.Clamp(NonNegativeInt(field, "downsample", 1), 0, 3);
             var width = Mathf.Max(1, camera.pixelWidth >> downsample);
             var height = Mathf.Max(1, camera.pixelHeight >> downsample);
-            var resetHistory = EnsureRenderTexture(ref _raymarchTexture, width, height, "Eve Fields Volume Raymarch");
+            var resetHistory = EnsureRenderTexture(
+                ref state.RaymarchTexture,
+                width,
+                height,
+                $"Eve Fields Volume Raymarch {camera.GetInstanceID()}");
             if (HasTemporalProgram())
             {
-                resetHistory |= EnsureRenderTexture(ref _historyTextures[0], width, height, "Eve Fields Volume History A");
-                resetHistory |= EnsureRenderTexture(ref _historyTextures[1], width, height, "Eve Fields Volume History B");
+                resetHistory |= EnsureRenderTexture(ref state.HistoryTextures[0], width, height, "Eve Fields Volume History A");
+                resetHistory |= EnsureRenderTexture(ref state.HistoryTextures[1], width, height, "Eve Fields Volume History B");
             }
             else
             {
-                ReleaseRenderTexture(ref _historyTextures[0]);
-                ReleaseRenderTexture(ref _historyTextures[1]);
+                ReleaseRenderTexture(ref state.HistoryTextures[0]);
+                ReleaseRenderTexture(ref state.HistoryTextures[1]);
                 resetHistory = true;
             }
-            if (resetHistory) ResetTemporalHistory();
+            if (resetHistory) ResetTemporalHistory(state);
         }
 
         private void ReleaseRenderState()
         {
-            ReleaseRenderTexture(ref _raymarchTexture);
-            ReleaseRenderTexture(ref _historyTextures[0]);
-            ReleaseRenderTexture(ref _historyTextures[1]);
+            foreach (var state in _cameraRenderStates.Values)
+            {
+                ReleaseRenderTexture(ref state.RaymarchTexture);
+                ReleaseRenderTexture(ref state.HistoryTextures[0]);
+                ReleaseRenderTexture(ref state.HistoryTextures[1]);
+            }
+            _cameraRenderStates.Clear();
             if (_material != null) { Destroy(_material); _material = null; }
             _sourceShader = null;
             _programMetadata = null;
@@ -467,7 +488,7 @@ namespace GameCult.Eve.UnityScene.Fields
             {
                 var cameraData = frameData.Get<UniversalCameraData>();
                 if (cameraData.camera == null || _owner._host == null ||
-                    _owner._host.ActiveCameraTransform != cameraData.camera.transform)
+                    !CanRenderCamera(_owner._host, cameraData.camera))
                     return;
 
                 var resourceData = frameData.Get<UniversalResourceData>();
@@ -491,9 +512,23 @@ namespace GameCult.Eve.UnityScene.Fields
 
         private void ResetTemporalHistory()
         {
-            _historyTextureIndex = -1;
-            _previousViewProjection = Matrix4x4.identity;
-            _previousView = Matrix4x4.identity;
+            foreach (var state in _cameraRenderStates.Values) ResetTemporalHistory(state);
+        }
+
+        private static void ResetTemporalHistory(CameraRenderState state)
+        {
+            state.HistoryTextureIndex = -1;
+            state.PreviousViewProjection = Matrix4x4.identity;
+            state.PreviousView = Matrix4x4.identity;
+        }
+
+        private sealed class CameraRenderState
+        {
+            internal RenderTexture? RaymarchTexture;
+            internal readonly RenderTexture?[] HistoryTextures = new RenderTexture?[2];
+            internal int HistoryTextureIndex = -1;
+            internal Matrix4x4 PreviousViewProjection = Matrix4x4.identity;
+            internal Matrix4x4 PreviousView = Matrix4x4.identity;
         }
 
         public static Matrix4x4 ResolvePreviousViewProjection(

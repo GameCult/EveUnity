@@ -78,11 +78,15 @@ namespace GameCult.Eve.UnityScene
                 throw new InvalidOperationException("The rendezvous endpoint advertised no compatible Verse endpoints.");
 
             var failures = new List<string>();
+            var observed = new List<string>();
             foreach (var candidate in candidates)
             {
                 try
                 {
-                    var advertisement = (await FetchAdvertisementsAsync(candidate.Endpoint))
+                    var advertisements = await FetchAdvertisementsAsync(candidate.Endpoint);
+                    observed.AddRange(advertisements.Select(document =>
+                        $"{candidate.Endpoint}: {document.ProviderId}[{string.Join(",", document.Surfaces.Select(surface => $"{surface.SurfaceId}:{surface.SurfaceKind}"))}]"));
+                    var advertisement = advertisements
                         .Where(document => string.IsNullOrWhiteSpace(providerId) ||
                                            string.Equals(document.ProviderId, providerId, StringComparison.Ordinal))
                         .Select(document => new
@@ -113,7 +117,8 @@ namespace GameCult.Eve.UnityScene
 
             var filter = $"provider='{providerId}', surface='{surfaceId}', kind='{surfaceKind}'";
             var detail = failures.Count == 0 ? "" : $" Endpoint failures: {string.Join(" | ", failures)}";
-            throw new InvalidOperationException($"No advertised Eve surface matched {filter}.{detail}");
+            var observedDetail = observed.Count == 0 ? "" : $" Observed: {string.Join(" | ", observed)}";
+            throw new InvalidOperationException($"No advertised Eve surface matched {filter}.{detail}{observedDetail}");
         }
 
         private static async Task<EveProviderAdvertisementDocument[]> FetchAdvertisementsAsync(string endpoint)

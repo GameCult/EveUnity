@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Collections.Concurrent;
+using System.Threading.Tasks;
 using GameCult.Caching;
 using GameCult.Caching.MessagePack;
 using GameCult.Eve.PluginFields;
@@ -71,6 +72,8 @@ namespace GameCult.Eve.UnityScene
         private long _lastQueuedEntityViewEpoch = -1;
         private long _lastQueuedEntityViewSequence = -1;
         private readonly Dictionary<string, long> _lastFieldsFrameByRecord = new Dictionary<string, long>(StringComparer.Ordinal);
+        private Task<LivePollResult>? _livePoll;
+        private bool _disposed;
 
         public EveUnityCultMeshLiveProviderTransport(
             string replicaPath,
@@ -186,8 +189,7 @@ namespace GameCult.Eve.UnityScene
 
         public void PumpLiveEvents()
         {
-            PollCurrentEntityView();
-            PollCurrentFields();
+            CompleteLivePoll();
             while (_liveDocuments.TryDequeue(out var document))
             {
                 if (document is EveEntitySoaViewDocument entityView)
@@ -199,54 +201,111 @@ namespace GameCult.Eve.UnityScene
                 else if (document is EveCommandReceiptDocument receipt)
                     PublishReceipt(receipt);
             }
-            PollPendingReceipts();
+            ScheduleLivePoll();
         }
 
-        private void PollCurrentFields()
+        private void CompleteLivePoll()
         {
-            if (DateTime.UtcNow < _nextFieldsPollUtc)
+            if (_livePoll == null || !_livePoll.IsCompleted)
                 return;
-            _nextFieldsPollUtc = DateTime.UtcNow.AddMilliseconds(250);
-            var world = new EveUnitySceneSurfaceLowerer()
-                .Lower(CurrentSurfaceDocument.SurfaceDocument, CurrentSurfaceDocument.AdvertisedSurface)
-                .PlayableWorld;
-            if (world == null)
-                return;
-            foreach (var recordRef in world.FieldVolumes
-                         .Select(field => field.DocumentRef)
-                         .Where(value => !string.IsNullOrWhiteSpace(value))
-                         .Distinct(StringComparer.Ordinal))
+            var completed = _livePoll;
+            _livePoll = null;
+            var result = completed.GetAwaiter().GetResult();
+            if (result.Error != null)
+                throw new InvalidOperationException("EveUnity live provider polling failed.", result.Error);
+            foreach (var entityView in result.EntityViews)
+                QueueEntityView(entityView);
+            foreach (var fields in result.Fields)
             {
-                var current = _snapshot!
-                    .FetchDocumentsAsync<EveFieldsSplatsDocument>(
-                        recordKeys: new[] { recordRef },
-                        schemaIds: new[] { EveFieldsSchemas.Splats })
-                    .GetAwaiter().GetResult().FirstOrDefault();
-                if (current == null ||
-                    (_lastFieldsFrameByRecord.TryGetValue(recordRef, out var frame) && current.FrameId <= frame))
+                if (_lastFieldsFrameByRecord.TryGetValue(fields.RecordRef, out var frame) && fields.Document.FrameId <= frame)
                     continue;
-                _lastFieldsFrameByRecord[recordRef] = current.FrameId;
-                _liveDocuments.Enqueue(current);
+                _lastFieldsFrameByRecord[fields.RecordRef] = fields.Document.FrameId;
+                _liveDocuments.Enqueue(fields.Document);
             }
+            foreach (var receipt in result.Receipts)
+                _liveDocuments.Enqueue(receipt);
         }
 
-        private void PollCurrentEntityView()
+        private void ScheduleLivePoll()
         {
-            if (DateTime.UtcNow < _nextEntityViewPollUtc)
+            if (_disposed || _snapshot == null || _livePoll != null)
                 return;
-            _nextEntityViewPollUtc = DateTime.UtcNow.AddMilliseconds(250);
-            var lowered = new EveUnitySceneSurfaceLowerer()
-                .Lower(CurrentSurfaceDocument.SurfaceDocument, CurrentSurfaceDocument.AdvertisedSurface);
-            var pointer = lowered.PlayableWorld?.EntityViewPointerId ?? "";
-            if (string.IsNullOrWhiteSpace(pointer))
+            var now = DateTime.UtcNow;
+            var pollEntityView = now >= _nextEntityViewPollUtc;
+            var pollFields = now >= _nextFieldsPollUtc;
+            var pollReceipts = _pendingCommandIds.Count > 0 && now >= _nextReceiptPollUtc;
+            if (!pollEntityView && !pollFields && !pollReceipts)
                 return;
-            var current = _snapshot!
-                .FetchDocumentsAsync<EveEntitySoaViewDocument>(
-                    recordKeys: new[] { pointer },
-                    schemaIds: new[] { EveEntitySoaViewDocument.SchemaId })
-                .GetAwaiter().GetResult().FirstOrDefault();
-            if (current != null)
-                QueueEntityView(current);
+            if (pollEntityView) _nextEntityViewPollUtc = now.AddMilliseconds(250);
+            if (pollFields) _nextFieldsPollUtc = now.AddMilliseconds(250);
+            if (pollReceipts) _nextReceiptPollUtc = now.AddMilliseconds(250);
+
+            var world = (pollEntityView || pollFields)
+                ? new EveUnitySceneSurfaceLowerer()
+                    .Lower(CurrentSurfaceDocument.SurfaceDocument, CurrentSurfaceDocument.AdvertisedSurface)
+                    .PlayableWorld
+                : null;
+            var entityViewRef = pollEntityView ? world?.EntityViewPointerId ?? "" : "";
+            var fieldRefs = pollFields && world != null
+                ? world.FieldVolumes
+                    .Select(field => field.DocumentRef)
+                    .Where(value => !string.IsNullOrWhiteSpace(value))
+                    .Distinct(StringComparer.Ordinal)
+                    .ToArray()
+                : Array.Empty<string>();
+            var receiptKeys = Array.Empty<string>();
+            if (pollReceipts)
+            {
+                var interaction = RequireWorldInteraction();
+                if (!string.IsNullOrWhiteSpace(interaction.ReceiptRecordRef))
+                    receiptKeys = _pendingCommandIds
+                        .Select(commandId => ChildRecordKey(interaction.ReceiptRecordRef, commandId))
+                        .ToArray();
+            }
+            if (string.IsNullOrWhiteSpace(entityViewRef) && fieldRefs.Length == 0 && receiptKeys.Length == 0)
+                return;
+            _livePoll = PollLiveAsync(entityViewRef, fieldRefs, receiptKeys);
+        }
+
+        private async Task<LivePollResult> PollLiveAsync(
+            string entityViewRef,
+            string[] fieldRefs,
+            string[] receiptKeys)
+        {
+            try
+            {
+                var entities = string.IsNullOrWhiteSpace(entityViewRef)
+                    ? Array.Empty<EveEntitySoaViewDocument>()
+                    : (await _snapshot!.FetchDocumentsAsync<EveEntitySoaViewDocument>(
+                            recordKeys: new[] { entityViewRef },
+                            schemaIds: new[] { EveEntitySoaViewDocument.SchemaId })
+                        .ConfigureAwait(false)).ToArray();
+                var fields = new List<PolledFields>();
+                foreach (var recordRef in fieldRefs)
+                {
+                    var current = (await _snapshot!.FetchDocumentsAsync<EveFieldsSplatsDocument>(
+                            recordKeys: new[] { recordRef },
+                            schemaIds: new[] { EveFieldsSchemas.Splats })
+                        .ConfigureAwait(false)).FirstOrDefault();
+                    if (current != null)
+                        fields.Add(new PolledFields(recordRef, current));
+                }
+                var receipts = receiptKeys.Length == 0
+                    ? Array.Empty<EveCommandReceiptDocument>()
+                    : (await _snapshot!.FetchDocumentsAsync<EveCommandReceiptDocument>(
+                            recordKeys: receiptKeys,
+                            schemaIds: new[] { EveCommandReceiptDocument.SchemaId })
+                        .ConfigureAwait(false)).ToArray();
+                return new LivePollResult(entities, fields.ToArray(), receipts, null);
+            }
+            catch (Exception error)
+            {
+                return new LivePollResult(
+                    Array.Empty<EveEntitySoaViewDocument>(),
+                    Array.Empty<PolledFields>(),
+                    Array.Empty<EveCommandReceiptDocument>(),
+                    error);
+            }
         }
 
         private void QueueEntityView(EveEntitySoaViewDocument document)
@@ -258,25 +317,6 @@ namespace GameCult.Eve.UnityScene
             _lastQueuedEntityViewEpoch = document.ProducerEpoch;
             _lastQueuedEntityViewSequence = document.Sequence;
             _liveDocuments.Enqueue(document);
-        }
-
-        private void PollPendingReceipts()
-        {
-            if (_pendingCommandIds.Count == 0 || DateTime.UtcNow < _nextReceiptPollUtc)
-                return;
-            _nextReceiptPollUtc = DateTime.UtcNow.AddMilliseconds(250);
-            var interaction = RequireWorldInteraction();
-            if (string.IsNullOrWhiteSpace(interaction.ReceiptRecordRef))
-                return;
-            var receipts = _snapshot!
-                .FetchDocumentsAsync<EveCommandReceiptDocument>(
-                    recordKeys: _pendingCommandIds
-                        .Select(commandId => ChildRecordKey(interaction.ReceiptRecordRef, commandId))
-                        .ToArray(),
-                    schemaIds: new[] { EveCommandReceiptDocument.SchemaId })
-                .GetAwaiter().GetResult();
-            foreach (var receipt in receipts)
-                PublishReceipt(receipt);
         }
 
         public void SubmitCommand(EveSurfaceCommandRequest request)
@@ -316,6 +356,7 @@ namespace GameCult.Eve.UnityScene
 
         public void Dispose()
         {
+            _disposed = true;
             foreach (var bundle in _assetBundles) bundle.Unload(unloadAllLoadedObjects: false);
             _assetBundles.Clear();
             foreach (var lease in _assetBodyLeases) lease.Dispose();
@@ -338,6 +379,38 @@ namespace GameCult.Eve.UnityScene
             _pendingCommandIds.Clear();
             _publishedReceiptIds.Clear();
             _lastFieldsFrameByRecord.Clear();
+        }
+
+        private sealed class LivePollResult
+        {
+            public LivePollResult(
+                EveEntitySoaViewDocument[] entityViews,
+                PolledFields[] fields,
+                EveCommandReceiptDocument[] receipts,
+                Exception? error)
+            {
+                EntityViews = entityViews;
+                Fields = fields;
+                Receipts = receipts;
+                Error = error;
+            }
+
+            public EveEntitySoaViewDocument[] EntityViews { get; }
+            public PolledFields[] Fields { get; }
+            public EveCommandReceiptDocument[] Receipts { get; }
+            public Exception? Error { get; }
+        }
+
+        private sealed class PolledFields
+        {
+            public PolledFields(string recordRef, EveFieldsSplatsDocument document)
+            {
+                RecordRef = recordRef;
+                Document = document;
+            }
+
+            public string RecordRef { get; }
+            public EveFieldsSplatsDocument Document { get; }
         }
 
         public GameObject? ResolvePrefab(EveUnityPlayableWorldAssetBinding asset)

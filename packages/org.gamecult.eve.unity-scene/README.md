@@ -15,6 +15,10 @@ selection filters; they are not product knowledge required by the client.
 Await `PrepareAsync()` before mounting the bootstrap or reading provider ports.
 Discovery and session setup never run synchronously from Unity lifecycle or
 input getters, so an unavailable provider cannot stall the editor main thread.
+Live entity, field, and receipt polling likewise runs as one non-overlapping
+background operation. Unity's main thread only applies completed typed
+documents, keeping Play, Pause, inspection, and rendering responsive while a
+provider is slow or temporarily unreachable.
 
 The package never imports provider product assemblies.
 

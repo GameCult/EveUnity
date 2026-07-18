@@ -17,10 +17,10 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$expectedEveUnityCommit = "e08fa08335f99e9edddeb706912eecfad07cb281"
+$expectedEveUnityCommit = "261aa269db69a5fe5108632d0ca26627b29f2aef"
 $expectedEveFieldsCommit = "c5a4a75c1b727499b16c2dae1895f29e2a9f72f0"
 $expectedEveUnityUiToolkitCommit = "4d0cbe0185bdc4fc65eb63503a7c5cb578539669"
-$expectedCultLibCommit = "69caf2d027c49227e62ffa24452fc7d717f86ca5"
+$expectedCultLibCommit = "49c43baa4c80b3bf8f5febae40baf99e1f2a0262"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $projectRoot = $ClientProject
 $outputRoot = if ([IO.Path]::IsPathRooted($OutputDirectory)) { $OutputDirectory } else { Join-Path $repoRoot $OutputDirectory }

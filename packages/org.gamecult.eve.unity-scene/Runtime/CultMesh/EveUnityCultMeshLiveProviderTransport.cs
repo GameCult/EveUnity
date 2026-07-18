@@ -731,10 +731,8 @@ namespace GameCult.Eve.UnityScene
                     schemaIds: new[] { EveSurfaceDocument.SchemaId },
                     includeSnapshot: false)
                 .GetAwaiter().GetResult();
-            _subscriptions.SubscribeAsync(
-                    "eve-unity-body-publications",
-                    schemaIds: new[] { CultMeshBodyPublicationSchemaVersions.Publication })
-                .GetAwaiter().GetResult();
+            // Entity views name one immutable body generation. PublishEntityView fetches that
+            // exact publication; a schema-wide subscription would import every retained frame.
             _subscriptions.SubscribeAsync(
                     "eve-unity-receipts",
                     schemaIds: new[] { EveCommandReceiptDocument.SchemaId },

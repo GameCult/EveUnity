@@ -57,8 +57,12 @@ public sealed class GenericEveUnityLauncher : MonoBehaviour
         while (true)
         {
             var connected = false;
+            var preparation = _provider.PrepareAsync();
+            while (!preparation.IsCompleted)
+                yield return null;
             try
             {
+                preparation.GetAwaiter().GetResult();
                 var presentation = _bootstrap.Mount();
                 LowerSurface(_provider.CurrentDocument);
                 Debug.Log($"Connected generic Eve client: {_provider.Selection?.ProviderId} / {_provider.Selection?.SurfaceId} / {presentation.ActiveEntities} entities");

@@ -1,12 +1,38 @@
+using System;
 using System.Reflection;
 using System.Collections.Generic;
+using System.Diagnostics;
 using GameCult.Eve.UnityScene;
 using NUnit.Framework;
+using UnityEngine;
 
 namespace GameCult.Eve.UnityScene.Tests
 {
     public sealed class EveUnityCultMeshAssetLookupTests
     {
+        [Test]
+        public void UnpreparedProviderGetterFailsFastWithoutStartingNetworkDiscovery()
+        {
+            var gameObject = new GameObject("unprepared-eve-provider");
+            try
+            {
+                var provider = gameObject.AddComponent<EveUnityCultMeshPlayableWorldProvider>();
+                provider.Configure("rudp://127.0.0.1:1");
+                var stopwatch = Stopwatch.StartNew();
+
+                var error = Assert.Throws<InvalidOperationException>(() => _ = provider.CurrentInputCapability);
+
+                stopwatch.Stop();
+                StringAssert.Contains("Await PrepareAsync", error!.Message);
+                Assert.That(stopwatch.ElapsedMilliseconds, Is.LessThan(100));
+                Assert.That(provider.Selection, Is.Null);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(gameObject);
+            }
+        }
+
         [Test]
         public void ResolvesUnityNormalizedBundleNamesWithoutChangingLogicalAssetIdentity()
         {

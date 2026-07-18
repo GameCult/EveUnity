@@ -45,18 +45,27 @@ namespace GameCult.Eve.UnityScene
             string providerId = "",
             string surfaceId = "",
             string surfaceKind = "interactive-world",
+            string verseId = "") =>
+            DiscoverAsync(rendezvousEndpoint, providerId, surfaceId, surfaceKind, verseId)
+                .GetAwaiter().GetResult();
+
+        public async Task<EveUnityCultMeshProviderSelection> DiscoverAsync(
+            string rendezvousEndpoint,
+            string providerId = "",
+            string surfaceId = "",
+            string surfaceKind = "interactive-world",
             string verseId = "")
         {
             if (string.IsNullOrWhiteSpace(rendezvousEndpoint))
                 throw new ArgumentException("Rendezvous endpoint must be non-empty.", nameof(rendezvousEndpoint));
 
-            var response = RunNetwork(() => CultMesh.CreateVerseDiscoveryClient().FetchAsync(
+            var response = await CultMesh.CreateVerseDiscoveryClient().FetchAsync(
                     rendezvousEndpoint,
                     new CultMeshVerseCatalogRequestMessage
                     {
                         VerseIds = string.IsNullOrWhiteSpace(verseId) ? null : new[] { verseId },
                         TransportVersion = "cultmesh.v0"
-                    }));
+                    });
 
             var candidates = response.Verses
                 .Where(verse => string.IsNullOrWhiteSpace(verseId) ||
@@ -73,7 +82,7 @@ namespace GameCult.Eve.UnityScene
             {
                 try
                 {
-                    var advertisement = FetchAdvertisements(candidate.Endpoint)
+                    var advertisement = (await FetchAdvertisementsAsync(candidate.Endpoint))
                         .Where(document => string.IsNullOrWhiteSpace(providerId) ||
                                            string.Equals(document.ProviderId, providerId, StringComparison.Ordinal))
                         .Select(document => new
@@ -107,7 +116,7 @@ namespace GameCult.Eve.UnityScene
             throw new InvalidOperationException($"No advertised Eve surface matched {filter}.{detail}");
         }
 
-        private static EveProviderAdvertisementDocument[] FetchAdvertisements(string endpoint)
+        private static async Task<EveProviderAdvertisementDocument[]> FetchAdvertisementsAsync(string endpoint)
         {
             var cacheRegistry = CultMesh.CreateCultCacheDocumentRegistry(AdvertisementDocumentTypes);
             var networkRegistry = CultMesh.CreateCultNetDocumentRegistry(AdvertisementDocumentTypes, cacheRegistry);
@@ -128,11 +137,7 @@ namespace GameCult.Eve.UnityScene
                         RudpMaxFragmentBytes = 1024
                     }
                 });
-            return RunNetwork(() => snapshot.FetchDocumentsAsync<EveProviderAdvertisementDocument>())
-                .ToArray();
+            return (await snapshot.FetchDocumentsAsync<EveProviderAdvertisementDocument>()).ToArray();
         }
-
-        private static T RunNetwork<T>(Func<Task<T>> operation) =>
-            Task.Run(operation).GetAwaiter().GetResult();
     }
 }

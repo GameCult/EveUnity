@@ -12,6 +12,9 @@ networked client. Give it one Verse rendezvous endpoint and it discovers an
 advertised `interactive-world`, constructs the generic CultMesh transport, and
 provides every bootstrap port. Provider, surface, and Verse IDs are optional
 selection filters; they are not product knowledge required by the client.
+Await `PrepareAsync()` before mounting the bootstrap or reading provider ports.
+Discovery and session setup never run synchronously from Unity lifecycle or
+input getters, so an unavailable provider cannot stall the editor main thread.
 
 The package never imports provider product assemblies.
 

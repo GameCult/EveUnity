@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using GameCult.Eve.Surface;
 using GameCult.Eve.PluginFields;
 using GameCult.Eve.UnityScene.Fields;
@@ -36,6 +37,7 @@ namespace GameCult.Eve.UnityScene
 
         private EveUnityCultMeshLiveProviderTransport? _transport;
         private EveUnitySceneLiveProviderBridge? _bridge;
+        private Task? _preparation;
         private readonly ConcurrentQueue<EntityViewLease> _pendingEntityViews = new ConcurrentQueue<EntityViewLease>();
         private readonly ConcurrentQueue<EveFieldsSplatsDocument> _pendingFields = new ConcurrentQueue<EveFieldsSplatsDocument>();
 
@@ -53,7 +55,7 @@ namespace GameCult.Eve.UnityScene
         {
             get
             {
-                EnsureTransport();
+                RequirePrepared();
                 return _transport!.CurrentInputCapability;
             }
         }
@@ -62,7 +64,7 @@ namespace GameCult.Eve.UnityScene
         {
             get
             {
-                EnsureTransport();
+                RequirePrepared();
                 return _transport!.CurrentAssetBodyTransportKind;
             }
         }
@@ -88,7 +90,7 @@ namespace GameCult.Eve.UnityScene
             string requiredSurfaceKind = "interactive-world",
             string clientRuntimeId = "eve-unity")
         {
-            if (_bridge != null)
+            if (_bridge != null || _preparation != null)
                 throw new InvalidOperationException("Disconnect the active provider before changing discovery configuration.");
 
             rendezvousEndpoint = endpoint ?? "";
@@ -103,6 +105,15 @@ namespace GameCult.Eve.UnityScene
         public void Connect()
         {
             Bridge.Connect();
+        }
+
+        public Task PrepareAsync()
+        {
+            if (_bridge != null)
+                return Task.CompletedTask;
+            if (_preparation == null || _preparation.IsCanceled || _preparation.IsFaulted)
+                _preparation = PrepareTransportAsync();
+            return _preparation;
         }
 
         public void Disconnect()
@@ -125,13 +136,13 @@ namespace GameCult.Eve.UnityScene
 
         public GameObject? ResolvePrefab(EveUnityPlayableWorldAssetBinding asset)
         {
-            EnsureTransport();
+            RequirePrepared();
             return _transport!.ResolvePrefab(asset);
         }
 
         public UnityEngine.Object? ResolveAsset(EveUnityPlayableWorldAssetBinding asset, Type assetType)
         {
-            EnsureTransport();
+            RequirePrepared();
             return _transport!.ResolveAsset(asset, assetType);
         }
 
@@ -139,13 +150,13 @@ namespace GameCult.Eve.UnityScene
             EveUnityPlayableWorldAssetBinding asset,
             out IReadOnlyDictionary<string, string> metadata)
         {
-            EnsureTransport();
+            RequirePrepared();
             return _transport!.TryResolveAssetMetadata(asset, out metadata);
         }
 
         public bool TryGetRenderChannelLayer(string channel, out int layer)
         {
-            EnsureTransport();
+            RequirePrepared();
             return _transport!.TryGetRenderChannelLayer(channel, out layer);
         }
 
@@ -157,6 +168,7 @@ namespace GameCult.Eve.UnityScene
             while (_pendingFields.TryDequeue(out _)) { }
             _bridge = null;
             _transport = null;
+            _preparation = null;
             Selection = null;
         }
 
@@ -184,19 +196,19 @@ namespace GameCult.Eve.UnityScene
         {
             get
             {
-                EnsureTransport();
+                RequirePrepared();
                 return _bridge!;
             }
         }
 
-        private void EnsureTransport()
+        private async Task PrepareTransportAsync()
         {
             if (_transport != null)
                 return;
             if (string.IsNullOrWhiteSpace(rendezvousEndpoint))
                 throw new InvalidOperationException("EveUnity requires a CultMesh rendezvous endpoint.");
 
-            Selection = new EveUnityCultMeshProviderDiscovery().Discover(
+            Selection = await new EveUnityCultMeshProviderDiscovery().DiscoverAsync(
                 rendezvousEndpoint,
                 providerFilter,
                 surfaceFilter,
@@ -214,6 +226,13 @@ namespace GameCult.Eve.UnityScene
             _transport.EntityViewAvailable += (view, lease) => _pendingEntityViews.Enqueue(new EntityViewLease(view, lease));
             _transport.FieldsSplatsAvailable += fields => _pendingFields.Enqueue(fields);
             _bridge = new EveUnitySceneLiveProviderBridge(_transport);
+        }
+
+        private void RequirePrepared()
+        {
+            if (_transport == null || _bridge == null)
+                throw new InvalidOperationException(
+                    "The EveUnity CultMesh provider is not prepared. Await PrepareAsync before mounting the playable world.");
         }
 
         private sealed class EntityViewLease

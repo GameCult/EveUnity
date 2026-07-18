@@ -28,7 +28,9 @@ public static class GenericEveUnityRenderPipeline
             feature.name = "Eve Unity World Effects";
             AssetDatabase.AddObjectToAsset(feature, renderer);
             renderer.rendererFeatures.Add(feature);
+            EditorUtility.SetDirty(feature);
         }
+        renderer.SetDirty();
         EditorUtility.SetDirty(renderer);
 
         var pipeline = AssetDatabase.LoadAssetAtPath<UniversalRenderPipelineAsset>(PipelinePath);
@@ -41,6 +43,8 @@ public static class GenericEveUnityRenderPipeline
         GraphicsSettings.defaultRenderPipeline = pipeline;
         QualitySettings.renderPipeline = pipeline;
         EditorUtility.SetDirty(pipeline);
+        AssetDatabase.SaveAssetIfDirty(renderer);
+        AssetDatabase.SaveAssetIfDirty(pipeline);
         AssetDatabase.SaveAssets();
     }
 }

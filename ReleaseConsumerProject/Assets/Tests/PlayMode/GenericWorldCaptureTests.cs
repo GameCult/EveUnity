@@ -596,9 +596,11 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     "The low-hull witness raider was not destroyed by daemon combat.");
                 Assert.That(destructionPickupObserved || pickupCollection != null || pickupRejection != null, Is.True,
                     "Daemon destruction did not publish its guaranteed cargo as a pickup.");
-                var collectionDeadline = Time.realtimeSinceStartup + 15f;
+                // The provider advances a fixed-step simulation while also publishing the large SoA witness.
+                // Allow enough wall time for the tractor to cover its advertised volume without making the
+                // generic client manufacture ship motion or loot authority.
+                var collectionDeadline = Time.realtimeSinceStartup + 45f;
                 var nextTractorAimAt = 0f;
-                var salvageApproachActive = false;
                 while (Time.realtimeSinceStartup < collectionDeadline &&
                        (expectCargoRejection ? pickupRejection == null : pickupCollection == null))
                 {
@@ -619,12 +621,8 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                         continue;
                     tractorAim.Normalize();
                     runtime.SubmitLookDirectionIntent(playerId, tractorAim.x, 0f, tractorAim.z);
-                    runtime.SubmitMoveVectorIntent(playerId, 0f, 1f, 1f);
-                    salvageApproachActive = true;
-                    nextTractorAimAt = Time.realtimeSinceStartup + 0.25f;
+                    nextTractorAimAt = Time.realtimeSinceStartup + 0.5f;
                 }
-                if (salvageApproachActive)
-                    runtime.SubmitMoveVectorIntent(playerId, 0f, 0f, 0f);
                 finalPickupEntityCount = host.PresentedEntities.CurrentGeneration.Entities.Count(entity =>
                     string.Equals(entity.EntityKind, "pickup", StringComparison.Ordinal));
                 if (expectCargoRejection)
@@ -793,7 +791,10 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 var temporalSettlingDeadline = Time.realtimeSinceStartup + 20f;
                 while (captureFieldVolume.CompositeCount - initialCompositeCount < temporalSettlingFrames &&
                        Time.realtimeSinceStartup < temporalSettlingDeadline)
+                {
+                    camera.Render();
                     yield return null;
+                }
                 Assert.That(captureFieldVolume.CompositeCount - initialCompositeCount,
                     Is.GreaterThanOrEqualTo(temporalSettlingFrames),
                     "The pilot capture ran before the advertised temporal reconstruction had settled.");

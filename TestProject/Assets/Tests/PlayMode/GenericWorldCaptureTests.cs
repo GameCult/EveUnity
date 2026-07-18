@@ -255,6 +255,29 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     surfaceId,
                     requiredSurfaceKind: "interactive-world",
                     clientRuntimeId: $"eve-unity-test-{Guid.NewGuid():N}");
+                var preparationDeadline = Time.realtimeSinceStartup + 30f;
+                while (true)
+                {
+                    var preparation = provider.PrepareAsync();
+                    while (!preparation.IsCompleted && Time.realtimeSinceStartup < preparationDeadline)
+                        yield return new WaitForSecondsRealtime(0.1f);
+                    if (!preparation.IsCompleted)
+                        throw new TimeoutException("Timed out preparing the advertised Eve provider.");
+                    var prepared = false;
+                    try
+                    {
+                        preparation.GetAwaiter().GetResult();
+                        prepared = true;
+                    }
+                    catch (InvalidOperationException) when (Time.realtimeSinceStartup < preparationDeadline)
+                    {
+                    }
+                    catch (TimeoutException) when (Time.realtimeSinceStartup < preparationDeadline)
+                    {
+                    }
+                    if (prepared) break;
+                    yield return new WaitForSecondsRealtime(0.1f);
+                }
                 var publicationDeadline = Time.realtimeSinceStartup + 30f;
                 while (true)
                 {

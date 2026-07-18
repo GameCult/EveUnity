@@ -60,6 +60,7 @@ namespace GameCult.Eve.UnityScene
         private CultNetDocumentRegistry? _networkRegistry;
         private CultNetShardDescriptor? _replicaShard;
         private CultNetDatabaseSubscriptionClient? _subscriptions;
+        private CultNetDatabaseSubscriptionClient? _entitySubscriptions;
         private CultMeshClient? _meshClient;
         private CultMeshContentTransferService? _contentTransfer;
         private CultMeshVerifiedBodyMappingBroker? _assetBodyMappings;
@@ -364,13 +365,15 @@ namespace GameCult.Eve.UnityScene
             _prefabs.Clear();
             _nativeAssets.Clear();
             _nativeAssetMetadata.Clear();
+            _subscriptions?.Dispose();
+            _entitySubscriptions?.Dispose();
             _node?.Dispose();
             _snapshot?.Dispose();
-            _subscriptions?.Dispose();
             _meshClient?.Dispose();
             _node = null;
             _snapshot = null;
             _subscriptions = null;
+            _entitySubscriptions = null;
             _meshClient = null;
             _contentTransfer = null;
             _assetBodyMappings = null;
@@ -689,21 +692,27 @@ namespace GameCult.Eve.UnityScene
 
         private void EnsureLiveSubscriptions()
         {
-            if (_subscriptions != null) return;
-            var endpoint = new Uri(_endpoint);
-            var client = CultNetSchemaClients.CreateForEndpoint(_endpoint);
-            client.Connect(endpoint.Host, endpoint.Port);
-            var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
-            while (!client.Connected && DateTime.UtcNow < deadline)
-                System.Threading.Thread.Sleep(1);
-            if (!client.Connected)
+            if (_subscriptions != null && _entitySubscriptions != null) return;
+            _subscriptions?.Dispose();
+            _entitySubscriptions?.Dispose();
+            _subscriptions = null;
+            _entitySubscriptions = null;
+            try
             {
-                client.Dispose();
-                throw new TimeoutException($"Timed out connecting live Eve state subscription to '{_endpoint}'.");
+                _subscriptions = CreateSubscriptionClient();
+                _entitySubscriptions = CreateSubscriptionClient();
             }
-
-            _subscriptions = new CultNetDatabaseSubscriptionClient(client, _node!.Database.Cache, _networkRegistry!);
+            catch
+            {
+                _subscriptions?.Dispose();
+                _entitySubscriptions?.Dispose();
+                _subscriptions = null;
+                _entitySubscriptions = null;
+                throw;
+            }
             _subscriptions.Changed += OnReplicatedDocumentChanged;
+            _entitySubscriptions.Changed += OnReplicatedDocumentChanged;
+
             var lowered = new EveUnitySceneSurfaceLowerer()
                 .Lower(CurrentSurfaceDocument.SurfaceDocument, CurrentSurfaceDocument.AdvertisedSurface);
             string entityViewPointer = lowered.PlayableWorld == null
@@ -711,12 +720,12 @@ namespace GameCult.Eve.UnityScene
                 : lowered.PlayableWorld.EntityViewPointerId;
             if (!string.IsNullOrWhiteSpace(entityViewPointer))
             {
-                _subscriptions.SubscribeAsync(
+                _entitySubscriptions.SubscribeAsync(
                         "eve-unity-entity-view",
                         recordKeys: new[] { entityViewPointer },
                         schemaIds: new[] { EveEntitySoaViewDocument.SchemaId })
                     .GetAwaiter().GetResult();
-                var current = _node.Database.Cache.Get(new CultRecordKey(entityViewPointer)) as EveEntitySoaViewDocument
+                var current = _node!.Database.Cache.Get(new CultRecordKey(entityViewPointer)) as EveEntitySoaViewDocument
                     ?? _snapshot!
                         .FetchDocumentsAsync<EveEntitySoaViewDocument>(
                             recordKeys: new[] { entityViewPointer },
@@ -731,13 +740,27 @@ namespace GameCult.Eve.UnityScene
                     schemaIds: new[] { EveSurfaceDocument.SchemaId },
                     includeSnapshot: false)
                 .GetAwaiter().GetResult();
-            // Entity views name one immutable body generation. PublishEntityView fetches that
-            // exact publication; a schema-wide subscription would import every retained frame.
             _subscriptions.SubscribeAsync(
                     "eve-unity-receipts",
                     schemaIds: new[] { EveCommandReceiptDocument.SchemaId },
                     includeSnapshot: false)
                 .GetAwaiter().GetResult();
+        }
+
+        private CultNetDatabaseSubscriptionClient CreateSubscriptionClient()
+        {
+            var endpoint = new Uri(_endpoint);
+            var client = CultNetSchemaClients.CreateForEndpoint(_endpoint);
+            client.Connect(endpoint.Host, endpoint.Port);
+            var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+            while (!client.Connected && DateTime.UtcNow < deadline)
+                System.Threading.Thread.Sleep(1);
+            if (!client.Connected)
+            {
+                client.Dispose();
+                throw new TimeoutException($"Timed out connecting live Eve state subscription to '{_endpoint}'.");
+            }
+            return new CultNetDatabaseSubscriptionClient(client, _node!.Database.Cache, _networkRegistry!);
         }
 
         private void OnReplicatedDocumentChanged(CultNetReplicatedDocumentChange change)

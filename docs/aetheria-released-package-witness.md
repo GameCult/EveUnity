@@ -4,24 +4,25 @@
 
 The generic `ReleaseConsumerProject` is pinned to released Git packages:
 
-- `org.gamecult.eve.unity-scene` `0.3.65` and
+- `org.gamecult.eve.unity-scene` `0.3.72`, commit
+  `edaf3b1e3bbb06a00b18b9faf508e27e33ae050b`, and
   `org.gamecult.eve.surface` `0.2.4`, commit
   `e08fa08335f99e9edddeb706912eecfad07cb281`;
 - `org.gamecult.eve.plugin-fields` `0.2.3`, commit
   `c5a4a75c1b727499b16c2dae1895f29e2a9f72f0`;
 - `org.gamecult.eve.unity-uitoolkit` `0.1.1`, commit
   `4d0cbe0185bdc4fc65eb63503a7c5cb578539669`;
-- `org.gamecult.cultlib` `1.0.16`, commit
-  `69caf2d027c49227e62ffa24452fc7d717f86ca5`.
+- `org.gamecult.cultlib` `1.0.18`, commit
+  `49c43baa4c80b3bf8f5febae40baf99e1f2a0262`.
 
 The hand-run integration gate is the warm released-package witness:
 
 ```powershell
 pwsh -File .\scripts\run-aetheria-daemon-world-witness.ps1 `
   -CacheState warm `
-  -AssetCacheDirectory artifacts\aetheria-daemon-temporal-projection-0363-warm-hd\asset-cache `
-  -OutputDirectory artifacts\aetheria-manual-integration `
-  -PrimeWarmCacheFromProviderBundle
+  -AssetCacheDirectory E:\Projects\Aetheria\Aetheria.Unity\Build\AssetCache `
+  -OutputDirectory artifacts\aetheria-daemon-0372-warm5 `
+  -SkipAssetBundleBuild
 ```
 
 It connects directly to the Aetheria daemon and must produce one passing
@@ -295,16 +296,23 @@ build removes the fossil's embedded tractor object from player/ship prefabs, so
 the standalone `beam.presentation` prefab is the only tractor renderer. Its
 cyan/yellow dotted band is visible in the pilot capture and absent from the map
 capture.
-The warm gameplay run begins with no pickup. A daemon-authoritative shot destroys
-the deterministic salvage target and creates one provider-owned pickup carrying
-a canonical generated cargo item. Held tractor input produces a Ymir Begin
-contact fact; the daemon consumes that fact once, removes the pickup once,
-changes cargo from `0` to `1`, and emits one `pickup.collected` feedback event
-whose identity begins with `ymir-fact:`. Aetheria's Ymir body
-mapping excludes stations and non-ship world bodies from pickup collision facts,
-so ambient station contact cannot become a cargo writer. Capacity rejection and
-its `cargo-capacity` reason are also proven by the released-client live rejection
-scenario described above.
+The current `0.3.72` warm gameplay run is retained in
+`artifacts/aetheria-daemon-0372-warm5`. It begins with no pickup. A
+daemon-authoritative shot destroys the deterministic salvage target and creates
+one provider-owned pickup carrying a canonical generated cargo item. Held
+tractor input causes Ymir-owned attraction; collection itself is an
+authoritative XZ proximity transaction and does not depend on a contact fact.
+The daemon removes the pickup once, changes cargo from `0` to `1`, and emits one
+stable `zone:0:pickup:0:collected` feedback event. No client pickup command or
+Ymir contact receipt owns cargo mutation.
+
+The same run records 709 URP field-volume composites, 65,536 stateless field
+particles, and 11 map-channel renderers. The pilot camera excludes every map
+renderer and the map camera includes them. The serialized consumer renderer now
+contains `EveUnityRendererFeature`; the configuration utility marks
+`UniversalRendererData` dirty before saving so batch and editor cameras use the
+same URP scheduling path. The captures are integration evidence, not a final art
+grade: the pilot frame remains overexposed and the hull reads nearly black.
 Effect tuning remains provider art work; the runtime must not compensate with
 an Aetheria-specific beam.
 

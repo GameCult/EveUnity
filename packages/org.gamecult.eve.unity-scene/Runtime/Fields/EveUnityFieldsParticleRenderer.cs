@@ -12,7 +12,7 @@ using UnityEngine.Rendering.Universal;
 
 namespace GameCult.Eve.UnityScene.Fields
 {
-    public sealed class EveUnityFieldsParticleRenderer : MonoBehaviour
+    public sealed class EveUnityFieldsParticleRenderer : MonoBehaviour, IEveUnityRenderPassSource
     {
         private EveUnityPlayableWorldClientHost? _host;
         private IEveUnityFieldsSplatsDocumentSource? _source;
@@ -42,6 +42,7 @@ namespace GameCult.Eve.UnityScene.Fields
         public Vector2 LastGridCenter { get; private set; }
         public bool ProgramReady => _compute != null && _material != null && _particles != null && _quadPoints != null;
         public static RenderPassEvent CompositionRenderPassEvent => RenderPassEvent.BeforeRenderingPostProcessing;
+        int IEveUnityRenderPassSource.RenderOrder => 200;
 
         public void Bind(EveUnityPlayableWorldClientHost host, IEveUnityFieldsSplatsDocumentSource? source)
         {
@@ -53,11 +54,11 @@ namespace GameCult.Eve.UnityScene.Fields
             enabled = _source != null;
         }
 
-        private void OnEnable() => RenderPipelineManager.beginCameraRendering += OnBeginCameraRendering;
+        private void OnEnable() => EveUnityRenderPassRegistry.Register(this);
 
         private void OnDisable()
         {
-            RenderPipelineManager.beginCameraRendering -= OnBeginCameraRendering;
+            EveUnityRenderPassRegistry.Unregister(this);
             ReleaseState();
         }
 
@@ -75,15 +76,16 @@ namespace GameCult.Eve.UnityScene.Fields
             PresentedFrameId = document.FrameId;
         }
 
-        private void OnBeginCameraRendering(ScriptableRenderContext context, Camera camera)
+        bool IEveUnityRenderPassSource.TryEnqueuePass(Camera camera, ScriptableRenderer renderer)
         {
             if (_host == null || _document == null || camera == null ||
                 _host.ActiveCameraTransform != camera.transform)
-                return;
+                return false;
             var field = ActiveField();
-            if (field == null || !PrepareFrame(field, camera, _document)) return;
+            if (field == null || !PrepareFrame(field, camera, _document)) return false;
             _renderPass ??= new EveUnityFieldsParticlePass(this);
-            camera.GetUniversalAdditionalCameraData().scriptableRenderer.EnqueuePass(_renderPass);
+            renderer.EnqueuePass(_renderPass);
+            return true;
         }
 
         private EveUnityFieldParticlesProjection? ActiveField() =>
@@ -488,7 +490,7 @@ namespace GameCult.Eve.UnityScene.Fields
                 data.Owner = _owner;
                 data.ColorTarget = resources.activeColorTexture;
                 data.DepthTarget = resources.activeDepthTexture;
-                builder.UseTexture(data.ColorTarget, AccessFlags.ReadWrite);
+                builder.UseTexture(data.ColorTarget, AccessFlags.Write);
                 if (data.DepthTarget.IsValid()) builder.UseTexture(data.DepthTarget, AccessFlags.Read);
                 builder.AllowPassCulling(false);
                 builder.SetRenderFunc(static (PassData pass, UnsafeGraphContext context) =>

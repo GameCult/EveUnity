@@ -8,7 +8,7 @@ using UnityEngine.Rendering.Universal;
 
 namespace GameCult.Eve.UnityScene
 {
-    public sealed class EveUnityAdaptiveExposureRenderer : MonoBehaviour
+    public sealed class EveUnityAdaptiveExposureRenderer : MonoBehaviour, IEveUnityRenderPassSource
     {
         private const int HistogramBins = 128;
         private ComputeShader? _compute;
@@ -32,6 +32,7 @@ namespace GameCult.Eve.UnityScene
         public bool IsConfigured { get; private set; }
         public static RenderPassEvent ExposureRenderPassEvent =>
             (RenderPassEvent)((int)RenderPassEvent.BeforeRenderingPostProcessing + 1);
+        int IEveUnityRenderPassSource.RenderOrder => 300;
 
         public void Configure(
             float lowPercent,
@@ -58,22 +59,23 @@ namespace GameCult.Eve.UnityScene
         private void OnEnable()
         {
             _camera = GetComponent<Camera>();
-            RenderPipelineManager.beginCameraRendering += OnBeginCameraRendering;
+            EveUnityRenderPassRegistry.Register(this);
         }
 
         private void OnDisable()
         {
-            RenderPipelineManager.beginCameraRendering -= OnBeginCameraRendering;
+            EveUnityRenderPassRegistry.Unregister(this);
             ReleaseResources();
         }
 
         private void OnDestroy() => ReleaseResources();
 
-        private void OnBeginCameraRendering(ScriptableRenderContext context, Camera camera)
+        bool IEveUnityRenderPassSource.TryEnqueuePass(Camera camera, ScriptableRenderer renderer)
         {
-            if (!IsConfigured || _camera == null || camera != _camera) return;
+            if (!IsConfigured || _camera == null || camera != _camera) return false;
             _pass ??= new AdaptiveExposurePass(this);
-            camera.GetUniversalAdditionalCameraData().scriptableRenderer.EnqueuePass(_pass);
+            renderer.EnqueuePass(_pass);
+            return true;
         }
 
         private bool EnsureResources()
@@ -195,6 +197,9 @@ namespace GameCult.Eve.UnityScene
             {
                 _owner = owner;
                 renderPassEvent = ExposureRenderPassEvent;
+                // Histogram construction samples the active camera color. URP must therefore
+                // provide an intermediate color texture instead of exposing the back buffer.
+                requiresIntermediateTexture = true;
             }
 
             public override void RecordRenderGraph(RenderGraph renderGraph, ContextContainer frameData)
@@ -202,6 +207,7 @@ namespace GameCult.Eve.UnityScene
                 var cameraData = frameData.Get<UniversalCameraData>();
                 if (cameraData.camera == null || cameraData.camera != _owner._camera) return;
                 var resourceData = frameData.Get<UniversalResourceData>();
+                if (resourceData.isActiveTargetBackBuffer) return;
                 var colorTarget = resourceData.activeColorTexture;
                 if (!colorTarget.IsValid()) return;
 

@@ -156,11 +156,38 @@ namespace GameCult.Eve.UnityScene.Tests
         }
 
         [Test]
+        public void UrpRendererFeatureOwnsGenericWorldEffectScheduling()
+        {
+            Assert.That(typeof(EveUnityRendererFeature).IsSubclassOf(typeof(ScriptableRendererFeature)), Is.True);
+            AssertRenderOrder(typeof(EveUnityFieldsVolumeRenderer), 100);
+            AssertRenderOrder(typeof(EveUnityFieldsParticleRenderer), 200);
+            AssertRenderOrder(typeof(EveUnityAdaptiveExposureRenderer), 300);
+        }
+
+        [Test]
         public void VolumeRendererCompositesBeforeProviderPostProcessing()
         {
             Assert.That(
                 EveUnityFieldsVolumeRenderer.CompositionRenderPassEvent,
                 Is.EqualTo(RenderPassEvent.BeforeRenderingPostProcessing));
+        }
+
+        private static void AssertRenderOrder(Type sourceType, int expected)
+        {
+            var schedulingInterface = sourceType.GetInterfaces().Single(type =>
+                string.Equals(type.Name, "IEveUnityRenderPassSource", StringComparison.Ordinal));
+            var property = schedulingInterface.GetProperty("RenderOrder");
+            Assert.That(property, Is.Not.Null);
+            var gameObject = new GameObject("eve-render-pass-order-test");
+            try
+            {
+                var component = gameObject.AddComponent(sourceType);
+                Assert.That(property!.GetValue(component), Is.EqualTo(expected));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(gameObject);
+            }
         }
 
         [Test]

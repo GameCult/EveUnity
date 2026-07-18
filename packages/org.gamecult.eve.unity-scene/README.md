@@ -15,6 +15,14 @@ selection filters; they are not product knowledge required by the client.
 
 The package never imports provider product assemblies.
 
+Add `EveUnityRendererFeature` to the Universal Renderer used by Eve cameras.
+The feature is the single URP-owned scheduling point for provider-advertised
+volume, particle, and exposure programs. The lowerers use Unity 6 RenderGraph
+resource declarations; effects that sample camera color request an intermediate
+color texture and never read the back buffer. Do not schedule these effects from
+`RenderPipelineManager` callbacks. The provider owns programs, assets, and
+parameters; the Universal Renderer owns when and where they execute.
+
 Advertised input bindings are performed from the provider's semantic action
 catalog. Direct and chord gestures submit once per press edge; held values
 submit their advertised press/release scalar. `view-direction.v1` samples the

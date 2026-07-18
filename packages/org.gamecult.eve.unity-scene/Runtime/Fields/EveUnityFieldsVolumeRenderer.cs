@@ -12,7 +12,7 @@ using UnityEngine.Rendering.Universal;
 
 namespace GameCult.Eve.UnityScene.Fields
 {
-    public sealed class EveUnityFieldsVolumeRenderer : MonoBehaviour
+    public sealed class EveUnityFieldsVolumeRenderer : MonoBehaviour, IEveUnityRenderPassSource
     {
         private EveUnityPlayableWorldClientHost? _host;
         private IEveUnityFieldsSplatsDocumentSource? _source;
@@ -40,6 +40,7 @@ namespace GameCult.Eve.UnityScene.Fields
         public bool UsesTemporalHistory => HasTemporalProgram();
         public Vector2 LastGridCenter { get; private set; }
         public static RenderPassEvent CompositionRenderPassEvent => RenderPassEvent.BeforeRenderingPostProcessing;
+        int IEveUnityRenderPassSource.RenderOrder => 100;
 
         public void Bind(EveUnityPlayableWorldClientHost host, IEveUnityFieldsSplatsDocumentSource? source)
         {
@@ -51,11 +52,11 @@ namespace GameCult.Eve.UnityScene.Fields
             enabled = _source != null;
         }
 
-        private void OnEnable() => RenderPipelineManager.beginCameraRendering += OnBeginCameraRendering;
+        private void OnEnable() => EveUnityRenderPassRegistry.Register(this);
 
         private void OnDisable()
         {
-            RenderPipelineManager.beginCameraRendering -= OnBeginCameraRendering;
+            EveUnityRenderPassRegistry.Unregister(this);
             ReleaseRenderState();
         }
 
@@ -114,13 +115,14 @@ namespace GameCult.Eve.UnityScene.Fields
             return true;
         }
 
-        private void OnBeginCameraRendering(ScriptableRenderContext context, Camera camera)
+        bool IEveUnityRenderPassSource.TryEnqueuePass(Camera camera, ScriptableRenderer renderer)
         {
             if (_host == null || _document == null || camera == null ||
                 _host.ActiveCameraTransform != camera.transform)
-                return;
+                return false;
             _renderPass ??= new EveUnityFieldsVolumePass(this);
-            camera.GetUniversalAdditionalCameraData().scriptableRenderer.EnqueuePass(_renderPass);
+            renderer.EnqueuePass(_renderPass);
+            return true;
         }
 
         private void RenderVolume(
@@ -478,7 +480,7 @@ namespace GameCult.Eve.UnityScene.Fields
                 passData.ColorTarget = colorTarget;
                 passData.DepthTarget = resourceData.activeDepthTexture;
 
-                builder.UseTexture(passData.ColorTarget, AccessFlags.ReadWrite);
+                builder.UseTexture(passData.ColorTarget, AccessFlags.Write);
                 if (passData.DepthTarget.IsValid())
                     builder.UseTexture(passData.DepthTarget, AccessFlags.Read);
                 builder.AllowPassCulling(false);

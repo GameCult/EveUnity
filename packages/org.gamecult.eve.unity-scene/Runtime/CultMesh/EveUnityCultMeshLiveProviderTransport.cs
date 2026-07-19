@@ -63,6 +63,7 @@ namespace GameCult.Eve.UnityScene
         private CultNetShardDescriptor? _replicaShard;
         private CultNetDatabaseSubscriptionClient? _subscriptions;
         private CultNetDatabaseSubscriptionClient? _entitySubscriptions;
+        private CultNetLiveValue<EveInputCapabilityDocument>? _inputCapability;
         private CultMeshClient? _meshClient;
         private CultMeshContentTransferService? _contentTransfer;
         private CultMeshVerifiedBodyMappingBroker? _assetBodyMappings;
@@ -172,26 +173,8 @@ namespace GameCult.Eve.UnityScene
 
             ResolveAdvertisement(forceRefresh: true);
             RefreshSurface();
-            RefreshInputCapability();
             RefreshAssetCatalog();
             _bootstrapped = true;
-        }
-
-        private void RefreshInputCapability()
-        {
-            var recordRef = FindComponentProp(
-                CurrentSurfaceDocument.SurfaceDocument.Surface.Root,
-                "inputCapability");
-            if (string.IsNullOrWhiteSpace(recordRef))
-                throw new InvalidOperationException("The advertised playable world does not publish an input capability record.");
-            CurrentInputCapability = _snapshot!
-                .FetchDocumentsAsync<EveInputCapabilityDocument>(
-                    recordKeys: new[] { recordRef },
-                    schemaIds: new[] { EveInputCapabilityDocument.SchemaId })
-                .GetAwaiter()
-                .GetResult()
-                .FirstOrDefault()
-                ?? throw new InvalidOperationException($"The advertised input capability '{recordRef}' was not available.");
         }
 
         private static string FindComponentProp(EveSurfaceComponent component, string key)
@@ -231,6 +214,8 @@ namespace GameCult.Eve.UnityScene
                     PublishAssetCatalog(assetCatalog);
                 else if (document is EveCommandReceiptDocument receipt)
                     PublishReceipt(receipt);
+                else if (document is Exception error)
+                    throw error;
             }
             PumpMappedEntityFrame();
         }
@@ -386,6 +371,8 @@ namespace GameCult.Eve.UnityScene
             _mappedEntityFrameCursor?.Dispose();
             _mappedEntityFrameCursor = null;
             _mappedEntityFrameContract = null;
+            _inputCapability?.Dispose();
+            _inputCapability = null;
             _subscriptions?.Dispose();
             _entitySubscriptions?.Dispose();
             _node?.Dispose();
@@ -819,6 +806,8 @@ namespace GameCult.Eve.UnityScene
         private void EnsureLiveSubscriptions()
         {
             if (_subscriptions != null && _entitySubscriptions != null) return;
+            _inputCapability?.Dispose();
+            _inputCapability = null;
             _subscriptions?.Dispose();
             _entitySubscriptions?.Dispose();
             _subscriptions = null;
@@ -830,6 +819,8 @@ namespace GameCult.Eve.UnityScene
             }
             catch
             {
+                _inputCapability?.Dispose();
+                _inputCapability = null;
                 _subscriptions?.Dispose();
                 _entitySubscriptions?.Dispose();
                 _subscriptions = null;
@@ -926,13 +917,15 @@ namespace GameCult.Eve.UnityScene
                 "inputCapability");
             if (!string.IsNullOrWhiteSpace(inputCapabilityRef))
             {
-                _subscriptions.SubscribeAsync(
+                _inputCapability = _subscriptions
+                    .SubscribeLiveValueAsync<EveInputCapabilityDocument>(
                         "eve-unity-input-capability",
-                        recordKeys: new[] { inputCapabilityRef },
-                        schemaIds: new[] { EveInputCapabilityDocument.SchemaId },
-                        includeSnapshot: false,
-                        deliveryMode: CultNetDatabaseSubscriptionDeliveryMode.Live)
+                        inputCapabilityRef)
                     .GetAwaiter().GetResult();
+                CurrentInputCapability = _inputCapability.Current;
+                _inputCapability.Changed += document => _liveDocuments.Enqueue(document);
+                _inputCapability.Removed += () => _liveDocuments.Enqueue(new InvalidOperationException(
+                    $"The provider withdrew required input capability '{inputCapabilityRef}'."));
             }
             var assetCatalogRef = RequireWorldInteraction().AssetManifestRecordRef;
             if (!string.IsNullOrWhiteSpace(assetCatalogRef))
@@ -977,8 +970,8 @@ namespace GameCult.Eve.UnityScene
                 QueueBodyPublication(publication);
             else if (change.Document is EveSurfaceDocument surface)
                 _liveDocuments.Enqueue(new PendingSurfaceDocument(change.RecordKey, surface));
-            else if (change.Document is EveInputCapabilityDocument or
-                     EveAssetCatalogDocument or EveCommandReceiptDocument or EveFieldsSplatsDocument)
+            else if (change.Document is EveAssetCatalogDocument or
+                     EveCommandReceiptDocument or EveFieldsSplatsDocument)
                 _liveDocuments.Enqueue(change.Document);
         }
 

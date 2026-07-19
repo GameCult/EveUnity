@@ -4,8 +4,8 @@
 
 The generic `ReleaseConsumerProject` is pinned to released Git packages:
 
-- `org.gamecult.eve.unity-scene` `0.3.90`, commit
-  `f3d4ef7a015fcdfdcb70e163e124f61534f8c252`, and
+- `org.gamecult.eve.unity-scene` `0.3.91`, commit
+  `c93f09342f4c14e0607a47038df6b8e2e99cbf03`, and
   `org.gamecult.eve.surface` `0.2.4`, commit
   `e08fa08335f99e9edddeb706912eecfad07cb281`;
 - `org.gamecult.eve.plugin-fields` `0.2.3`, commit
@@ -36,12 +36,20 @@ content-hashed body into the local warm cache. This is convenient local setup,
 not CDN-transfer evidence. On later runs, use `-SkipAssetBundleBuild` and omit
 the prime flag when neither provider assets nor their catalog changed.
 
-Cold transfer is not a passing integration gate. The provider bundle is
-`56,204,750` bytes on disk; the previously observed roughly 13 MB transfer still
-exceeds the witness deadline while its bytes travel through batched snapshot
-records. Do not increase the timeout or describe this as proven; the intended
-repair is mapped or network-body transport. `-CacheState cold` remains a
-diagnostic run.
+Cold transfer is a passing released-package integration gate as of
+`artifacts/cold-release-0391`. The run starts with zero bodies and zero partials,
+transfers and verifies the `56,204,750`-byte provider bundle through the
+dedicated `cultmesh.content.v1` session, atomically promotes one content-hashed
+body with no partial left behind, and grants Unity a `SharedFileMapping` lease
+over that verified file. The Unity test completes in 54.8 seconds and the full
+clean import/build/test wrapper completes in 149.6 seconds under the unchanged
+300-second deadline. Pilot/map channel separation and 65,536 Stardust particles
+remain proven after the cold load.
+
+This proves that bulk asset bytes no longer depend on snapshot records. It does
+not claim remote zero-copy: the current remote content session still copies and
+fragments bounded chunks before the verified local file becomes mapped. Network
+body streaming and copy-volume profiling remain transport work.
 
 The July 19 released-package run in `artifacts/dockyard-trade-warm-8` passes the
 full-session gate. The generic client lowers the provider-owned bundle through
@@ -357,26 +365,22 @@ Primary artifacts:
 
 ## Cold delivery status
 
-Cold CDN transfer is currently failing and is not part of the passing readiness
-gate. The latest retained failing runs time out after 300 seconds before the
-provider bundle is promoted. The current transport still carries large asset
-payloads through batched snapshot records instead of the intended mapped or
-network body path.
+Cold CDN transfer is part of the passing readiness gate. The released `0.3.91`
+run in `artifacts/cold-release-0391` began with zero cached bodies and partials,
+received only the typed manifest through snapshot state, transferred bounded
+content chunks through the managed CultMesh content session, and atomically
+promoted one `56,204,750`-byte body named by SHA-256
+`f2c8acf938998703799e909cbf0c6e3ed9ad5d6f83b708a0b7b6e76ee33f7160`.
+It left zero partials and selected `SharedFileMapping` over the verified file.
 
-The following is historical evidence, not a current claim. A prior
-`cold-start-lowering` run in `artifacts/aetheria-daemon-current-cold` began with
-zero cached bodies, received one typed manifest snapshot, transferred bounded
-payload chunks through the managed CultMesh content session, and atomically
-promoted exactly one `56,168,017`-byte body named by SHA-256
-`f54177cc8aadd5cd39ba0757cfd2b90a403a1b9efcfcb32060b86e8c152dce10`.
-It left zero partial files, selected `SharedFileMapping` over that verified path,
-lowered the shield-free provider hull, and preserved pilot/map camera isolation
-within the unchanged 300-second deadline; total witness time was `102,912.852`
-milliseconds.
+The cold-only failure exposed by `0.3.90` was a bootstrap ownership race, not a
+bulk snapshot transfer: live SoA subscriptions began before the blocking cold
+asset acquisition, so their retained capability expired before Unity pumped it.
+`0.3.91` resolves the surface first, completes provider-asset acquisition, and
+only then starts live subscriptions. A fresh current generation therefore owns
+the first lowered frame. No retry timer or stale-body reinterpretation exists.
 
-The separate historical `full-session-gameplay` witness started from the verified
-warm body and proved movement, combat, destruction-created canonical loot, and
-exactly-once cargo mutation. This proved cold acquisition
-and local mapped reuse, not provider-to-client network zero-copy, shared-memory
-delivery, or GPU zero-copy. Managed network bytes are still copied and fragmented
-before the transfer owner commits the mapped file.
+This proves cold acquisition and local mapped reuse, not provider-to-client
+network zero-copy, shared-memory delivery, or GPU zero-copy. Managed remote
+chunks are still copied and fragmented before the transfer owner commits the
+mapped file; network-body streaming and copy-volume profiling remain open.

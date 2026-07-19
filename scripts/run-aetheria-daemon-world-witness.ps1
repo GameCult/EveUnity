@@ -17,7 +17,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$expectedEveUnityCommit = "f3d4ef7a015fcdfdcb70e163e124f61534f8c252"
+$expectedEveUnityCommit = "c93f09342f4c14e0607a47038df6b8e2e99cbf03"
 $expectedEveFieldsCommit = "c5a4a75c1b727499b16c2dae1895f29e2a9f72f0"
 $expectedEveUnityUiToolkitCommit = "4d0cbe0185bdc4fc65eb63503a7c5cb578539669"
 $expectedCultLibCommit = "d018bb1fb5a8ce73da6f5579e2f475750d901d8b"
@@ -48,6 +48,13 @@ $importProject = Join-Path $AetheriaRoot "Aetheria.State.Import\Aetheria.State.I
 
 foreach ($required in @($UnityExe, (Join-Path $repoRoot $projectRoot), $daemonProject, $importProject, (Join-Path $YmirRoot "src\Ymir.Core\Ymir.Core.csproj"))) {
   if (-not (Test-Path -LiteralPath $required)) { throw "Required world witness path not found: $required" }
+}
+$cultLibHead = (& git -C $CultLibRoot rev-parse HEAD 2> $null).Trim()
+if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($cultLibHead)) {
+  throw "Released-package witness CultLibRoot is not a readable Git checkout: $CultLibRoot"
+}
+if ($cultLibHead -ne $expectedCultLibCommit) {
+  throw "Released-package witness CultLibRoot must resolve to $expectedCultLibCommit, but $CultLibRoot is $cultLibHead."
 }
 $canonicalWitnessTest = Join-Path $repoRoot "TestProject\Assets\Tests\PlayMode\GenericWorldCaptureTests.cs"
 $releaseWitnessTest = Join-Path $repoRoot "ReleaseConsumerProject\Assets\Tests\PlayMode\GenericWorldCaptureTests.cs"

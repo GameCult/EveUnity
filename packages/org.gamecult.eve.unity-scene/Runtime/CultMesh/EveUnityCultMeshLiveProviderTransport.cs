@@ -68,6 +68,8 @@ namespace GameCult.Eve.UnityScene
         private EveAdvertisedSurface? _advertisedSurface;
         private CultMeshBodyPublicationResolver? _bodyResolver;
         private EveEntitySoaViewDocument? _latestEntityLayout;
+        private CultMeshMappedFrameBodyCursor? _mappedEntityFrameCursor;
+        private CultMeshBodyDescriptor? _mappedEntityFrameContract;
         private long _lastQueuedEntityViewEpoch = -1;
         private long _lastQueuedEntityViewSequence = -1;
         private bool _disposed;
@@ -186,6 +188,8 @@ namespace GameCult.Eve.UnityScene
 
         public void PumpLiveEvents()
         {
+            ThrowIfSubscriptionFailed(_entitySubscriptions);
+            ThrowIfSubscriptionFailed(_subscriptions);
             while (_liveDocuments.TryDequeue(out var document))
             {
                 if (document is EveEntitySoaViewDocument entityView)
@@ -197,10 +201,21 @@ namespace GameCult.Eve.UnityScene
                 else if (document is EveCommandReceiptDocument receipt)
                     PublishReceipt(receipt);
             }
+            PumpMappedEntityFrame();
+        }
+
+        private static void ThrowIfSubscriptionFailed(CultNetDatabaseSubscriptionClient? subscription)
+        {
+            var failure = subscription?.BackgroundFailure;
+            if (failure?.IsCompletedSuccessfully == true)
+                throw new InvalidOperationException(
+                    "The retained CultMesh state subscription failed.",
+                    failure.Result);
         }
 
         private void QueueEntityView(EveEntitySoaViewDocument document)
         {
+            TraceHotState($"layout epoch={document.ProducerEpoch} sequence={document.Sequence} identities={document.Identities?.Length ?? 0}");
             _latestEntityLayout = document;
             if (document.ProducerEpoch < _lastQueuedEntityViewEpoch ||
                 (document.ProducerEpoch == _lastQueuedEntityViewEpoch &&
@@ -216,9 +231,25 @@ namespace GameCult.Eve.UnityScene
             var layout = _latestEntityLayout;
             if (layout == null || layout.Buffers == null || layout.Buffers.Length == 0 ||
                 !string.Equals(layout.Buffers[0].BufferId, publication.BodyId, StringComparison.Ordinal))
+            {
+                TraceHotState($"publication skipped body={publication.BodyId} sequence={publication.Sequence} layout={(layout == null ? "missing" : "incompatible")}");
                 return;
+            }
 
-            QueueEntityView(new EveEntitySoaViewDocument
+            TraceHotState($"publication body={publication.BodyId} epoch={publication.ProducerEpoch} sequence={publication.Sequence} plane={string.Join(",", publication.Representations.Select(value => value.TransportKind))}");
+
+            QueueEntityView(MaterializeEntityGeneration(
+                layout,
+                publication.ProducerEpoch,
+                publication.Sequence));
+        }
+
+        private static EveEntitySoaViewDocument MaterializeEntityGeneration(
+            EveEntitySoaViewDocument layout,
+            long producerEpoch,
+            long sequence)
+        {
+            return new EveEntitySoaViewDocument
             {
                 Schema = layout.Schema,
                 ProviderId = layout.ProviderId,
@@ -226,8 +257,8 @@ namespace GameCult.Eve.UnityScene
                 PublishedAtUtc = DateTimeOffset.UtcNow.ToString("O"),
                 BodySchemaId = layout.BodySchemaId,
                 LayoutVersion = layout.LayoutVersion,
-                ProducerEpoch = publication.ProducerEpoch,
-                Sequence = publication.Sequence,
+                ProducerEpoch = producerEpoch,
+                Sequence = sequence,
                 Capacity = layout.Capacity,
                 Buffers = layout.Buffers,
                 Columns = layout.Columns,
@@ -237,13 +268,13 @@ namespace GameCult.Eve.UnityScene
                         ColumnId = range.ColumnId,
                         StartIndex = range.StartIndex,
                         Count = range.Count,
-                        Sequence = publication.Sequence
+                        Sequence = sequence
                     })
                     .ToArray(),
                 RenderGroups = layout.RenderGroups,
                 Identities = layout.Identities,
-                FrameId = publication.Sequence
-            });
+                FrameId = sequence
+            };
         }
 
         public void SubmitCommand(EveSurfaceCommandRequest request)
@@ -291,6 +322,9 @@ namespace GameCult.Eve.UnityScene
             _prefabs.Clear();
             _nativeAssets.Clear();
             _nativeAssetMetadata.Clear();
+            _mappedEntityFrameCursor?.Dispose();
+            _mappedEntityFrameCursor = null;
+            _mappedEntityFrameContract = null;
             _subscriptions?.Dispose();
             _entitySubscriptions?.Dispose();
             _node?.Dispose();
@@ -513,6 +547,7 @@ namespace GameCult.Eve.UnityScene
             var now = DateTimeOffset.UtcNow;
             if (!IsPublicationLive(publication, now))
                 return;
+            EnsureMappedEntityFrameCursor(publication);
             _bodyResolver ??= CreateBodyResolver();
             var lease = _bodyResolver.ResolveReadOnly(publication, new CultMeshBodyValidationRequest
             {
@@ -540,6 +575,82 @@ namespace GameCult.Eve.UnityScene
                 lease.Dispose();
                 throw;
             }
+        }
+
+        private void EnsureMappedEntityFrameCursor(CultMeshBodyPublicationDocument publication)
+        {
+            var descriptor = (publication.Representations ?? Array.Empty<CultMeshBodyDescriptor>())
+                .FirstOrDefault(CultMeshMappedFrameBodyCursor.CanOpen);
+            if (descriptor == null)
+            {
+                _mappedEntityFrameCursor?.Dispose();
+                _mappedEntityFrameCursor = null;
+                _mappedEntityFrameContract = null;
+                return;
+            }
+
+            var current = _mappedEntityFrameContract;
+            if (current != null &&
+                string.Equals(FrameCapabilityIdentity(current.CapabilityToken),
+                    FrameCapabilityIdentity(descriptor.CapabilityToken), StringComparison.Ordinal) &&
+                string.Equals(current.BodyId, descriptor.BodyId, StringComparison.Ordinal) &&
+                string.Equals(current.SchemaId, descriptor.SchemaId, StringComparison.Ordinal) &&
+                current.LayoutVersion == descriptor.LayoutVersion &&
+                current.Capacity == descriptor.Capacity &&
+                current.ProducerEpoch == descriptor.ProducerEpoch &&
+                current.ByteSize == descriptor.ByteSize)
+                return;
+
+            _mappedEntityFrameCursor?.Dispose();
+            _mappedEntityFrameCursor = new CultMeshMappedFrameBodyCursor(descriptor);
+            _mappedEntityFrameContract = descriptor;
+            TraceHotState(
+                $"mapped frame cursor body={descriptor.BodyId} epoch={descriptor.ProducerEpoch} sequence={descriptor.Sequence}");
+        }
+
+        private void PumpMappedEntityFrame()
+        {
+            var cursor = _mappedEntityFrameCursor;
+            var layout = _latestEntityLayout;
+            if (cursor == null || layout == null || !cursor.TryAcquireLatest(out var lease))
+                return;
+
+            var descriptor = lease.Descriptor;
+            if (descriptor.ProducerEpoch < _lastQueuedEntityViewEpoch ||
+                (descriptor.ProducerEpoch == _lastQueuedEntityViewEpoch &&
+                 descriptor.Sequence <= _lastQueuedEntityViewSequence))
+            {
+                lease.Dispose();
+                return;
+            }
+
+            _lastQueuedEntityViewEpoch = descriptor.ProducerEpoch;
+            _lastQueuedEntityViewSequence = descriptor.Sequence;
+            var generation = MaterializeEntityGeneration(
+                layout,
+                descriptor.ProducerEpoch,
+                descriptor.Sequence);
+            var handler = EntityViewAvailable;
+            if (handler == null)
+            {
+                lease.Dispose();
+                return;
+            }
+            try
+            {
+                handler(generation, lease);
+            }
+            catch
+            {
+                lease.Dispose();
+                throw;
+            }
+        }
+
+        private static string FrameCapabilityIdentity(string capabilityToken)
+        {
+            var separator = capabilityToken.LastIndexOf('.');
+            return separator > 0 ? capabilityToken.Substring(0, separator) : capabilityToken;
         }
 
         private static bool IsPublicationLive(
@@ -645,6 +756,7 @@ namespace GameCult.Eve.UnityScene
                             CultMeshBodyTransportKind.Network.ToString()
                         })
                     .GetAwaiter().GetResult();
+                TraceHotState($"initial subscription documents=[{string.Join(",", initial.Select(value => value.GetType().Name))}]");
                 foreach (var document in initial)
                 {
                     if (document is EveEntitySoaViewDocument current)
@@ -686,12 +798,19 @@ namespace GameCult.Eve.UnityScene
 
         private void OnReplicatedDocumentChanged(CultNetReplicatedDocumentChange change)
         {
+            TraceHotState($"change subscription={change.SubscriptionId} kind={change.ChangeKind} document={change.Document?.GetType().Name ?? "null"}");
             if (change.Document is EveEntitySoaViewDocument entityView)
                 QueueEntityView(entityView);
             else if (change.Document is CultMeshBodyPublicationDocument publication)
                 QueueBodyPublication(publication);
             else if (change.Document is EveSurfaceDocument or EveCommandReceiptDocument or EveFieldsSplatsDocument)
                 _liveDocuments.Enqueue(change.Document);
+        }
+
+        private static void TraceHotState(string message)
+        {
+            if (string.Equals(Environment.GetEnvironmentVariable("AETHERIA_TRACE_CLIENT_RUDP"), "1", StringComparison.Ordinal))
+                Debug.Log($"EveUnity CultMesh hot state: {message}");
         }
 
         private void RefreshAssetCatalog()

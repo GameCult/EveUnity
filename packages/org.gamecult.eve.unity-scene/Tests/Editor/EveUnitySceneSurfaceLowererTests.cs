@@ -88,6 +88,70 @@ namespace GameCult.Eve.UnityScene.Tests
         }
 
         [Test]
+        public void LiveTransportReadsLaterMappedFramesWithoutNewControlDocuments()
+        {
+            using var transport = new EveUnityCultMeshLiveProviderTransport(
+                "test-replica.cc",
+                "cultnet://127.0.0.1:3075",
+                "provider",
+                "provider.pilot");
+            var view = EntityLeaseDocument();
+            view.Sequence = 0;
+            using var publisher = new CultMeshFrameBodyPublisher(
+                view.Buffers[0].BufferId,
+                view.BodySchemaId,
+                view.LayoutVersion,
+                view.Capacity,
+                view.ProducerEpoch,
+                slotByteLength: 4);
+            publisher.TryPublish(new byte[] { 1, 2, 3, 4 }, DateTimeOffset.UtcNow, out var bootstrap);
+            var publication = new CultMeshBodyPublicationDocument
+            {
+                BodyId = bootstrap.BodyId,
+                ProducerId = view.ProviderId,
+                SchemaId = bootstrap.SchemaId,
+                LayoutVersion = bootstrap.LayoutVersion,
+                ByteSize = bootstrap.ByteSize,
+                Capacity = bootstrap.Capacity,
+                ProducerEpoch = bootstrap.ProducerEpoch,
+                Sequence = bootstrap.Sequence,
+                Synchronization = bootstrap.Synchronization,
+                LivenessExpiresAtUnixMs = bootstrap.LeaseExpiresAtUnixMs,
+                Representations = new[] { bootstrap }
+            };
+            var queueView = typeof(EveUnityCultMeshLiveProviderTransport)
+                .GetMethod("QueueEntityView", BindingFlags.NonPublic | BindingFlags.Instance)!;
+            var ensureCursor = typeof(EveUnityCultMeshLiveProviderTransport)
+                .GetMethod("EnsureMappedEntityFrameCursor", BindingFlags.NonPublic | BindingFlags.Instance)!;
+            var pumpCursor = typeof(EveUnityCultMeshLiveProviderTransport)
+                .GetMethod("PumpMappedEntityFrame", BindingFlags.NonPublic | BindingFlags.Instance)!;
+            var queue = (System.Collections.Concurrent.ConcurrentQueue<object>)
+                typeof(EveUnityCultMeshLiveProviderTransport)
+                    .GetField("_liveDocuments", BindingFlags.NonPublic | BindingFlags.Instance)!
+                    .GetValue(transport)!;
+            queueView.Invoke(transport, new object[] { view });
+            queue.TryDequeue(out _);
+            ensureCursor.Invoke(transport, new object[] { publication });
+
+            publisher.TryPublish(new byte[] { 9, 8, 7, 6 }, DateTimeOffset.UtcNow, out _);
+            EveEntitySoaViewDocument? presented = null;
+            byte presentedByte = 0;
+            transport.EntityViewAvailable += (generation, lease) =>
+            {
+                presented = generation;
+                presentedByte = lease.ReadByte(0);
+                lease.Dispose();
+            };
+
+            pumpCursor.Invoke(transport, Array.Empty<object>());
+
+            Assert.That(presented, Is.Not.Null);
+            Assert.That(presented!.Sequence, Is.EqualTo(1));
+            Assert.That(presentedByte, Is.EqualTo(9));
+            Assert.That(queue, Is.Empty, "mapped frames must not be represented as queued CultNet documents");
+        }
+
+        [Test]
         public void LiveTransportDropsExpiredHistoricalGenerationWithoutReinterpretingLatest()
         {
             var view = EntityLeaseDocument();

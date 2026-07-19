@@ -75,6 +75,7 @@ namespace GameCult.Eve.UnityScene
         private long _lastQueuedEntityViewSequence = -1;
         private long _lastPresentedEntityViewEpoch = -1;
         private long _lastPresentedEntityViewSequence = -1;
+        private bool _bootstrapped;
         private bool _disposed;
 
         public EveUnityCultMeshLiveProviderTransport(
@@ -142,7 +143,7 @@ namespace GameCult.Eve.UnityScene
         public void Connect()
         {
             EnsureOpen();
-            Refresh();
+            BootstrapIfRequired();
         }
 
         public void Disconnect()
@@ -152,10 +153,25 @@ namespace GameCult.Eve.UnityScene
         public void Refresh()
         {
             EnsureOpen();
+            if (_bootstrapped)
+            {
+                PumpLiveEvents();
+                return;
+            }
+
+            BootstrapIfRequired();
+        }
+
+        private void BootstrapIfRequired()
+        {
+            if (_bootstrapped)
+                return;
+
             ResolveAdvertisement(forceRefresh: true);
             RefreshSurface();
             RefreshInputCapability();
             RefreshAssetCatalog();
+            _bootstrapped = true;
         }
 
         private void RefreshInputCapability()
@@ -201,6 +217,10 @@ namespace GameCult.Eve.UnityScene
                     FieldsSplatsAvailable?.Invoke(fields);
                 else if (document is EveSurfaceDocument surface)
                     PublishSurface(surface);
+                else if (document is EveInputCapabilityDocument inputCapability)
+                    CurrentInputCapability = inputCapability;
+                else if (document is EveAssetCatalogDocument assetCatalog)
+                    PublishAssetCatalog(assetCatalog);
                 else if (document is EveCommandReceiptDocument receipt)
                     PublishReceipt(receipt);
             }
@@ -808,6 +828,28 @@ namespace GameCult.Eve.UnityScene
                     schemaIds: new[] { EveSurfaceDocument.SchemaId },
                     includeSnapshot: false)
                 .GetAwaiter().GetResult();
+            var inputCapabilityRef = FindComponentProp(
+                CurrentSurfaceDocument.SurfaceDocument.Surface.Root,
+                "inputCapability");
+            if (!string.IsNullOrWhiteSpace(inputCapabilityRef))
+            {
+                _subscriptions.SubscribeAsync(
+                        "eve-unity-input-capability",
+                        recordKeys: new[] { inputCapabilityRef },
+                        schemaIds: new[] { EveInputCapabilityDocument.SchemaId },
+                        includeSnapshot: false)
+                    .GetAwaiter().GetResult();
+            }
+            var assetCatalogRef = RequireWorldInteraction().AssetManifestRecordRef;
+            if (!string.IsNullOrWhiteSpace(assetCatalogRef))
+            {
+                _subscriptions.SubscribeAsync(
+                        "eve-unity-asset-catalog",
+                        recordKeys: new[] { assetCatalogRef },
+                        schemaIds: new[] { EveAssetCatalogDocument.SchemaId },
+                        includeSnapshot: false)
+                    .GetAwaiter().GetResult();
+            }
             _subscriptions.SubscribeAsync(
                     "eve-unity-receipts",
                     schemaIds: new[] { EveCommandReceiptDocument.SchemaId },
@@ -838,7 +880,8 @@ namespace GameCult.Eve.UnityScene
                 QueueEntityView(entityView);
             else if (change.Document is CultMeshBodyPublicationDocument publication)
                 QueueBodyPublication(publication);
-            else if (change.Document is EveSurfaceDocument or EveCommandReceiptDocument or EveFieldsSplatsDocument)
+            else if (change.Document is EveSurfaceDocument or EveInputCapabilityDocument or
+                     EveAssetCatalogDocument or EveCommandReceiptDocument or EveFieldsSplatsDocument)
                 _liveDocuments.Enqueue(change.Document);
         }
 
@@ -861,7 +904,13 @@ namespace GameCult.Eve.UnityScene
                 .GetAwaiter()
                 .GetResult()
                 .FirstOrDefault();
-            if (catalog == null || catalog.Version == CurrentAssetCatalogVersion)
+            if (catalog != null)
+                PublishAssetCatalog(catalog);
+        }
+
+        private void PublishAssetCatalog(EveAssetCatalogDocument catalog)
+        {
+            if (catalog.Version == CurrentAssetCatalogVersion)
                 return;
 
             foreach (var bundle in _assetBundles) bundle.Unload(unloadAllLoadedObjects: false);

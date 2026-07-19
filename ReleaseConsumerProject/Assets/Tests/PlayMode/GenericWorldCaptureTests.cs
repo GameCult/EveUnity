@@ -198,6 +198,10 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             WitnessReceipt tractorReceipt = null;
             WitnessReceipt tractorReleaseReceipt = null;
             WitnessReceipt actionReceipt = null;
+            WitnessReceipt tradePurchaseReceipt = null;
+            WitnessReceipt tradeSaleReceipt = null;
+            bool tradeRoundTrip = false;
+            string tradeItemKey = "";
             EveUnityShotReceipt observedShot = null;
             EveUnityCombatPresentation observedCombat = null;
             float shieldRatioBefore = 0f;
@@ -376,6 +380,124 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     marker.GetComponentsInChildren<Transform>(includeInactive: true).Length,
                     Is.GreaterThan(1),
                     "The generic client substituted its primitive fallback instead of the provider-authored AssetBundle prefab.");
+
+                if (requireSessionGameplay)
+                {
+                    var dockVersion = runtime.ActiveVersion;
+                    var dock = host.SubmitAdvertisedActionIntent(playerId, "pilot.dock");
+                    var dockDeadline = Time.realtimeSinceStartup + 12f;
+                    while (Time.realtimeSinceStartup < dockDeadline &&
+                           (runtime.LastReceipt == null || runtime.LastReceipt.CommandId != dock.CommandId ||
+                            !string.Equals(runtime.LastReceipt.State, "reconciled", StringComparison.OrdinalIgnoreCase) ||
+                            runtime.ActiveVersion < runtime.LastReceipt.SourceVersion ||
+                            !(host.InputCapability?.Actions ?? Array.Empty<EveInputActionDocument>()).Any(candidate =>
+                                candidate != null &&
+                                candidate.ActionId.StartsWith("trade.buy.", StringComparison.Ordinal) &&
+                                string.Equals(candidate.Availability, "available", StringComparison.OrdinalIgnoreCase))))
+                    {
+                        yield return new WaitForSecondsRealtime(0.1f);
+                        runtime.Refresh();
+                    }
+                    AssertReconciledProviderReceipt(runtime.LastReceipt, dock.CommandId,
+                        provider.Selection.ProviderId, provider.Selection.SurfaceId, dockVersion);
+                    var buyAction = (host.InputCapability?.Actions ?? Array.Empty<EveInputActionDocument>())
+                        .FirstOrDefault(candidate => candidate != null &&
+                            candidate.ActionId.StartsWith("trade.buy.", StringComparison.Ordinal) &&
+                            string.Equals(candidate.Availability, "available", StringComparison.OrdinalIgnoreCase));
+                    Assert.That(buyAction, Is.Not.Null,
+                        "Docking did not expose an available provider-authored purchase action.");
+                    Assert.That(buyAction.Payload.TryGetValue("itemKey", out tradeItemKey), Is.True);
+                    Assert.That(tradeItemKey, Is.Not.Empty);
+
+                    var purchaseVersion = runtime.ActiveVersion;
+                    var purchase = host.SubmitAdvertisedActionIntent(playerId, buyAction.ActionId);
+                    var purchaseDeadline = Time.realtimeSinceStartup + 12f;
+                    while (Time.realtimeSinceStartup < purchaseDeadline &&
+                           (runtime.LastReceipt == null || runtime.LastReceipt.CommandId != purchase.CommandId ||
+                            !string.Equals(runtime.LastReceipt.State, "reconciled", StringComparison.OrdinalIgnoreCase) ||
+                            runtime.ActiveVersion < runtime.LastReceipt.SourceVersion ||
+                            !(host.InputCapability?.Actions ?? Array.Empty<EveInputActionDocument>()).Any(candidate =>
+                                candidate != null &&
+                                candidate.ActionId.StartsWith("trade.sell.", StringComparison.Ordinal) &&
+                                candidate.Payload.TryGetValue("itemKey", out var itemKey) &&
+                                string.Equals(itemKey, tradeItemKey, StringComparison.Ordinal) &&
+                                string.Equals(candidate.Availability, "available", StringComparison.OrdinalIgnoreCase))))
+                    {
+                        yield return new WaitForSecondsRealtime(0.1f);
+                        runtime.Refresh();
+                    }
+                    AssertReconciledProviderReceipt(runtime.LastReceipt, purchase.CommandId,
+                        provider.Selection.ProviderId, provider.Selection.SurfaceId, purchaseVersion);
+                    tradePurchaseReceipt = WitnessReceipt.From("trade-purchase", runtime.LastReceipt);
+                    var sellAction = (host.InputCapability?.Actions ?? Array.Empty<EveInputActionDocument>())
+                        .FirstOrDefault(candidate => candidate != null &&
+                            candidate.ActionId.StartsWith("trade.sell.", StringComparison.Ordinal) &&
+                            candidate.Payload.TryGetValue("itemKey", out var itemKey) &&
+                            string.Equals(itemKey, tradeItemKey, StringComparison.Ordinal) &&
+                            string.Equals(candidate.Availability, "available", StringComparison.OrdinalIgnoreCase));
+                    Assert.That(sellAction, Is.Not.Null,
+                        "The authoritative purchase did not expose the purchased cargo as an available sale action.");
+
+                    var saleCapabilityVersion = host.InputCapability.Version;
+                    var saleVersion = runtime.ActiveVersion;
+                    var sale = host.SubmitAdvertisedActionIntent(playerId, sellAction.ActionId);
+                    var saleDeadline = Time.realtimeSinceStartup + 12f;
+                    while (Time.realtimeSinceStartup < saleDeadline &&
+                           (runtime.LastReceipt == null || runtime.LastReceipt.CommandId != sale.CommandId ||
+                            !string.Equals(runtime.LastReceipt.State, "reconciled", StringComparison.OrdinalIgnoreCase) ||
+                            runtime.ActiveVersion < runtime.LastReceipt.SourceVersion ||
+                            host.InputCapability.Version <= saleCapabilityVersion ||
+                            (host.InputCapability.Actions ?? Array.Empty<EveInputActionDocument>()).Any(candidate =>
+                                candidate != null &&
+                                candidate.ActionId.StartsWith("trade.sell.", StringComparison.Ordinal) &&
+                                candidate.Payload.TryGetValue("itemKey", out var itemKey) &&
+                                string.Equals(itemKey, tradeItemKey, StringComparison.Ordinal))))
+                    {
+                        yield return new WaitForSecondsRealtime(0.1f);
+                        runtime.Refresh();
+                    }
+                    AssertReconciledProviderReceipt(runtime.LastReceipt, sale.CommandId,
+                        provider.Selection.ProviderId, provider.Selection.SurfaceId, saleVersion);
+                    tradeSaleReceipt = WitnessReceipt.From("trade-sale", runtime.LastReceipt);
+                    tradeRoundTrip = !(host.InputCapability.Actions ?? Array.Empty<EveInputActionDocument>()).Any(candidate =>
+                        candidate != null &&
+                        candidate.ActionId.StartsWith("trade.sell.", StringComparison.Ordinal) &&
+                        candidate.Payload.TryGetValue("itemKey", out var itemKey) &&
+                        string.Equals(itemKey, tradeItemKey, StringComparison.Ordinal));
+                    Assert.That(tradeRoundTrip, Is.True,
+                        "The sold unit remained in the daemon-authored cargo action catalog.");
+
+                    var resumeVersion = runtime.ActiveVersion;
+                    var resume = host.SubmitAdvertisedActionIntent(playerId, "simulation.rate.realtime");
+                    var resumeDeadline = Time.realtimeSinceStartup + 12f;
+                    while (Time.realtimeSinceStartup < resumeDeadline &&
+                           (runtime.LastReceipt == null || runtime.LastReceipt.CommandId != resume.CommandId ||
+                            !string.Equals(runtime.LastReceipt.State, "reconciled", StringComparison.OrdinalIgnoreCase) ||
+                            runtime.ActiveVersion < runtime.LastReceipt.SourceVersion))
+                    {
+                        yield return new WaitForSecondsRealtime(0.1f);
+                        runtime.Refresh();
+                    }
+                    AssertReconciledProviderReceipt(runtime.LastReceipt, resume.CommandId,
+                        provider.Selection.ProviderId, provider.Selection.SurfaceId, resumeVersion);
+
+                    var undockVersion = runtime.ActiveVersion;
+                    var undock = host.SubmitAdvertisedActionIntent(playerId, "pilot.undock");
+                    var undockDeadline = Time.realtimeSinceStartup + 12f;
+                    while (Time.realtimeSinceStartup < undockDeadline &&
+                           (runtime.LastReceipt == null || runtime.LastReceipt.CommandId != undock.CommandId ||
+                            !string.Equals(runtime.LastReceipt.State, "reconciled", StringComparison.OrdinalIgnoreCase) ||
+                            runtime.ActiveVersion < runtime.LastReceipt.SourceVersion ||
+                            (host.InputCapability?.Actions ?? Array.Empty<EveInputActionDocument>()).Any(candidate =>
+                                candidate != null && candidate.ActionId.StartsWith("trade.", StringComparison.Ordinal))))
+                    {
+                        yield return new WaitForSecondsRealtime(0.1f);
+                        runtime.Refresh();
+                    }
+                    AssertReconciledProviderReceipt(runtime.LastReceipt, undock.CommandId,
+                        provider.Selection.ProviderId, provider.Selection.SurfaceId, undockVersion);
+                }
+
                 var initialPosition = marker.transform.position;
                 initialVersion = runtime.ActiveVersion;
                 var request = runtime.SubmitMoveVectorIntent(playerId, 1f, 0f, 1f);
@@ -977,6 +1099,10 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     tractorReceipt,
                     tractorReleaseReceipt,
                     actionReceipt,
+                    tradePurchaseReceipt,
+                    tradeSaleReceipt,
+                    tradeRoundTrip,
+                    tradeItemKey,
                     observedShot,
                     shieldRatioBefore,
                     observedCombat?.ShieldRatio ?? shieldRatioBefore,
@@ -1060,6 +1186,10 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             WitnessReceipt tractor,
             WitnessReceipt tractorRelease,
             WitnessReceipt action,
+            WitnessReceipt tradePurchase,
+            WitnessReceipt tradeSale,
+            bool tradeRoundTrip,
+            string tradeItemKey,
             EveUnityShotReceipt shot,
             float shieldRatioBefore,
             float shieldRatioAfter,
@@ -1128,6 +1258,8 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 beamPresentation = tractor != null && tractorBeamPower > 0.01f && tractorBeamParticleSystemCount > 0,
                 beamRelease = tractorRelease != null,
                 action = action != null,
+                tradeRoundTrip = tradeRoundTrip && tradePurchase != null && tradeSale != null,
+                tradeItemKey = tradeItemKey ?? "",
                 combatPresentation = shot != null,
                 shotId = shot?.ShotId ?? "",
                 shotHit = shot?.Hit ?? false,
@@ -1191,7 +1323,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 mapChangedPixels = mapChangedPixels,
                 pilotCameraExcludesMapChannel = pilotCameraExcludesMapChannel,
                 mapCameraIncludesMapChannel = mapCameraIncludesMapChannel,
-                receipts = new[] { movement, look, targeting, tractor, tractorRelease, action }
+                receipts = new[] { movement, look, targeting, tractor, tractorRelease, action, tradePurchase, tradeSale }
             };
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path)));
             File.WriteAllText(path, JsonUtility.ToJson(document, true));
@@ -1225,6 +1357,8 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
             public bool beamPresentation;
             public bool beamRelease;
             public bool action;
+            public bool tradeRoundTrip;
+            public string tradeItemKey;
             public bool combatPresentation;
             public string shotId;
             public bool shotHit;

@@ -4,16 +4,16 @@
 
 The generic `ReleaseConsumerProject` is pinned to released Git packages:
 
-- `org.gamecult.eve.unity-scene` `0.3.88`, commit
-  `3ce813e29dcc5342b51985187de26c62eb8c90b4`, and
+- `org.gamecult.eve.unity-scene` `0.3.90`, commit
+  `f3d4ef7a015fcdfdcb70e163e124f61534f8c252`, and
   `org.gamecult.eve.surface` `0.2.4`, commit
   `e08fa08335f99e9edddeb706912eecfad07cb281`;
 - `org.gamecult.eve.plugin-fields` `0.2.3`, commit
   `c5a4a75c1b727499b16c2dae1895f29e2a9f72f0`;
 - `org.gamecult.eve.unity-uitoolkit` `0.1.1`, commit
   `4d0cbe0185bdc4fc65eb63503a7c5cb578539669`;
-- `org.gamecult.cultlib` `1.0.30`, commit
-  `0ef59b50c27ac019929f5e68bcd602983a190062`.
+- `org.gamecult.cultlib` `1.0.32`, commit
+  `d018bb1fb5a8ce73da6f5579e2f475750d901d8b`.
 
 The hand-run integration gate is the warm released-package witness:
 
@@ -21,7 +21,7 @@ The hand-run integration gate is the warm released-package witness:
 pwsh -File .\scripts\run-aetheria-daemon-world-witness.ps1 `
   -CacheState warm `
   -AssetCacheDirectory E:\Projects\Aetheria\Aetheria.Unity\Build\AssetCache `
-  -OutputDirectory artifacts\aetheria-daemon-0372-warm5 `
+  -OutputDirectory artifacts\dockyard-trade-warm-8 `
   -SkipAssetBundleBuild
 ```
 
@@ -36,11 +36,24 @@ content-hashed body into the local warm cache. This is convenient local setup,
 not CDN-transfer evidence. On later runs, use `-SkipAssetBundleBuild` and omit
 the prime flag when neither provider assets nor their catalog changed.
 
-Cold transfer is not a passing integration gate. The current bundle is
-`56,204,750` bytes and recent cold runs still exceed the 300-second witness
-deadline while asset bytes travel through batched snapshot records. Do not
-increase the timeout or describe this as proven; the intended repair is mapped
-or network-body transport. `-CacheState cold` remains a diagnostic run.
+Cold transfer is not a passing integration gate. The provider bundle is
+`56,204,750` bytes on disk; the previously observed roughly 13 MB transfer still
+exceeds the witness deadline while its bytes travel through batched snapshot
+records. Do not increase the timeout or describe this as proven; the intended
+repair is mapped or network-body transport. `-CacheState cold` remains a
+diagnostic run.
+
+The July 19 released-package run in `artifacts/dockyard-trade-warm-8` passes the
+full-session gate. The generic client lowers the provider-owned bundle through
+`SharedFileMapping`, docks at the daemon-authored 12-berth Zenith Dockyard,
+buys and sells one typed item, undocks, moves, targets, aims, runs a held tractor
+beam, destroys the sole proof hostile, and collects the resulting loot exactly
+once through daemon-owned proximity. All eight retained witness receipts are
+provider-owned and reconciled. The run records 65,536 Stardust particles, 147
+field composites/dispatches/draws, and both camera-channel invariants. The pilot
+capture contains the 3D fog/Stardust/ship frame and no map icons; the map capture
+contains the map icons against its map background. The pilot image remains
+visually overexposed and is integration evidence, not final art approval.
 
 The July 19 transport-boundary run in `artifacts/demanded-fields-warm-6`
 passed its released-consumer PlayMode test and produced both camera captures.

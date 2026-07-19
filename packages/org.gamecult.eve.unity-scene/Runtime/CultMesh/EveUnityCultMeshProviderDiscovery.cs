@@ -59,13 +59,23 @@ namespace GameCult.Eve.UnityScene
             if (string.IsNullOrWhiteSpace(rendezvousEndpoint))
                 throw new ArgumentException("Rendezvous endpoint must be non-empty.", nameof(rendezvousEndpoint));
 
-            var response = await CultMesh.CreateVerseDiscoveryClient().FetchAsync(
+            CultMeshVerseCatalogResponseMessage response;
+            try
+            {
+                response = await CultMesh.CreateVerseDiscoveryClient().FetchAsync(
                     rendezvousEndpoint,
                     new CultMeshVerseCatalogRequestMessage
                     {
                         VerseIds = string.IsNullOrWhiteSpace(verseId) ? null : new[] { verseId },
                         TransportVersion = "cultmesh.v0"
                     });
+            }
+            catch (Exception error)
+            {
+                throw new InvalidOperationException(
+                    $"Could not query CultMesh rendezvous endpoint '{rendezvousEndpoint}'.",
+                    error);
+            }
 
             var candidates = response.Verses
                 .Where(verse => string.IsNullOrWhiteSpace(verseId) ||

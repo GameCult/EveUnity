@@ -2,6 +2,8 @@ using System;
 using System.Reflection;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Net;
+using System.Net.Sockets;
 using GameCult.Eve.UnityScene;
 using NUnit.Framework;
 using UnityEngine;
@@ -10,6 +12,21 @@ namespace GameCult.Eve.UnityScene.Tests
 {
     public sealed class EveUnityCultMeshAssetLookupTests
     {
+        [Test]
+        public void UnavailableTcpRendezvousIsReportedAsRetryablePreparationFailure()
+        {
+            var listener = new TcpListener(IPAddress.Loopback, 0);
+            listener.Start();
+            var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+            listener.Stop();
+
+            var error = Assert.ThrowsAsync<InvalidOperationException>(() =>
+                new EveUnityCultMeshProviderDiscovery().DiscoverAsync($"cultnet+tcp://127.0.0.1:{port}"));
+
+            StringAssert.Contains("Could not query CultMesh rendezvous endpoint", error!.Message);
+            Assert.That(error.InnerException, Is.TypeOf<SocketException>());
+        }
+
         [Test]
         public void UnpreparedProviderGetterFailsFastWithoutStartingNetworkDiscovery()
         {

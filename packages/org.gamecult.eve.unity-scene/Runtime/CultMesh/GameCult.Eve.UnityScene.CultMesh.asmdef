@@ -15,6 +15,7 @@
     "GameCult.Caching.dll",
     "GameCult.Caching.MessagePack.dll",
     "GameCult.Mesh.dll",
+    "GameCult.Mesh.Quic.Native.dll",
     "GameCult.Networking.dll"
   ],
   "autoReferenced": true,

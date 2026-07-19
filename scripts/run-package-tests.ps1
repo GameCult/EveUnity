@@ -39,10 +39,21 @@ $arguments = @(
   "-assemblyNames", "GameCult.Eve.UnityScene.Tests",
   "-testResults", $resultsPath, "-logFile", $logPath
 )
-$process = Start-Process -FilePath $UnityExe -ArgumentList $arguments -Wait -PassThru -WindowStyle Hidden
-if ($process.ExitCode -ne 0) {
+$process = Start-Process -FilePath $UnityExe -ArgumentList $arguments -PassThru -WindowStyle Hidden
+if (-not $process.WaitForExit([int][TimeSpan]::FromMinutes(10).TotalMilliseconds)) {
+  Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
   if (Test-Path -LiteralPath $logPath) { Get-Content -LiteralPath $logPath -Tail 120 }
-  throw "EveUnity package tests failed with exit code $($process.ExitCode)"
+  throw "EveUnity package tests timed out after 10 minutes (Unity PID $($process.Id))."
+}
+$unityExitCode = $process.ExitCode
+if ($unityExitCode -ne 0) {
+  if (Test-Path -LiteralPath $logPath) { Get-Content -LiteralPath $logPath -Tail 120 }
+  throw "EveUnity package tests failed with exit code $unityExitCode"
+}
+
+if (-not (Test-Path -LiteralPath $resultsPath)) {
+  if (Test-Path -LiteralPath $logPath) { Get-Content -LiteralPath $logPath -Tail 120 }
+  throw "EveUnity package tests produced no results: $resultsPath"
 }
 
 [xml]$results = Get-Content -LiteralPath $resultsPath -Raw

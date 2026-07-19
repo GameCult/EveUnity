@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Collections.Concurrent;
+using System.Threading;
 using System.Threading.Tasks;
 using GameCult.Caching;
 using GameCult.Caching.MessagePack;
@@ -10,6 +11,7 @@ using GameCult.Eve.PluginFields;
 using GameCult.Eve.Surface;
 using GameCult.Eve.UnityScene.Fields;
 using GameCult.Mesh;
+using GameCult.Mesh.Quic.Native;
 using GameCult.Networking;
 using UnityEngine;
 using Stopwatch = System.Diagnostics.Stopwatch;
@@ -63,6 +65,11 @@ namespace GameCult.Eve.UnityScene
         private readonly List<ICultMeshBodyReadLease> _assetBodyLeases = new List<ICultMeshBodyReadLease>();
         private readonly Dictionary<string, int> _renderChannelLayers = new Dictionary<string, int>(StringComparer.Ordinal);
         private readonly ConcurrentQueue<object> _liveDocuments = new ConcurrentQueue<object>();
+        private readonly object _realtimeFrameGate = new object();
+        private readonly Dictionary<string, CultMeshRealtimeFrame> _latestRealtimeFrames =
+            new Dictionary<string, CultMeshRealtimeFrame>(StringComparer.Ordinal);
+        private readonly HashSet<string> _queuedRealtimeFrameBodies =
+            new HashSet<string>(StringComparer.Ordinal);
         private readonly Dictionary<string, EveSurfaceDocument> _embeddedSurfaces =
             new Dictionary<string, EveSurfaceDocument>(StringComparer.Ordinal);
         private CultMeshNode? _node;
@@ -84,6 +91,9 @@ namespace GameCult.Eve.UnityScene
         private CultMeshBodyPublicationDocument? _latestEntityPublication;
         private CultMeshMappedFrameBodyCursor? _mappedEntityFrameCursor;
         private CultMeshBodyDescriptor? _mappedEntityFrameContract;
+        private CancellationTokenSource? _realtimeLifetime;
+        private Task? _realtimePump;
+        private CultMeshRealtimeSession? _realtimeSession;
         private long _lastQueuedEntityViewEpoch = -1;
         private long _lastQueuedEntityViewSequence = -1;
         private long _lastPresentedEntityViewEpoch = -1;
@@ -221,6 +231,8 @@ namespace GameCult.Eve.UnityScene
             {
                 if (document is PendingEntityGeneration entityGeneration)
                     PublishEntityView(entityGeneration.View, entityGeneration.Publication);
+                else if (document is PendingRealtimeEntityFrame realtimeFrame)
+                    PublishPendingRealtimeEntityFrame(realtimeFrame.BodyId);
                 else if (document is EveFieldsSplatsDocument fields)
                     FieldsSplatsAvailable?.Invoke(fields);
                 else if (document is PendingSurfaceDocument surface)
@@ -398,6 +410,17 @@ namespace GameCult.Eve.UnityScene
             _mappedEntityFrameCursor?.Dispose();
             _mappedEntityFrameCursor = null;
             _mappedEntityFrameContract = null;
+            _realtimeLifetime?.Cancel();
+            _realtimeSession?.Dispose();
+            _realtimeSession = null;
+            if (_realtimePump != null)
+            {
+                try { _realtimePump.GetAwaiter().GetResult(); }
+                catch (OperationCanceledException) { }
+            }
+            _realtimePump = null;
+            _realtimeLifetime?.Dispose();
+            _realtimeLifetime = null;
             _entityBody?.Dispose();
             _entityBody = null;
             _inputCapability?.Dispose();
@@ -502,7 +525,11 @@ namespace GameCult.Eve.UnityScene
                 _networkRegistry);
             _meshClient = new CultMeshClient(new CultMeshClientOptions
             {
-                RendezvousEndpoints = new[] { _endpoint }
+                RendezvousEndpoints = new[] { _endpoint },
+                RealtimeConnectors = new ICultMeshRealtimeTransportConnector[]
+                {
+                    new CultMeshNativeQuicRealtimeTransportConnector()
+                }
             });
         }
 
@@ -595,35 +622,7 @@ namespace GameCult.Eve.UnityScene
             EnsureMappedEntityFrameCursor(publication);
             if (_mappedEntityFrameCursor != null)
                 return;
-            _bodyResolver ??= CreateBodyResolver();
-            var lease = _bodyResolver.ResolveReadOnly(publication, new CultMeshBodyValidationRequest
-            {
-                BodyId = handle.BodyId,
-                SchemaId = document.BodySchemaId,
-                LayoutVersion = document.LayoutVersion,
-                ProducerEpoch = document.ProducerEpoch,
-                Sequence = document.Sequence,
-                Capacity = document.Capacity,
-                AccessMode = CultMeshBodyAccessMode.ReadOnly,
-                NowUtc = now
-            });
-            var handler = EntityViewAvailable;
-            if (handler == null)
-            {
-                lease.Dispose();
-                return;
-            }
-            try
-            {
-                handler(document, lease);
-                _lastPresentedEntityViewEpoch = document.ProducerEpoch;
-                _lastPresentedEntityViewSequence = document.Sequence;
-            }
-            catch
-            {
-                lease.Dispose();
-                throw;
-            }
+            EnsureRealtimeEntityState();
         }
 
         private void EnsureMappedEntityFrameCursor(CultMeshBodyPublicationDocument publication)
@@ -651,10 +650,196 @@ namespace GameCult.Eve.UnityScene
                 return;
 
             _mappedEntityFrameCursor?.Dispose();
-            _mappedEntityFrameCursor = new CultMeshMappedFrameBodyCursor(descriptor);
-            _mappedEntityFrameContract = descriptor;
-            TraceHotState(
-                $"mapped frame cursor body={descriptor.BodyId} epoch={descriptor.ProducerEpoch} sequence={descriptor.Sequence}");
+            try
+            {
+                _mappedEntityFrameCursor = new CultMeshMappedFrameBodyCursor(descriptor);
+                _mappedEntityFrameContract = descriptor;
+                TraceHotState(
+                    $"mapped frame cursor body={descriptor.BodyId} epoch={descriptor.ProducerEpoch} sequence={descriptor.Sequence}");
+            }
+            catch (Exception error) when (
+                error is IOException ||
+                error is UnauthorizedAccessException ||
+                error is InvalidOperationException)
+            {
+                _mappedEntityFrameCursor = null;
+                _mappedEntityFrameContract = null;
+                TraceHotState($"mapped frame unavailable; selecting remote realtime plane: {error.Message}");
+            }
+        }
+
+        private void EnsureRealtimeEntityState()
+        {
+            if (_realtimePump != null)
+                return;
+            if (_advertisement == null || string.IsNullOrWhiteSpace(_advertisement.VerseId))
+                throw new InvalidOperationException(
+                    $"Eve provider '{_providerId}' does not advertise the Verse identity required for realtime state.");
+            _realtimeLifetime = new CancellationTokenSource();
+            _realtimePump = Task.Run(() => PumpRealtimeEntityStateAsync(
+                _advertisement.VerseId,
+                _realtimeLifetime.Token));
+        }
+
+        private async Task PumpRealtimeEntityStateAsync(string verseId, CancellationToken cancellationToken)
+        {
+            try
+            {
+                _realtimeSession = await _meshClient!
+                    .ConnectRealtimeAsync(verseId, cancellationToken)
+                    .ConfigureAwait(false);
+                TraceHotState($"realtime state connected transport={_realtimeSession.TransportId} verse={verseId}");
+                while (!cancellationToken.IsCancellationRequested)
+                {
+                    var frame = await _realtimeSession.ReceiveAsync(cancellationToken).ConfigureAwait(false);
+                    EnqueueRealtimeEntityFrame(frame);
+                }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+            }
+            catch (ObjectDisposedException) when (_disposed)
+            {
+            }
+            catch (Exception error)
+            {
+                _liveDocuments.Enqueue(error);
+            }
+        }
+
+        private void EnqueueRealtimeEntityFrame(CultMeshRealtimeFrame frame)
+        {
+            if (frame == null)
+                throw new ArgumentNullException(nameof(frame));
+            lock (_realtimeFrameGate)
+            {
+                if (_latestRealtimeFrames.TryGetValue(frame.BodyId, out var current) &&
+                    (frame.ProducerEpoch < current.ProducerEpoch ||
+                     (frame.ProducerEpoch == current.ProducerEpoch && frame.Sequence <= current.Sequence)))
+                    return;
+                _latestRealtimeFrames[frame.BodyId] = frame;
+                if (_queuedRealtimeFrameBodies.Add(frame.BodyId))
+                    _liveDocuments.Enqueue(new PendingRealtimeEntityFrame(frame.BodyId));
+            }
+        }
+
+        private void PublishPendingRealtimeEntityFrame(string bodyId)
+        {
+            CultMeshRealtimeFrame? frame;
+            lock (_realtimeFrameGate)
+            {
+                _queuedRealtimeFrameBodies.Remove(bodyId);
+                if (!_latestRealtimeFrames.TryGetValue(bodyId, out frame))
+                    return;
+                _latestRealtimeFrames.Remove(bodyId);
+            }
+            PublishRealtimeEntityFrame(frame);
+        }
+
+        private void PublishRealtimeEntityFrame(CultMeshRealtimeFrame frame)
+        {
+            var layout = _latestEntityLayout
+                ?? throw new InvalidOperationException("Realtime entity state arrived before its Eve SoA layout.");
+            var publication = _latestEntityPublication
+                ?? throw new InvalidOperationException("Realtime entity state arrived before its body publication.");
+            if (!string.Equals(frame.BodyId, publication.BodyId, StringComparison.Ordinal) ||
+                !string.Equals(frame.SchemaId, layout.BodySchemaId, StringComparison.Ordinal))
+                throw new UnauthorizedAccessException("Realtime entity state does not match the advertised Eve body contract.");
+            if (frame.Delivery != CultMeshRealtimeDelivery.LatestOnly)
+                throw new InvalidDataException("Playable entity state requires latest-only QUIC delivery.");
+            if (frame.ProducerEpoch < _lastPresentedEntityViewEpoch ||
+                (frame.ProducerEpoch == _lastPresentedEntityViewEpoch &&
+                 frame.Sequence <= _lastPresentedEntityViewSequence))
+                return;
+            var representation = (publication.Representations ?? Array.Empty<CultMeshBodyDescriptor>())
+                .FirstOrDefault(value =>
+                    string.Equals(value.BodyId, frame.BodyId, StringComparison.Ordinal) &&
+                    string.Equals(value.SchemaId, frame.SchemaId, StringComparison.Ordinal))
+                ?? throw new InvalidDataException("Realtime entity state has no advertised body representation.");
+            if (frame.Payload.Length != representation.ByteSize)
+                throw new InvalidDataException(
+                    $"Realtime entity body size {frame.Payload.Length} does not match advertised size {representation.ByteSize}.");
+
+            var generation = MaterializeEntityGeneration(layout, frame.ProducerEpoch, frame.Sequence);
+            var lease = new RealtimeEntityBodyLease(
+                new CultMeshBodyDescriptor
+                {
+                    BodyId = frame.BodyId,
+                    SchemaId = frame.SchemaId,
+                    LayoutVersion = layout.LayoutVersion,
+                    ByteSize = frame.Payload.Length,
+                    Capacity = layout.Capacity,
+                    ProducerEpoch = frame.ProducerEpoch,
+                    Sequence = frame.Sequence,
+                    AccessMode = CultMeshBodyAccessMode.ReadOnly,
+                    Synchronization = CultMeshBodySynchronization.EpochSequence,
+                    LeaseExpiresAtUnixMs = DateTimeOffset.UtcNow.AddSeconds(2).ToUnixTimeMilliseconds(),
+                    TransportKind = CultMeshBodyTransportKind.Network,
+                    CapabilityToken = "authenticated-quic",
+                    SemanticHash = ""
+                },
+                frame.Payload.ToArray());
+            var handler = EntityViewAvailable;
+            if (handler == null)
+            {
+                lease.Dispose();
+                return;
+            }
+            try
+            {
+                handler(generation, lease);
+                _lastPresentedEntityViewEpoch = frame.ProducerEpoch;
+                _lastPresentedEntityViewSequence = frame.Sequence;
+            }
+            catch
+            {
+                lease.Dispose();
+                throw;
+            }
+        }
+
+        private sealed class PendingRealtimeEntityFrame
+        {
+            public PendingRealtimeEntityFrame(string bodyId) =>
+                BodyId = string.IsNullOrWhiteSpace(bodyId)
+                    ? throw new ArgumentException("Body id must be non-empty.", nameof(bodyId))
+                    : bodyId;
+
+            public string BodyId { get; }
+        }
+
+        private sealed class RealtimeEntityBodyLease : ICultMeshBodyReadLease
+        {
+            private byte[] _bytes;
+
+            public RealtimeEntityBodyLease(CultMeshBodyDescriptor descriptor, byte[] bytes)
+            {
+                Descriptor = descriptor;
+                _bytes = bytes;
+            }
+
+            public CultMeshBodyDescriptor Descriptor { get; }
+            public CultMeshBodyTransportKind TransportKind => CultMeshBodyTransportKind.Network;
+            public byte ReadByte(long offset) { Validate(offset, 1); return _bytes[(int)offset]; }
+            public int ReadInt32(long offset) { Validate(offset, 4); return BitConverter.ToInt32(_bytes, (int)offset); }
+            public long ReadInt64(long offset) { Validate(offset, 8); return BitConverter.ToInt64(_bytes, (int)offset); }
+            public float ReadSingle(long offset) { Validate(offset, 4); return BitConverter.ToSingle(_bytes, (int)offset); }
+            public double ReadDouble(long offset) { Validate(offset, 8); return BitConverter.ToDouble(_bytes, (int)offset); }
+
+            public int CopyTo(long offset, byte[] destination, int destinationOffset, int count)
+            {
+                Validate(offset, count);
+                Buffer.BlockCopy(_bytes, (int)offset, destination, destinationOffset, count);
+                return count;
+            }
+
+            public void Dispose() => _bytes = Array.Empty<byte>();
+
+            private void Validate(long offset, int count)
+            {
+                if (offset < 0 || count < 0 || offset > _bytes.LongLength - count)
+                    throw new ArgumentOutOfRangeException(nameof(offset));
+            }
         }
 
         private void PumpMappedEntityFrame()

@@ -116,6 +116,35 @@ namespace GameCult.Eve.UnityScene.Tests
         }
 
         [Test]
+        public void LiveTransportKeepsOnlyLatestPendingRealtimeGenerationPerBody()
+        {
+            using var transport = new EveUnityCultMeshLiveProviderTransport(
+                "test-replica.cc",
+                "cultnet://127.0.0.1:3075",
+                "provider",
+                "provider.pilot");
+            var enqueue = typeof(EveUnityCultMeshLiveProviderTransport)
+                .GetMethod("EnqueueRealtimeEntityFrame", BindingFlags.NonPublic | BindingFlags.Instance)!;
+            var queue = (System.Collections.Concurrent.ConcurrentQueue<object>)
+                typeof(EveUnityCultMeshLiveProviderTransport)
+                    .GetField("_liveDocuments", BindingFlags.NonPublic | BindingFlags.Instance)!
+                    .GetValue(transport)!;
+            var latest = (Dictionary<string, CultMeshRealtimeFrame>)
+                typeof(EveUnityCultMeshLiveProviderTransport)
+                    .GetField("_latestRealtimeFrames", BindingFlags.NonPublic | BindingFlags.Instance)!
+                    .GetValue(transport)!;
+
+            for (var sequence = 0; sequence < 100; sequence++)
+                enqueue.Invoke(transport, new object[] { RealtimeFrame("entities", 7, sequence) });
+            enqueue.Invoke(transport, new object[] { RealtimeFrame("entities", 7, 50) });
+
+            Assert.That(queue.Count, Is.EqualTo(1), "superseded frames must not become render-thread debt");
+            Assert.That(latest, Has.Count.EqualTo(1));
+            Assert.That(latest["entities"].ProducerEpoch, Is.EqualTo(7));
+            Assert.That(latest["entities"].Sequence, Is.EqualTo(99));
+        }
+
+        [Test]
         public void LiveTransportReadsLaterMappedFramesWithoutNewControlDocuments()
         {
             using var transport = new EveUnityCultMeshLiveProviderTransport(
@@ -2915,6 +2944,18 @@ namespace GameCult.Eve.UnityScene.Tests
                 }
             }
         };
+
+        private static CultMeshRealtimeFrame RealtimeFrame(string bodyId, long epoch, long sequence) =>
+            new CultMeshRealtimeFrame
+            {
+                ChannelId = "state",
+                BodyId = bodyId,
+                SchemaId = "test.entity.slab.v1",
+                ProducerEpoch = epoch,
+                Sequence = sequence,
+                Delivery = CultMeshRealtimeDelivery.LatestOnly,
+                Payload = new byte[4]
+            };
 
         private static EveProviderAdvertisementDocument ProviderAdvertisement(
             string providerId,

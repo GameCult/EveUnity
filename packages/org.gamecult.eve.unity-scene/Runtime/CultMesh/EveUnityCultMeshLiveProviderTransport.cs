@@ -768,9 +768,10 @@ namespace GameCult.Eve.UnityScene
                 if (string.IsNullOrWhiteSpace(entityBodyId))
                     throw new InvalidOperationException(
                         "The playable world advertises an entity-view pointer without its logical body id.");
+                _bodyResolver ??= CreateBodyResolver();
                 var initial = CultMesh.SubscribeHotBodyAsync(
                         _entitySubscriptions,
-                        _bodyResolver!,
+                        _bodyResolver,
                         new CultMeshHotBodySubscription(
                             "eve-unity-entity-view",
                             _runtimeId,

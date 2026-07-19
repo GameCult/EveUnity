@@ -36,15 +36,18 @@ content-hashed body into the local warm cache. This is convenient local setup,
 not CDN-transfer evidence. On later runs, use `-SkipAssetBundleBuild` and omit
 the prime flag when neither provider assets nor their catalog changed.
 
-The current split transport proof is warm. Control/discovery, subscriptions,
-commands, and receipts use `cultnet+tcp`; the same-machine entity body resolves
-to `SharedFileMapping`; CDN bytes are advertised on a separate
-`cultmesh-content+tcp` endpoint. The passing run in
-`artifacts/aetheria-daemon-tcp-warm` used an explicitly primed 56,204,750-byte
-provider body and therefore makes no cold-transfer claim. The prior cold path
-that carried bundle chunks through batched snapshot records timed out and is
-not accepted as evidence. A fresh empty-cache run over the dedicated TCP
-content plane remains required before cold CDN delivery is promoted again.
+The split transport proof now passes warm and cold. Control/discovery,
+subscriptions, commands, and receipts use `cultnet+tcp`; the same-machine entity
+body resolves to `SharedFileMapping`; CDN bytes use a separate
+`cultmesh-content+tcp` endpoint. The empty-cache run in
+`artifacts/aetheria-daemon-tcp-cold` began with zero bodies and zero partials,
+transferred the 56,204,750-byte provider bundle in 215 TCP content chunks,
+verified hash `f2c8acf938998703799e909cbf0c6e3ed9ad5d6f83b708a0b7b6e76ee33f7160`,
+and atomically promoted one body with no partial left behind. The cold-start
+Unity test completed in 28.4 seconds and the complete wrapper in 82.1 seconds.
+The prior path that carried bundle chunks through batched snapshot records
+timed out and remains rejected; this passing evidence belongs only to the
+dedicated TCP content plane.
 
 The July 19 released-package run in `artifacts/aetheria-daemon-tcp-warm` passes the
 full-session gate. The generic client lowers the provider-owned bundle through

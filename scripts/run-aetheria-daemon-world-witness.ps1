@@ -1,7 +1,7 @@
 param(
   [string] $UnityExe = "C:\Program Files\Unity\Hub\Editor\6000.4.2f1\Editor\Unity.exe",
   [string] $AetheriaRoot = "E:\Projects\Aetheria",
-  [string] $CultLibRoot = "E:\Projects\CultLib-codex-cultmesh-reliability",
+  [string] $CultLibRoot = "E:\Projects\CultLib-release",
   [string] $EveUnityRoot = "E:\Projects\EveUnity",
   [string] $YmirRoot = "E:\Projects\Ymir-aetheria-integration",
   [string] $ClientProject = "ReleaseConsumerProject",

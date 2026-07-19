@@ -208,6 +208,7 @@ $daemonArguments = @(
 )
 $env:AETHERIA_TRACE_EVE_SNAPSHOTS = "1"
 $env:AETHERIA_TRACE_CLIENT_TRANSPORT = "1"
+$env:AETHERIA_TRACE_STARTUP_PHASES = "1"
 $env:EVEUNITY_RENDEZVOUS_ENDPOINT = "cultnet+tcp://127.0.0.1:$Port"
 $env:EVEUNITY_PROVIDER_ID = "aetheria"
 Remove-Item Env:EVEUNITY_SURFACE_ID -ErrorAction SilentlyContinue
@@ -220,6 +221,7 @@ $env:EVEUNITY_WITNESS_FACTS_PATH = $factsPath
 $env:EVEUNITY_PROVIDER_READY_PATH = $providerReadyPath
 $env:EVEUNITY_WITNESS_PROFILE = $witnessProfile
 $env:EVEUNITY_WITNESS_GAMEPLAY_SCENARIO = $GameplayScenario
+$env:EVEUNITY_TRACE_STARTUP_PHASES = "1"
 $arguments = @(
   "-batchmode", "-projectPath", $projectRoot,
   "-runTests", "-testPlatform", "PlayMode",

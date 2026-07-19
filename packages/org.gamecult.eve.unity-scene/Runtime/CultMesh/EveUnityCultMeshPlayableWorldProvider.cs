@@ -3,6 +3,7 @@ using System.IO;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using Stopwatch = System.Diagnostics.Stopwatch;
 using GameCult.Eve.Surface;
 using GameCult.Eve.PluginFields;
 using GameCult.Eve.UnityScene.Fields;
@@ -203,6 +204,7 @@ namespace GameCult.Eve.UnityScene
 
         private async Task PrepareTransportAsync()
         {
+            var elapsed = Stopwatch.StartNew();
             if (_transport != null)
                 return;
             if (string.IsNullOrWhiteSpace(rendezvousEndpoint))
@@ -214,6 +216,8 @@ namespace GameCult.Eve.UnityScene
                 surfaceFilter,
                 surfaceKind,
                 verseFilter);
+            TraceStartup($"discovery {elapsed.Elapsed.TotalMilliseconds:0.###}ms");
+            elapsed.Restart();
             var resolvedReplicaPath = string.IsNullOrWhiteSpace(replicaPath)
                 ? Path.Combine(Application.temporaryCachePath, $"eve-unity-{GetInstanceID()}.cc")
                 : replicaPath;
@@ -226,6 +230,13 @@ namespace GameCult.Eve.UnityScene
             _transport.EntityViewAvailable += (view, lease) => _pendingEntityViews.Enqueue(new EntityViewLease(view, lease));
             _transport.FieldsSplatsAvailable += fields => _pendingFields.Enqueue(fields);
             _bridge = new EveUnitySceneLiveProviderBridge(_transport);
+            TraceStartup($"transport-construction {elapsed.Elapsed.TotalMilliseconds:0.###}ms");
+        }
+
+        private static void TraceStartup(string message)
+        {
+            if (string.Equals(Environment.GetEnvironmentVariable("EVEUNITY_TRACE_STARTUP_PHASES"), "1", StringComparison.Ordinal))
+                Debug.Log($"EveUnity startup phase {message}.");
         }
 
         private void RequirePrepared()

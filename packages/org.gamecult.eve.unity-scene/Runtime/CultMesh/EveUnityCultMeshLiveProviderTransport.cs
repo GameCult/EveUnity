@@ -12,6 +12,7 @@ using GameCult.Eve.UnityScene.Fields;
 using GameCult.Mesh;
 using GameCult.Networking;
 using UnityEngine;
+using Stopwatch = System.Diagnostics.Stopwatch;
 
 #nullable enable
 
@@ -171,11 +172,23 @@ namespace GameCult.Eve.UnityScene
             if (_bootstrapped)
                 return;
 
+            var elapsed = Stopwatch.StartNew();
             ResolveAdvertisement(forceRefresh: true);
+            TraceStartup("advertisement", elapsed);
             RefreshSurface();
+            TraceStartup("surface", elapsed);
             RefreshAssetCatalog();
+            TraceStartup("asset-catalog-and-bundles", elapsed);
             EnsureLiveSubscriptions();
+            TraceStartup("subscriptions", elapsed);
             _bootstrapped = true;
+        }
+
+        private static void TraceStartup(string phase, Stopwatch elapsed)
+        {
+            if (string.Equals(Environment.GetEnvironmentVariable("EVEUNITY_TRACE_STARTUP_PHASES"), "1", StringComparison.Ordinal))
+                Debug.Log($"EveUnity startup phase {phase} took {elapsed.Elapsed.TotalMilliseconds:0.###}ms.");
+            elapsed.Restart();
         }
 
         private static string FindComponentProp(EveSurfaceComponent component, string key)
@@ -1040,6 +1053,7 @@ namespace GameCult.Eve.UnityScene
             ReadCameraPolicies(selected.Select(selection => selection.Variant!));
             foreach (var group in selected.GroupBy(selection => selection.Variant!.Uri, StringComparer.Ordinal))
             {
+                var groupElapsed = Stopwatch.StartNew();
                 var variant = group.First().Variant!;
                 var manifest = _snapshot!.FetchDocumentsAsync<CultMeshCdnArtifactManifest>(
                         recordKeys: new[] { variant.Uri },
@@ -1049,7 +1063,9 @@ namespace GameCult.Eve.UnityScene
                 var descriptor = manifest.FirstOrDefault();
                 if (descriptor == null)
                     throw new InvalidOperationException($"Provider asset bundle manifest '{variant.Uri}' was not available.");
+                TraceStartup("asset-manifest", groupElapsed);
                 var bundle = LoadVerifiedBundle(descriptor, variant);
+                TraceStartup("asset-transfer-and-bundle-load", groupElapsed);
                 if (bundle == null)
                     throw new InvalidOperationException($"Unity could not load provider asset bundle '{variant.Uri}'.");
                 _assetBundles.Add(bundle);
@@ -1078,6 +1094,7 @@ namespace GameCult.Eve.UnityScene
                         if (!string.IsNullOrWhiteSpace(role)) _prefabs[role] = prefab;
                     }
                 }
+                TraceStartup("bundle-assets", groupElapsed);
             }
 
             CurrentAssetCatalogVersion = catalog.Version;
@@ -1164,10 +1181,12 @@ namespace GameCult.Eve.UnityScene
 
             var now = DateTimeOffset.UtcNow;
             var network = NetworkArtifactDescriptor(manifest, now, TimeSpan.FromMinutes(5));
+            var elapsed = Stopwatch.StartNew();
             var mapped = ContentTransfer()
                 .FetchMappedContentAsync(manifest, network, now, TimeSpan.FromMinutes(5))
                 .GetAwaiter()
                 .GetResult();
+            TraceStartup("content-materialization", elapsed);
             var request = new CultMeshBodyValidationRequest
             {
                 BodyId = network.BodyId,
@@ -1191,13 +1210,19 @@ namespace GameCult.Eve.UnityScene
             CurrentAssetBodyTransportKind = negotiated.SelectedTransport;
             _assetBodyLeases.Add(negotiated.Lease);
             if (negotiated.SelectedTransport == CultMeshBodyTransportKind.SharedFileMapping)
-                return AssetBundle.LoadFromFile(mapped.VerifiedPath);
+            {
+                var bundle = AssetBundle.LoadFromFile(mapped.VerifiedPath);
+                TraceStartup("asset-bundle-load-from-file", elapsed);
+                return bundle;
+            }
 
             if (negotiated.Lease.Descriptor.ByteSize > int.MaxValue)
                 throw new InvalidOperationException("Unity cannot lower a network asset body larger than one managed byte array.");
             var bytes = new byte[checked((int)negotiated.Lease.Descriptor.ByteSize)];
             negotiated.Lease.CopyTo(0, bytes, 0, bytes.Length);
-            return AssetBundle.LoadFromMemory(bytes);
+            var loaded = AssetBundle.LoadFromMemory(bytes);
+            TraceStartup("asset-bundle-load-from-memory", elapsed);
+            return loaded;
         }
 
         private byte[] ReadVerifiedArtifactBytes(CultMeshCdnArtifactManifest manifest)

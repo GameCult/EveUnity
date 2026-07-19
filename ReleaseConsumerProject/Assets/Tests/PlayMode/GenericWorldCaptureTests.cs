@@ -16,6 +16,7 @@ using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
 using UnityEngine.TestTools;
 using UnityEngine.UIElements;
+using Stopwatch = System.Diagnostics.Stopwatch;
 
 namespace GameCult.EveUnity.GenericClient.PlayModeTests
 {
@@ -912,6 +913,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 Assert.That(captureFieldVolume, Is.Not.Null,
                     "The generic client did not install its Fields volume lowerer before temporal settling.");
                 const int temporalSettlingFrames = 128;
+                var temporalSettlingElapsed = Stopwatch.StartNew();
                 var initialCompositeCount = captureFieldVolume.CompositeCount;
                 var temporalSettlingDeadline = Time.realtimeSinceStartup + 20f;
                 while (captureFieldVolume.CompositeCount - initialCompositeCount < temporalSettlingFrames &&
@@ -923,6 +925,8 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 Assert.That(captureFieldVolume.CompositeCount - initialCompositeCount,
                     Is.GreaterThanOrEqualTo(temporalSettlingFrames),
                     "The pilot capture ran before the advertised temporal reconstruction had settled.");
+                Debug.Log($"EveUnity witness phase temporal-settling-128-frames took {temporalSettlingElapsed.Elapsed.TotalMilliseconds:0.###}ms.");
+                var pilotCaptureElapsed = Stopwatch.StartNew();
                 yield return null;
                 RenderTexture.active = target;
                 pixels = new Texture2D(captureWidth, captureHeight, TextureFormat.RGB24, false);
@@ -950,7 +954,9 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     "The provider-authored player prefab has no renderer on its advertised map channel.");
                 Assert.That(playerMapRendererFacts.Sum(fact => fact.renderedPixelCount), Is.Zero,
                     "A provider-prefab map-channel renderer leaked into the pilot camera.");
+                Debug.Log($"EveUnity witness phase pilot-capture-and-renderer-probes took {pilotCaptureElapsed.Elapsed.TotalMilliseconds:0.###}ms.");
 
+                var mapCaptureElapsed = Stopwatch.StartNew();
                 mapRenderers = mapRenderers.Where(renderer => renderer != null).ToList();
                 Assert.That(mapRenderers, Is.Not.Empty,
                     "All advertised map-channel renderers were destroyed before map capture.");
@@ -981,6 +987,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(mapCapturePath)));
                 File.WriteAllBytes(mapCapturePath, pixels.EncodeToPNG());
                 Assert.That(new FileInfo(mapCapturePath).Length, Is.GreaterThan(1024));
+                Debug.Log($"EveUnity witness phase map-capture took {mapCaptureElapsed.Elapsed.TotalMilliseconds:0.###}ms.");
                 var tractorReleaseVersion = runtime.ActiveVersion;
                 var tractorRelease = host.SubmitAdvertisedActionValueIntent(
                     playerId,

@@ -384,30 +384,26 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     }
                 };
 
-                var playerPrefab = provider.ResolvePrefab(new EveUnityPlayableWorldAssetBinding(
-                    playerFact.AssetRef,
-                    playerFact.EntityKind,
-                    "provider-asset-ref"));
-                Assert.That(playerPrefab, Is.Not.Null,
-                    $"Provider asset catalog did not resolve player AssetRef '{playerFact.AssetRef}'.");
-                Assert.That(provider.CurrentAssetBodyTransportKind,
-                    Is.EqualTo(CultMeshBodyTransportKind.SharedFileMapping),
-                    "The first requested provider bundle was not negotiated as a mapped body.");
                 var marker = FindMarker(root, playerId);
-                Assert.That(
-                    marker.GetComponentsInChildren<Transform>(includeInactive: true).Length,
-                    Is.GreaterThan(1),
-                    "The generic client substituted its primitive fallback instead of the provider-authored AssetBundle prefab.");
 
                 if (requireSessionGameplay)
                 {
+                    EveUnitySceneCommandReceipt observedDockReceipt = null;
+                    string dockCommandId = null;
+                    runtime.ReceiptAvailable += receipt =>
+                    {
+                        if (receipt.CommandId == dockCommandId)
+                            observedDockReceipt = receipt;
+                    };
+                    host.SubmitAdvertisedActionIntent(playerId, "simulation.step");
                     var dockVersion = runtime.ActiveVersion;
                     var dock = host.SubmitAdvertisedActionIntent(playerId, "pilot.dock");
+                    dockCommandId = dock.CommandId;
                     var dockDeadline = Time.realtimeSinceStartup + 12f;
                     while (Time.realtimeSinceStartup < dockDeadline &&
-                           (runtime.LastReceipt == null || runtime.LastReceipt.CommandId != dock.CommandId ||
-                            !string.Equals(runtime.LastReceipt.State, "reconciled", StringComparison.OrdinalIgnoreCase) ||
-                            runtime.ActiveVersion < runtime.LastReceipt.SourceVersion ||
+                           (observedDockReceipt == null ||
+                            !string.Equals(observedDockReceipt.State, "reconciled", StringComparison.OrdinalIgnoreCase) ||
+                            runtime.ActiveVersion < observedDockReceipt.SourceVersion ||
                             !(host.InputCapability?.Actions ?? Array.Empty<EveInputActionDocument>()).Any(candidate =>
                                 candidate != null &&
                                 candidate.ActionId.StartsWith("trade.buy.", StringComparison.Ordinal) &&
@@ -416,7 +412,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                         yield return new WaitForSecondsRealtime(0.1f);
                         runtime.Refresh();
                     }
-                    AssertReconciledProviderReceipt(runtime.LastReceipt, dock.CommandId,
+                    AssertReconciledProviderReceipt(observedDockReceipt, dock.CommandId,
                         provider.Selection.ProviderId, provider.Selection.SurfaceId, dockVersion);
                     var buyAction = (host.InputCapability?.Actions ?? Array.Empty<EveInputActionDocument>())
                         .FirstOrDefault(candidate => candidate != null &&
@@ -515,6 +511,20 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     AssertReconciledProviderReceipt(runtime.LastReceipt, undock.CommandId,
                         provider.Selection.ProviderId, provider.Selection.SurfaceId, undockVersion);
                 }
+
+                var playerPrefab = provider.ResolvePrefab(new EveUnityPlayableWorldAssetBinding(
+                    playerFact.AssetRef,
+                    playerFact.EntityKind,
+                    "provider-asset-ref"));
+                Assert.That(playerPrefab, Is.Not.Null,
+                    $"Provider asset catalog did not resolve player AssetRef '{playerFact.AssetRef}'.");
+                Assert.That(provider.CurrentAssetBodyTransportKind,
+                    Is.EqualTo(CultMeshBodyTransportKind.SharedFileMapping),
+                    "The first requested provider bundle was not negotiated as a mapped body.");
+                Assert.That(
+                    marker.GetComponentsInChildren<Transform>(includeInactive: true).Length,
+                    Is.GreaterThan(1),
+                    "The generic client substituted its primitive fallback instead of the provider-authored AssetBundle prefab.");
 
                 var initialPosition = marker.transform.position;
                 initialVersion = runtime.ActiveVersion;

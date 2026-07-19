@@ -4,16 +4,16 @@
 
 The generic `ReleaseConsumerProject` is pinned to released Git packages:
 
-- `org.gamecult.eve.unity-scene` `0.3.91`, commit
-  `c93f09342f4c14e0607a47038df6b8e2e99cbf03`, and
+- `org.gamecult.eve.unity-scene` `0.3.94`, commit
+  `0463ddff4e39c9cca14e632b7e46b6b0081c67cc`, and
   `org.gamecult.eve.surface` `0.2.4`, commit
   `e08fa08335f99e9edddeb706912eecfad07cb281`;
 - `org.gamecult.eve.plugin-fields` `0.2.3`, commit
   `c5a4a75c1b727499b16c2dae1895f29e2a9f72f0`;
 - `org.gamecult.eve.unity-uitoolkit` `0.1.1`, commit
   `4d0cbe0185bdc4fc65eb63503a7c5cb578539669`;
-- `org.gamecult.cultlib` `1.0.32`, commit
-  `d018bb1fb5a8ce73da6f5579e2f475750d901d8b`.
+- `org.gamecult.cultlib` `1.0.34`, commit
+  `c148d891c1d8713285ae15b2f17b59c106fb9426`.
 
 The hand-run integration gate is the warm released-package witness:
 
@@ -36,32 +36,31 @@ content-hashed body into the local warm cache. This is convenient local setup,
 not CDN-transfer evidence. On later runs, use `-SkipAssetBundleBuild` and omit
 the prime flag when neither provider assets nor their catalog changed.
 
-Cold transfer is a passing released-package integration gate as of
-`artifacts/cold-release-0391`. The run starts with zero bodies and zero partials,
-transfers and verifies the `56,204,750`-byte provider bundle through the
-dedicated `cultmesh.content.v1` session, atomically promotes one content-hashed
-body with no partial left behind, and grants Unity a `SharedFileMapping` lease
-over that verified file. The Unity test completes in 54.8 seconds and the full
-clean import/build/test wrapper completes in 149.6 seconds under the unchanged
-300-second deadline. Pilot/map channel separation and 65,536 Stardust particles
-remain proven after the cold load.
+The current split transport proof is warm. Control/discovery, subscriptions,
+commands, and receipts use `cultnet+tcp`; the same-machine entity body resolves
+to `SharedFileMapping`; CDN bytes are advertised on a separate
+`cultmesh-content+tcp` endpoint. The passing run in
+`artifacts/aetheria-daemon-tcp-warm` used an explicitly primed 56,204,750-byte
+provider body and therefore makes no cold-transfer claim. The prior cold path
+that carried bundle chunks through batched snapshot records timed out and is
+not accepted as evidence. A fresh empty-cache run over the dedicated TCP
+content plane remains required before cold CDN delivery is promoted again.
 
-This proves that bulk asset bytes no longer depend on snapshot records. It does
-not claim remote zero-copy: the current remote content session still copies and
-fragments bounded chunks before the verified local file becomes mapped. Network
-body streaming and copy-volume profiling remain transport work.
-
-The July 19 released-package run in `artifacts/dockyard-trade-warm-8` passes the
+The July 19 released-package run in `artifacts/aetheria-daemon-tcp-warm` passes the
 full-session gate. The generic client lowers the provider-owned bundle through
 `SharedFileMapping`, docks at the daemon-authored 12-berth Zenith Dockyard,
 buys and sells one typed item, undocks, moves, targets, aims, runs a held tractor
 beam, destroys the sole proof hostile, and collects the resulting loot exactly
 once through daemon-owned proximity. All eight retained witness receipts are
-provider-owned and reconciled. The run records 65,536 Stardust particles, 147
+provider-owned and reconciled. The run records 65,536 Stardust particles, 396
 field composites/dispatches/draws, and both camera-channel invariants. The pilot
 capture contains the 3D fog/Stardust/ship frame and no map icons; the map capture
 contains the map icons against its map background. The pilot image remains
 visually overexposed and is integration evidence, not final art approval.
+The wrapper starts the client before the daemon so package import time does not
+advance the live proof world. EveUnity 0.3.94 reports a refused TCP rendezvous as
+a retryable provider-preparation failure; once the daemon binds, the same generic
+preparation path connects without an Aetheria-specific reconnect shim.
 
 The July 19 transport-boundary run in `artifacts/demanded-fields-warm-6`
 passed its released-consumer PlayMode test and produced both camera captures.

@@ -17,10 +17,10 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$expectedEveUnityCommit = "c93f09342f4c14e0607a47038df6b8e2e99cbf03"
+$expectedEveUnityCommit = "0463ddff4e39c9cca14e632b7e46b6b0081c67cc"
 $expectedEveFieldsCommit = "c5a4a75c1b727499b16c2dae1895f29e2a9f72f0"
 $expectedEveUnityUiToolkitCommit = "4d0cbe0185bdc4fc65eb63503a7c5cb578539669"
-$expectedCultLibCommit = "d018bb1fb5a8ce73da6f5579e2f475750d901d8b"
+$expectedCultLibCommit = "c148d891c1d8713285ae15b2f17b59c106fb9426"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $projectRoot = $ClientProject
 $outputRoot = if ([IO.Path]::IsPathRooted($OutputDirectory)) { $OutputDirectory } else { Join-Path $repoRoot $OutputDirectory }
@@ -207,8 +207,8 @@ $daemonArguments = @(
   "--no-odin-announcements"
 )
 $env:AETHERIA_TRACE_EVE_SNAPSHOTS = "1"
-$env:AETHERIA_TRACE_CLIENT_RUDP = "1"
-$env:EVEUNITY_RENDEZVOUS_ENDPOINT = "rudp://127.0.0.1:$Port"
+$env:AETHERIA_TRACE_CLIENT_TRANSPORT = "1"
+$env:EVEUNITY_RENDEZVOUS_ENDPOINT = "cultnet+tcp://127.0.0.1:$Port"
 $env:EVEUNITY_PROVIDER_ID = "aetheria"
 Remove-Item Env:EVEUNITY_SURFACE_ID -ErrorAction SilentlyContinue
 $env:EVEUNITY_REPLICA_PATH = $replicaPath
@@ -227,32 +227,31 @@ $arguments = @(
   "-testFilter", "GenericCultMeshClientLowersAndMovesAdvertisedWorld",
   "-testResults", $resultsPath, "-logFile", $unityLogPath
 )
-$unity = Start-Process -FilePath $UnityExe -ArgumentList $arguments -WorkingDirectory $repoRoot -PassThru -WindowStyle Hidden
-Write-Host "Unity witness PID: $($unity.Id)"
-Write-Host "Unity log: $unityLogPath"
-$clientReady = $false
-for ($attempt = 0; $attempt -lt 240; $attempt++) {
-  if ($unity.HasExited) { throw "Unity exited before reaching provider connection. See $unityLogPath" }
-  if (Test-Path -LiteralPath $providerReadyPath) { $clientReady = $true; break }
-  Start-Sleep -Milliseconds 500
-}
-if (-not $clientReady) {
-  Stop-Process -Id $unity.Id -Force -ErrorAction SilentlyContinue
-  throw "Unity did not reach provider connection within 120 seconds. See $unityLogPath"
-}
-
-$daemon = Start-Process -FilePath "dotnet" -ArgumentList $daemonArguments -PassThru -WindowStyle Hidden `
-  -RedirectStandardOutput $daemonLogPath -RedirectStandardError (Join-Path $outputRoot "aetheria-daemon.error.log")
-Write-Host "Aetheria daemon PID: $($daemon.Id)"
-Write-Host "Daemon log: $daemonLogPath"
-Write-Host "Poll: Select-String -Path '$daemonLogPath' -Pattern 'Aetheria client CultMesh endpoint'"
-
+$daemon = $null
+$unity = $null
 try {
+  $unity = Start-Process -FilePath $UnityExe -ArgumentList $arguments -WorkingDirectory $repoRoot -PassThru -WindowStyle Hidden
+  Write-Host "Unity witness PID: $($unity.Id)"
+  Write-Host "Unity log: $unityLogPath"
+  $clientReady = $false
+  for ($attempt = 0; $attempt -lt 240; $attempt++) {
+    if ($unity.HasExited) { throw "Unity exited before reaching provider preparation. See $unityLogPath" }
+    if (Test-Path -LiteralPath $providerReadyPath) { $clientReady = $true; break }
+    Start-Sleep -Milliseconds 500
+  }
+  if (-not $clientReady) { throw "Unity did not reach provider preparation within 120 seconds. See $unityLogPath" }
+
+  $daemon = Start-Process -FilePath "dotnet" -ArgumentList $daemonArguments -PassThru -WindowStyle Hidden `
+    -RedirectStandardOutput $daemonLogPath -RedirectStandardError (Join-Path $outputRoot "aetheria-daemon.error.log")
+  Write-Host "Aetheria daemon PID: $($daemon.Id)"
+  Write-Host "Daemon log: $daemonLogPath"
+  Write-Host "Poll: Select-String -Path '$daemonLogPath' -Pattern 'Aetheria client CultMesh endpoint'"
+
   $ready = $false
   for ($attempt = 0; $attempt -lt 240; $attempt++) {
     if ($daemon.HasExited) { throw "Aetheria daemon exited before publishing CultMesh. See $daemonLogPath" }
     if ((Test-Path $daemonLogPath) -and
-        (Select-String -Path $daemonLogPath -Pattern "Aetheria client CultMesh endpoint: rudp://127.0.0.1:$Port" -Quiet)) { $ready = $true; break }
+        (Select-String -Path $daemonLogPath -Pattern "Aetheria client CultMesh endpoint: cultnet\+tcp://127.0.0.1:$Port" -Quiet)) { $ready = $true; break }
     Start-Sleep -Milliseconds 500
   }
   if (-not $ready) { throw "Aetheria daemon did not open CultMesh port $Port within 120 seconds. See $daemonLogPath" }
@@ -451,5 +450,5 @@ finally {
   if ($null -ne $unity -and -not $unity.HasExited) { Stop-Process -Id $unity.Id -Force -ErrorAction SilentlyContinue }
   if ($null -ne $daemon -and -not $daemon.HasExited) { Stop-Process -Id $daemon.Id -Force }
   Remove-Item Env:EVEUNITY_RENDEZVOUS_ENDPOINT, Env:EVEUNITY_PROVIDER_ENDPOINT, Env:EVEUNITY_PROVIDER_ID, Env:EVEUNITY_SURFACE_ID, Env:EVEUNITY_REPLICA_PATH, Env:EVEUNITY_AETHERIA_CAPTURE_PATH, Env:EVEUNITY_AETHERIA_MAP_CAPTURE_PATH, Env:EVEUNITY_DISABLE_AUTO_LAUNCHER, Env:EVEUNITY_ASSET_CACHE_PATH, Env:EVEUNITY_WITNESS_FACTS_PATH, Env:EVEUNITY_PROVIDER_READY_PATH, Env:EVEUNITY_WITNESS_PROFILE, Env:EVEUNITY_WITNESS_GAMEPLAY_SCENARIO -ErrorAction SilentlyContinue
-  Remove-Item Env:AETHERIA_TRACE_EVE_SNAPSHOTS -ErrorAction SilentlyContinue
+  Remove-Item Env:AETHERIA_TRACE_EVE_SNAPSHOTS, Env:AETHERIA_TRACE_CLIENT_TRANSPORT -ErrorAction SilentlyContinue
 }

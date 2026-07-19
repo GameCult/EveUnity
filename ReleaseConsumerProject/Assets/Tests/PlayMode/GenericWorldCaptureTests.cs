@@ -602,7 +602,10 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 var collectionDeadline = Time.realtimeSinceStartup + 45f;
                 var nextTractorAimAt = 0f;
                 while (Time.realtimeSinceStartup < collectionDeadline &&
-                       (expectCargoRejection ? pickupRejection == null : pickupCollection == null))
+                       (expectCargoRejection
+                           ? pickupRejection == null
+                           : pickupCollection == null || host.PresentedEntities.CurrentGeneration.Entities.Any(entity =>
+                               string.Equals(entity.EntityKind, "pickup", StringComparison.Ordinal))))
                 {
                     yield return new WaitForSecondsRealtime(0.05f);
                     runtime.Refresh();

@@ -20,7 +20,7 @@ $ErrorActionPreference = "Stop"
 $expectedEveUnityCommit = "edaf3b1e3bbb06a00b18b9faf508e27e33ae050b"
 $expectedEveFieldsCommit = "c5a4a75c1b727499b16c2dae1895f29e2a9f72f0"
 $expectedEveUnityUiToolkitCommit = "4d0cbe0185bdc4fc65eb63503a7c5cb578539669"
-$expectedCultLibCommit = "49c43baa4c80b3bf8f5febae40baf99e1f2a0262"
+$expectedCultLibCommit = "693df0901d75cfd8e3a0a5225e270011eeddb0be"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $projectRoot = $ClientProject
 $outputRoot = if ([IO.Path]::IsPathRooted($OutputDirectory)) { $OutputDirectory } else { Join-Path $repoRoot $OutputDirectory }
@@ -420,9 +420,9 @@ try {
     )
     authority = if ($witnessProfile -eq "full-session-gameplay") {
       if ($GameplayScenario -eq "cargo-capacity-rejection-proof") {
-        "released-generic-runtime-observes-provider-assets-authoritative-gameplay-receipts-ymir-contact-capacity-rejection-and-camera-channel-separation"
+        "released-generic-runtime-observes-provider-assets-authoritative-gameplay-receipts-daemon-proximity-capacity-rejection-and-camera-channel-separation"
       } else {
-        "released-generic-runtime-observes-provider-assets-authoritative-gameplay-receipts-ymir-contact-collection-and-camera-channel-separation"
+        "released-generic-runtime-observes-provider-assets-authoritative-gameplay-receipts-daemon-proximity-collection-and-camera-channel-separation"
       }
     } else {
       "released-generic-runtime-cold-loads-provider-assets-lowers-playable-world-and-preserves-camera-channel-separation"

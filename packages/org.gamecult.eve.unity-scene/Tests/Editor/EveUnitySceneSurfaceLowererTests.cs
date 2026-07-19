@@ -73,11 +73,11 @@ namespace GameCult.Eve.UnityScene.Tests
                     .GetValue(transport)!;
 
             queueView.Invoke(transport, new object[] { view });
-            Assert.That(queue.TryDequeue(out _), Is.True);
+            Assert.That(queue, Is.Empty, "a layout without its body publication is not a complete generation");
             queuePublication.Invoke(transport, new object[] { publication });
 
             Assert.That(queue.TryDequeue(out var queued), Is.True);
-            var generation = queued as EveEntitySoaViewDocument;
+            var generation = queued!.GetType().GetProperty("View")!.GetValue(queued) as EveEntitySoaViewDocument;
             Assert.That(generation, Is.Not.Null);
             Assert.That(generation!.Sequence, Is.EqualTo(publication.Sequence));
             Assert.That(generation.ProducerEpoch, Is.EqualTo(publication.ProducerEpoch));
@@ -85,6 +85,34 @@ namespace GameCult.Eve.UnityScene.Tests
             Assert.That(generation.Columns, Is.SameAs(view.Columns));
             Assert.That(generation.Identities, Is.SameAs(view.Identities));
             Assert.That(generation.DirtyRanges.All(range => range.Sequence == publication.Sequence), Is.True);
+        }
+
+        [Test]
+        public void LiveTransportPairsBodyPublicationThatArrivesBeforeItsLayout()
+        {
+            using var transport = new EveUnityCultMeshLiveProviderTransport(
+                "test-replica.cc",
+                "cultnet://127.0.0.1:3075",
+                "aetheria",
+                "aetheria.pilot");
+            var view = EntityLeaseDocument();
+            var publication = BodyPublication(view, view.Sequence);
+            var queueView = typeof(EveUnityCultMeshLiveProviderTransport)
+                .GetMethod("QueueEntityView", BindingFlags.NonPublic | BindingFlags.Instance)!;
+            var queuePublication = typeof(EveUnityCultMeshLiveProviderTransport)
+                .GetMethod("QueueBodyPublication", BindingFlags.NonPublic | BindingFlags.Instance)!;
+            var queue = (System.Collections.Concurrent.ConcurrentQueue<object>)
+                typeof(EveUnityCultMeshLiveProviderTransport)
+                    .GetField("_liveDocuments", BindingFlags.NonPublic | BindingFlags.Instance)!
+                    .GetValue(transport)!;
+
+            queuePublication.Invoke(transport, new object[] { publication });
+            Assert.That(queue, Is.Empty, "a publication without its layout is not a complete generation");
+            queueView.Invoke(transport, new object[] { view });
+
+            Assert.That(queue.TryDequeue(out var queued), Is.True);
+            Assert.That(queued!.GetType().GetProperty("View")!.GetValue(queued), Is.SameAs(view));
+            Assert.That(queued.GetType().GetProperty("Publication")!.GetValue(queued), Is.SameAs(publication));
         }
 
         [Test]
@@ -1887,7 +1915,7 @@ namespace GameCult.Eve.UnityScene.Tests
         }
 
         [Test]
-        public void LivePlayableWorldClientWaitsForProviderSurfaceUpdateAfterReceipt()
+        public void LivePlayableWorldClientReconcilesReceiptAfterReactiveStateVersionAdvances()
         {
             var source = new FakeProviderSurfaceSource(
                 "aetheria",
@@ -1944,12 +1972,18 @@ namespace GameCult.Eve.UnityScene.Tests
             Assert.That(client.LastReceipt.State, Is.EqualTo("pending"));
             Assert.That(client.ActiveVersion, Is.EqualTo(1));
 
+            client.AdvanceStateVersion(2);
+
+            Assert.That(client.LastReceipt.State, Is.EqualTo("reconciled"));
+            Assert.That(client.ActiveVersion, Is.EqualTo(2));
+            Assert.That(sceneSink.ConfiguredWorlds.Count, Is.EqualTo(1),
+                "reactive state visibility must not require republishing heavy surface topology");
+
             source.Publish(new EveUnitySceneProviderSurfaceSnapshot(
                 PlayableArpgDocument(includeRaider: false, playerPosition: "30,0,30"),
                 Advertisement("aetheria.daemon.game"),
                 "cultmesh://aetheria/eve/surfaces/aetheria.daemon.game",
                 2));
-            Assert.That(client.LastReceipt.State, Is.EqualTo("reconciled"));
             Assert.That(client.ActiveVersion, Is.EqualTo(2));
             Assert.That(client.LastPresentation, Is.Not.Null);
             Assert.That(client.LastPresentation!.ActiveEntities, Is.EqualTo(2));

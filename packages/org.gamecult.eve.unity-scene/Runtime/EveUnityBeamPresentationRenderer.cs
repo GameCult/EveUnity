@@ -76,8 +76,13 @@ namespace GameCult.Eve.UnityScene
                     beam.Root.transform.SetParent(source.Transform, false);
                 }
 
-                var visiblePower = presentation.Power > presentation.ActivationThreshold
-                    ? presentation.Power
+                var power = presentation.Power;
+                if (!string.IsNullOrWhiteSpace(presentation.PowerStateSemantic))
+                    power = source.Entity.TryGetScalar(presentation.PowerStateSemantic, out var livePower)
+                        ? Math.Max(0f, livePower)
+                        : 0f;
+                var visiblePower = power > presentation.ActivationThreshold
+                    ? power
                     : 0f;
                 foreach (var particles in beam.Root.GetComponentsInChildren<ParticleSystem>(true))
                 {

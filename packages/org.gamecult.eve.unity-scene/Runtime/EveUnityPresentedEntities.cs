@@ -24,7 +24,8 @@ namespace GameCult.Eve.UnityScene
             int lod,
             bool selectable,
             bool controllable,
-            string assetRef)
+            string assetRef,
+            IReadOnlyDictionary<string, float>? scalarState = null)
         {
             SourceIndex = sourceIndex;
             EntityId = entityId ?? "";
@@ -41,6 +42,7 @@ namespace GameCult.Eve.UnityScene
             Selectable = selectable;
             Controllable = controllable;
             AssetRef = assetRef ?? "";
+            ScalarState = scalarState ?? new Dictionary<string, float>(StringComparer.Ordinal);
         }
 
         public int SourceIndex { get; }
@@ -58,6 +60,10 @@ namespace GameCult.Eve.UnityScene
         public bool Selectable { get; }
         public bool Controllable { get; }
         public string AssetRef { get; }
+        public IReadOnlyDictionary<string, float> ScalarState { get; }
+
+        public bool TryGetScalar(string semantic, out float value) =>
+            ScalarState.TryGetValue(semantic ?? "", out value);
 
         public EveUnityPlayableWorldEntity ToPlayableWorldEntity() => new EveUnityPlayableWorldEntity(
             EntityId,

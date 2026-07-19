@@ -15,6 +15,7 @@ namespace GameCult.Eve.UnityScene
         private readonly EveUnityShotReceiptPresenter _shots = new EveUnityShotReceiptPresenter();
         private readonly List<EveUnitySceneCommandReceipt> _pendingReceipts =
             new List<EveUnitySceneCommandReceipt>();
+        private long _activeStateVersion;
         private bool _connected;
         private bool _receiptConnected;
 
@@ -36,7 +37,14 @@ namespace GameCult.Eve.UnityScene
 
         public EveUnitySceneCommandReceipt? LastReceipt { get; private set; }
 
-        public long ActiveVersion => _connection.ActiveVersion;
+        public long ActiveVersion => Math.Max(_connection.ActiveVersion, _activeStateVersion);
+
+        public void AdvanceStateVersion(long version)
+        {
+            if (version <= _activeStateVersion) return;
+            _activeStateVersion = version;
+            PublishReceiptsWhoseStateIsVisible();
+        }
 
         public string SourcePointer => _connection.SourcePointer;
 

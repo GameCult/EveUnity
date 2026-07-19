@@ -76,6 +76,44 @@ namespace GameCult.Eve.UnityScene.Tests
             }
         }
 
+        [Test]
+        public void RendererReadsDaemonPowerFromThePresentedEntityGeneration()
+        {
+            var host = new GameObject("beam-state-test-host");
+            var source = new GameObject("beam-state-test-source");
+            var prefab = new GameObject("beam-state-test-prefab");
+            prefab.AddComponent<ParticleSystem>();
+            var renderer = host.AddComponent<EveUnityBeamPresentationRenderer>();
+            var registry = new Registry(
+                "source",
+                source.transform,
+                new Dictionary<string, float>(StringComparer.Ordinal) { ["effect.beam.power"] = 0.75f });
+            try
+            {
+                var presentation = new EveUnityBeamPresentation(Node(
+                    "tractor", "beam.presentation", new Dictionary<string, string>(StringComparer.Ordinal)
+                    {
+                        ["sourceEntityId"] = "source",
+                        ["assetRole"] = "effect.beam.tractor",
+                        ["directionMode"] = "source-forward.v1",
+                        ["power"] = "0.125",
+                        ["powerStateSemantic"] = "effect.beam.power",
+                        ["activationThreshold"] = "0.01"
+                    }));
+
+                renderer.Apply(new[] { presentation }, registry, new Provider(prefab));
+
+                Assert.That(renderer.TryGetPower("tractor", out var power), Is.True);
+                Assert.That(power, Is.EqualTo(0.75f).Within(0.0001f));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(host);
+                UnityEngine.Object.DestroyImmediate(source);
+                UnityEngine.Object.DestroyImmediate(prefab);
+            }
+        }
+
         private static EveUnityBeamPresentation Presentation(float power) => new EveUnityBeamPresentation(Node(
             "tractor", "beam.presentation", new Dictionary<string, string>(StringComparer.Ordinal)
             {
@@ -104,11 +142,14 @@ namespace GameCult.Eve.UnityScene.Tests
         private sealed class Registry : IEveUnityPresentedEntityRegistry
         {
             private readonly EveUnityPresentedEntityHandle _handle;
-            public Registry(string entityId, Transform transform)
+            public Registry(
+                string entityId,
+                Transform transform,
+                IReadOnlyDictionary<string, float>? scalarState = null)
             {
                 _handle = new EveUnityPresentedEntityHandle(
                     new EveUnityPresentedEntity(0, entityId, "ship", "", "", Vector3.zero, 0, Vector3.zero,
-                        1, 1, 0, 0, true, true, ""),
+                        1, 1, 0, 0, true, true, "", scalarState),
                     transform);
             }
             public EveUnityPresentedEntityGeneration? CurrentGeneration => null;

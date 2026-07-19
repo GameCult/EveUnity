@@ -47,6 +47,10 @@ namespace GameCult.Eve.UnityScene
                 var assetRef = string.IsNullOrWhiteSpace(identity?.AssetRef)
                     ? renderGroup?.MeshAssetRef ?? ""
                     : identity!.AssetRef;
+                var scalarState = new Dictionary<string, float>(StringComparer.Ordinal);
+                foreach (var semantic in view.FloatSemantics)
+                    if (view.TryReadFloat(semantic, row, out var scalar))
+                        scalarState[semantic] = scalar;
                 var fact = new EveUnityPresentedEntity(
                     entityIndex,
                     entityId,
@@ -62,7 +66,8 @@ namespace GameCult.Eve.UnityScene
                     lod,
                     identity?.Selectable ?? true,
                     identity?.Controllable ?? false,
-                    assetRef);
+                    assetRef,
+                    scalarState);
                 presented.Add(fact);
                 if (_sink is IEveUnityEntityGenerationSink)
                     continue;

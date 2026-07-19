@@ -14,6 +14,7 @@ namespace GameCult.Eve.UnityScene
         private readonly ICultMeshBodyReadLease _lease;
         private readonly Dictionary<string, EveEntitySoaBuffer> _buffers;
         private readonly Dictionary<string, EveEntitySoaColumn> _columns;
+        private readonly string[] _floatSemantics;
 
         private EveUnityEntitySoaView(EveEntitySoaViewDocument document, ICultMeshBodyReadLease lease)
         {
@@ -21,12 +22,18 @@ namespace GameCult.Eve.UnityScene
             _lease = lease;
             _buffers = document.Buffers.ToDictionary(buffer => buffer.BufferId, StringComparer.Ordinal);
             _columns = document.Columns.ToDictionary(column => column.Semantic, StringComparer.Ordinal);
+            _floatSemantics = document.Columns
+                .Where(column => string.Equals(column.ScalarType, "float32", StringComparison.Ordinal))
+                .Select(column => column.Semantic)
+                .Where(semantic => !string.IsNullOrWhiteSpace(semantic))
+                .ToArray();
         }
 
         public EveEntitySoaViewDocument Document { get; }
         public long Generation => Document.Sequence;
         public IReadOnlyList<EveEntityRenderGroup> RenderGroups => Document.RenderGroups;
         public int EntityCount => Document.Columns.Length == 0 ? 0 : Document.Columns.Min(column => column.ElementCount);
+        public IReadOnlyList<string> FloatSemantics => _floatSemantics;
 
         public static EveUnityEntitySoaView Open(EveEntitySoaViewDocument document, ICultMeshBodyReadLease lease)
         {

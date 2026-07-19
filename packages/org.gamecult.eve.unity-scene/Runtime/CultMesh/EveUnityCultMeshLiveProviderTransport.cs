@@ -68,10 +68,13 @@ namespace GameCult.Eve.UnityScene
         private EveAdvertisedSurface? _advertisedSurface;
         private CultMeshBodyPublicationResolver? _bodyResolver;
         private EveEntitySoaViewDocument? _latestEntityLayout;
+        private CultMeshBodyPublicationDocument? _latestEntityPublication;
         private CultMeshMappedFrameBodyCursor? _mappedEntityFrameCursor;
         private CultMeshBodyDescriptor? _mappedEntityFrameContract;
         private long _lastQueuedEntityViewEpoch = -1;
         private long _lastQueuedEntityViewSequence = -1;
+        private long _lastPresentedEntityViewEpoch = -1;
+        private long _lastPresentedEntityViewSequence = -1;
         private bool _disposed;
 
         public EveUnityCultMeshLiveProviderTransport(
@@ -192,8 +195,8 @@ namespace GameCult.Eve.UnityScene
             ThrowIfSubscriptionFailed(_subscriptions);
             while (_liveDocuments.TryDequeue(out var document))
             {
-                if (document is EveEntitySoaViewDocument entityView)
-                    PublishEntityView(entityView);
+                if (document is PendingEntityGeneration entityGeneration)
+                    PublishEntityView(entityGeneration.View, entityGeneration.Publication);
                 else if (document is EveFieldsSplatsDocument fields)
                     FieldsSplatsAvailable?.Invoke(fields);
                 else if (document is EveSurfaceDocument surface)
@@ -217,17 +220,14 @@ namespace GameCult.Eve.UnityScene
         {
             TraceHotState($"layout epoch={document.ProducerEpoch} sequence={document.Sequence} identities={document.Identities?.Length ?? 0}");
             _latestEntityLayout = document;
-            if (document.ProducerEpoch < _lastQueuedEntityViewEpoch ||
-                (document.ProducerEpoch == _lastQueuedEntityViewEpoch &&
-                 document.Sequence <= _lastQueuedEntityViewSequence))
-                return;
-            _lastQueuedEntityViewEpoch = document.ProducerEpoch;
-            _lastQueuedEntityViewSequence = document.Sequence;
-            _liveDocuments.Enqueue(document);
+            var publication = _latestEntityPublication;
+            if (publication != null && PublicationMatchesLayout(publication, document))
+                QueueEntityGeneration(document, publication);
         }
 
         private void QueueBodyPublication(CultMeshBodyPublicationDocument publication)
         {
+            _latestEntityPublication = publication;
             var layout = _latestEntityLayout;
             if (layout == null || layout.Buffers == null || layout.Buffers.Length == 0 ||
                 !string.Equals(layout.Buffers[0].BufferId, publication.BodyId, StringComparison.Ordinal))
@@ -238,10 +238,43 @@ namespace GameCult.Eve.UnityScene
 
             TraceHotState($"publication body={publication.BodyId} epoch={publication.ProducerEpoch} sequence={publication.Sequence} plane={string.Join(",", publication.Representations.Select(value => value.TransportKind))}");
 
-            QueueEntityView(MaterializeEntityGeneration(
-                layout,
-                publication.ProducerEpoch,
-                publication.Sequence));
+            var generation = PublicationMatchesLayout(publication, layout)
+                ? layout
+                : MaterializeEntityGeneration(layout, publication.ProducerEpoch, publication.Sequence);
+            QueueEntityGeneration(generation, publication);
+        }
+
+        private void QueueEntityGeneration(
+            EveEntitySoaViewDocument document,
+            CultMeshBodyPublicationDocument publication)
+        {
+            if (document.ProducerEpoch < _lastQueuedEntityViewEpoch ||
+                (document.ProducerEpoch == _lastQueuedEntityViewEpoch &&
+                 document.Sequence <= _lastQueuedEntityViewSequence))
+                return;
+            _lastQueuedEntityViewEpoch = document.ProducerEpoch;
+            _lastQueuedEntityViewSequence = document.Sequence;
+            _liveDocuments.Enqueue(new PendingEntityGeneration(document, publication));
+        }
+
+        private static bool PublicationMatchesLayout(
+            CultMeshBodyPublicationDocument publication,
+            EveEntitySoaViewDocument layout) =>
+            publication.ProducerEpoch == layout.ProducerEpoch &&
+            publication.Sequence == layout.Sequence;
+
+        private sealed class PendingEntityGeneration
+        {
+            public PendingEntityGeneration(
+                EveEntitySoaViewDocument view,
+                CultMeshBodyPublicationDocument publication)
+            {
+                View = view;
+                Publication = publication;
+            }
+
+            public EveEntitySoaViewDocument View { get; }
+            public CultMeshBodyPublicationDocument Publication { get; }
         }
 
         private static EveEntitySoaViewDocument MaterializeEntityGeneration(
@@ -530,7 +563,9 @@ namespace GameCult.Eve.UnityScene
             return normalized.ToLowerInvariant();
         }
 
-        private void PublishEntityView(EveEntitySoaViewDocument document)
+        private void PublishEntityView(
+            EveEntitySoaViewDocument document,
+            CultMeshBodyPublicationDocument publication)
         {
             ResolveAdvertisement();
             if (!string.Equals(document.ProviderId, _advertisement!.ProviderId, StringComparison.Ordinal))
@@ -539,15 +574,13 @@ namespace GameCult.Eve.UnityScene
             if (document.Buffers == null || document.Buffers.Length == 0)
                 throw new InvalidOperationException("Entity layout does not name a primary logical buffer.");
             var handle = BodyPublicationHandle(document);
-            var publicationKey = CultMeshBodyPublicationDocument.CreateLatestRecordKey(handle.BodyId);
-            var publication = _node!.Database.Cache.Get<CultMeshBodyPublicationDocument>(publicationKey)
-                ?? throw new InvalidOperationException(
-                    $"Subscribed CultMesh body publication '{publicationKey.Value}' is missing for generation {handle.Sequence}.");
             handle.Validate(publication);
             var now = DateTimeOffset.UtcNow;
             if (!IsPublicationLive(publication, now))
                 return;
             EnsureMappedEntityFrameCursor(publication);
+            if (_mappedEntityFrameCursor != null)
+                return;
             _bodyResolver ??= CreateBodyResolver();
             var lease = _bodyResolver.ResolveReadOnly(publication, new CultMeshBodyValidationRequest
             {
@@ -569,6 +602,8 @@ namespace GameCult.Eve.UnityScene
             try
             {
                 handler(document, lease);
+                _lastPresentedEntityViewEpoch = document.ProducerEpoch;
+                _lastPresentedEntityViewSequence = document.Sequence;
             }
             catch
             {
@@ -616,16 +651,14 @@ namespace GameCult.Eve.UnityScene
                 return;
 
             var descriptor = lease.Descriptor;
-            if (descriptor.ProducerEpoch < _lastQueuedEntityViewEpoch ||
-                (descriptor.ProducerEpoch == _lastQueuedEntityViewEpoch &&
-                 descriptor.Sequence <= _lastQueuedEntityViewSequence))
+            if (descriptor.ProducerEpoch < _lastPresentedEntityViewEpoch ||
+                (descriptor.ProducerEpoch == _lastPresentedEntityViewEpoch &&
+                 descriptor.Sequence <= _lastPresentedEntityViewSequence))
             {
                 lease.Dispose();
                 return;
             }
 
-            _lastQueuedEntityViewEpoch = descriptor.ProducerEpoch;
-            _lastQueuedEntityViewSequence = descriptor.Sequence;
             var generation = MaterializeEntityGeneration(
                 layout,
                 descriptor.ProducerEpoch,
@@ -639,6 +672,8 @@ namespace GameCult.Eve.UnityScene
             try
             {
                 handler(generation, lease);
+                _lastPresentedEntityViewEpoch = descriptor.ProducerEpoch;
+                _lastPresentedEntityViewSequence = descriptor.Sequence;
             }
             catch
             {
@@ -728,33 +763,22 @@ namespace GameCult.Eve.UnityScene
                     .Where(value => !string.IsNullOrWhiteSpace(value))
                     .Distinct(StringComparer.Ordinal)
                     .ToArray();
-            var liveRecordKeys = new List<string>(fieldRefs);
-            var liveSchemaIds = new List<string>();
-            if (fieldRefs.Length > 0)
-                liveSchemaIds.Add(EveFieldsSchemas.Splats);
             if (!string.IsNullOrWhiteSpace(entityViewPointer))
             {
                 if (string.IsNullOrWhiteSpace(entityBodyId))
                     throw new InvalidOperationException(
                         "The playable world advertises an entity-view pointer without its logical body id.");
-                liveRecordKeys.Insert(0, entityViewPointer);
-                liveRecordKeys.Insert(1, CultMeshBodyPublicationDocument.CreateLatestRecordKey(entityBodyId).Value);
-                liveSchemaIds.Insert(0, EveEntitySoaViewDocument.SchemaId);
-                liveSchemaIds.Insert(1, CultMeshBodyPublicationSchemaVersions.Publication);
-            }
-            if (liveRecordKeys.Count > 0)
-            {
-                var initial = _entitySubscriptions.SubscribeAsync(
-                        "eve-unity-entity-view",
-                        recordKeys: liveRecordKeys,
-                        schemaIds: liveSchemaIds,
-                        consumerRuntimeId: _runtimeId,
-                        bodyIds: string.IsNullOrWhiteSpace(entityBodyId) ? null : new[] { entityBodyId },
-                        supportedBodyTransports: string.IsNullOrWhiteSpace(entityBodyId) ? null : new[]
-                        {
-                            CultMeshBodyTransportKind.SharedMemory.ToString(),
-                            CultMeshBodyTransportKind.Network.ToString()
-                        })
+                var initial = CultMesh.SubscribeHotBodyAsync(
+                        _entitySubscriptions,
+                        _bodyResolver!,
+                        new CultMeshHotBodySubscription(
+                            "eve-unity-entity-view",
+                            _runtimeId,
+                            entityViewPointer,
+                            EveEntitySoaViewDocument.SchemaId,
+                            entityBodyId,
+                            fieldRefs,
+                            fieldRefs.Length > 0 ? new[] { EveFieldsSchemas.Splats } : null))
                     .GetAwaiter().GetResult();
                 TraceHotState($"initial subscription documents=[{string.Join(",", initial.Select(value => value.GetType().Name))}]");
                 foreach (var document in initial)
@@ -766,6 +790,16 @@ namespace GameCult.Eve.UnityScene
                     else if (document is EveFieldsSplatsDocument fields)
                         _liveDocuments.Enqueue(fields);
                 }
+            }
+            else if (fieldRefs.Length > 0)
+            {
+                var initial = _entitySubscriptions.SubscribeAsync(
+                        "eve-unity-fields",
+                        recordKeys: fieldRefs,
+                        schemaIds: new[] { EveFieldsSchemas.Splats })
+                    .GetAwaiter().GetResult();
+                foreach (var fields in initial.OfType<EveFieldsSplatsDocument>())
+                    _liveDocuments.Enqueue(fields);
             }
             _subscriptions.SubscribeAsync(
                     "eve-unity-surface",

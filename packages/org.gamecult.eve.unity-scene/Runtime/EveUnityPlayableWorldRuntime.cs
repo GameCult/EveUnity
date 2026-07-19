@@ -230,8 +230,11 @@ namespace GameCult.Eve.UnityScene
             _entityViewsConnected = true;
         }
 
-        private void OnEntityViewAvailable(EveEntitySoaViewDocument document, GameCult.Mesh.ICultMeshBodyReadLease lease) =>
+        private void OnEntityViewAvailable(EveEntitySoaViewDocument document, GameCult.Mesh.ICultMeshBodyReadLease lease)
+        {
+            _client.AdvanceStateVersion(document.FrameId);
             _entityPresenter.Apply(document, lease);
+        }
     }
 
     public sealed class EveUnityLivePlayableWorldAssetProvider :

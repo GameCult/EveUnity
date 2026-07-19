@@ -21,6 +21,7 @@ namespace GameCult.Eve.UnityScene
             RenderChannel = Get(node, "renderChannel");
             ActivationActionId = Get(node, "activationActionId");
             Power = NonNegative(node, "power", 0f);
+            PowerStateSemantic = Get(node, "powerStateSemantic");
             ActivationThreshold = NonNegative(node, "activationThreshold", 0.01f);
             Radius = NonNegative(node, "radius", 0f);
             MaximumDistance = NonNegative(node, "maximumDistance", 0f);
@@ -33,6 +34,7 @@ namespace GameCult.Eve.UnityScene
         public string RenderChannel { get; }
         public string ActivationActionId { get; }
         public float Power { get; }
+        public string PowerStateSemantic { get; }
         public float ActivationThreshold { get; }
         public float Radius { get; }
         public float MaximumDistance { get; }

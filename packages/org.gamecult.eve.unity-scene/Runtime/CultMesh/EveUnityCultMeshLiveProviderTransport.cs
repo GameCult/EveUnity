@@ -870,7 +870,8 @@ namespace GameCult.Eve.UnityScene
                             EveEntitySoaViewDocument.SchemaId,
                             entityBodyId,
                             fieldRefs,
-                            fieldRefs.Length > 0 ? new[] { EveFieldsSchemas.Splats } : null))
+                            fieldRefs.Length > 0 ? new[] { EveFieldsSchemas.Splats } : null),
+                        CultNetDatabaseSubscriptionDeliveryMode.Live)
                     .GetAwaiter().GetResult();
                 TraceHotState($"initial subscription documents=[{string.Join(",", initial.Select(value => value.GetType().Name))}]");
                 foreach (var document in initial)
@@ -888,7 +889,8 @@ namespace GameCult.Eve.UnityScene
                 var initial = _entitySubscriptions.SubscribeAsync(
                         "eve-unity-fields",
                         recordKeys: fieldRefs,
-                        schemaIds: new[] { EveFieldsSchemas.Splats })
+                        schemaIds: new[] { EveFieldsSchemas.Splats },
+                        deliveryMode: CultNetDatabaseSubscriptionDeliveryMode.Live)
                     .GetAwaiter().GetResult();
                 foreach (var fields in initial.OfType<EveFieldsSplatsDocument>())
                     _liveDocuments.Enqueue(fields);
@@ -911,7 +913,8 @@ namespace GameCult.Eve.UnityScene
                 var initialEmbedded = _subscriptions.SubscribeAsync(
                         $"eve-unity-embedded-surface-{index}",
                         recordKeys: new[] { slot.DocumentId },
-                        schemaIds: new[] { EveSurfaceDocument.SchemaId })
+                        schemaIds: new[] { EveSurfaceDocument.SchemaId },
+                        deliveryMode: CultNetDatabaseSubscriptionDeliveryMode.Live)
                     .GetAwaiter().GetResult()
                     .OfType<EveSurfaceDocument>()
                     .FirstOrDefault();
@@ -927,7 +930,8 @@ namespace GameCult.Eve.UnityScene
                         "eve-unity-input-capability",
                         recordKeys: new[] { inputCapabilityRef },
                         schemaIds: new[] { EveInputCapabilityDocument.SchemaId },
-                        includeSnapshot: false)
+                        includeSnapshot: false,
+                        deliveryMode: CultNetDatabaseSubscriptionDeliveryMode.Live)
                     .GetAwaiter().GetResult();
             }
             var assetCatalogRef = RequireWorldInteraction().AssetManifestRecordRef;
@@ -943,7 +947,8 @@ namespace GameCult.Eve.UnityScene
             _subscriptions.SubscribeAsync(
                     "eve-unity-receipts",
                     schemaIds: new[] { EveCommandReceiptDocument.SchemaId },
-                    includeSnapshot: false)
+                    includeSnapshot: false,
+                    deliveryMode: CultNetDatabaseSubscriptionDeliveryMode.Live)
                 .GetAwaiter().GetResult();
         }
 

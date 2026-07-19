@@ -1146,8 +1146,7 @@ namespace GameCult.Eve.UnityScene
                 {
                     _meshClient!.ContentProvider(
                         _advertisement.ProviderId,
-                        _advertisement.ServiceId,
-                        new CultMeshSessionContentProviderOptions { ResponseTimeout = TimeSpan.FromSeconds(30) })
+                        _advertisement.ServiceId)
                 },
                 new CultMeshContentTransferOptions(cacheRoot),
                 _assetBodyMappings);

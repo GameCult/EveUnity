@@ -3,6 +3,8 @@ using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using GameCult.Caching;
 using GameCult.Caching.MessagePack;
 using GameCult.Eve.Surface;
@@ -10,6 +12,7 @@ using GameCult.Eve.UnityUIToolkit;
 using GameCult.Eve.UnityScene;
 using GameCult.Eve.UnityScene.Fields;
 using GameCult.Mesh;
+using GameCult.Mesh.Quic.Native;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.Rendering;
@@ -305,6 +308,18 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 Assert.That(provider.Selection.VerseId, Is.Not.Empty);
                 Assert.That(provider.Selection.ProviderId, Is.Not.Empty);
                 Assert.That(provider.Selection.SurfaceId, Is.Not.Empty);
+                var quicProof = ReceiveAdvertisedRealtimeFrameAsync(
+                    rendezvousEndpoint,
+                    provider.Selection.VerseId);
+                var quicDeadline = Time.realtimeSinceStartup + 15f;
+                while (!quicProof.IsCompleted && Time.realtimeSinceStartup < quicDeadline)
+                    yield return new WaitForSecondsRealtime(0.05f);
+                if (!quicProof.IsCompleted)
+                    throw new TimeoutException("Timed out receiving advertised CultMesh QUIC state in Unity.");
+                var quicFrame = quicProof.GetAwaiter().GetResult();
+                Assert.That(quicFrame.Delivery, Is.EqualTo(CultMeshRealtimeDelivery.LatestOnly));
+                Assert.That(quicFrame.BodyId, Is.Not.Empty);
+                Assert.That(quicFrame.SchemaId, Is.Not.Empty);
                 Assert.That(provider.CurrentAssetBodyTransportKind, Is.Null,
                     "Publishing the provider catalog eagerly transferred an asset bundle.");
                 host = root.AddComponent<EveUnityPlayableWorldClientHost>();
@@ -1164,6 +1179,23 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 UnityEngine.Object.DestroyImmediate(cameraObject);
                 UnityEngine.Object.DestroyImmediate(root);
             }
+        }
+
+        private static async Task<CultMeshRealtimeFrame> ReceiveAdvertisedRealtimeFrameAsync(
+            string rendezvousEndpoint,
+            string verseId)
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            using var client = new CultMeshClient(new CultMeshClientOptions
+            {
+                RendezvousEndpoints = new[] { rendezvousEndpoint },
+                RealtimeConnectors = new ICultMeshRealtimeTransportConnector[]
+                {
+                    new CultMeshNativeQuicRealtimeTransportConnector()
+                }
+            });
+            using var session = await client.ConnectRealtimeAsync(verseId, timeout.Token);
+            return await session.ReceiveAsync(timeout.Token);
         }
 
         private static void WriteWitnessFacts(

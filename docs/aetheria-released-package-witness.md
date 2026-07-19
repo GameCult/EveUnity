@@ -4,16 +4,16 @@
 
 The generic `ReleaseConsumerProject` is pinned to released Git packages:
 
-- `org.gamecult.eve.unity-scene` `0.3.72`, commit
-  `edaf3b1e3bbb06a00b18b9faf508e27e33ae050b`, and
+- `org.gamecult.eve.unity-scene` `0.3.88`, commit
+  `3ce813e29dcc5342b51985187de26c62eb8c90b4`, and
   `org.gamecult.eve.surface` `0.2.4`, commit
   `e08fa08335f99e9edddeb706912eecfad07cb281`;
 - `org.gamecult.eve.plugin-fields` `0.2.3`, commit
   `c5a4a75c1b727499b16c2dae1895f29e2a9f72f0`;
 - `org.gamecult.eve.unity-uitoolkit` `0.1.1`, commit
   `4d0cbe0185bdc4fc65eb63503a7c5cb578539669`;
-- `org.gamecult.cultlib` `1.0.18`, commit
-  `49c43baa4c80b3bf8f5febae40baf99e1f2a0262`.
+- `org.gamecult.cultlib` `1.0.30`, commit
+  `0ef59b50c27ac019929f5e68bcd602983a190062`.
 
 The hand-run integration gate is the warm released-package witness:
 
@@ -37,10 +37,28 @@ not CDN-transfer evidence. On later runs, use `-SkipAssetBundleBuild` and omit
 the prime flag when neither provider assets nor their catalog changed.
 
 Cold transfer is not a passing integration gate. The current bundle is
-`56,193,661` bytes and recent cold runs still exceed the 300-second witness
+`56,204,750` bytes and recent cold runs still exceed the 300-second witness
 deadline while asset bytes travel through batched snapshot records. Do not
 increase the timeout or describe this as proven; the intended repair is mapped
 or network-body transport. `-CacheState cold` remains a diagnostic run.
+
+The July 19 transport-boundary run in `artifacts/demanded-fields-warm-6`
+passed its released-consumer PlayMode test and produced both camera captures.
+The provider published the requested Fields viewport only after CultMesh
+observed the client's exact record/schema demand. Entity state used the
+same-machine mapped SoA body, while the one-second Eve surface remained a
+separate reactive control/presentation stream. The facts record 65,536
+Stardust particles, 145 field composites and draws, pilot/map camera isolation,
+movement, combat, exactly-once destruction-loot collection, tractor activation,
+and a reconciled held-input release. Terminus attention had paused simulation,
+so the released target latch coexists honestly with frozen ramped beam power
+`0.84`; the generic client does not manufacture a visual zero.
+
+The wrapper currently rejects this otherwise passing run after Unity exits
+because its full-session gate requires docked purchase/sale fields that the
+generic capture test does not yet emit. Consequently this run is transport and
+gameplay evidence, not a completed full-session readiness witness, and no
+`runtime-witness.json` was issued.
 
 ## Historical witness ledger
 

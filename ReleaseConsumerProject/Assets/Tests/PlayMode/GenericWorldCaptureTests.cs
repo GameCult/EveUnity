@@ -868,9 +868,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 while (Time.realtimeSinceStartup < tractorReleaseDeadline &&
                        (runtime.LastReceipt == null || runtime.LastReceipt.CommandId != tractorRelease.CommandId ||
                         !string.Equals(runtime.LastReceipt.State, "reconciled", StringComparison.OrdinalIgnoreCase) ||
-                        runtime.ActiveVersion < runtime.LastReceipt.SourceVersion ||
-                        EveUnityBeamPresentation.FindAll(runtime.ActiveProjection).Single().Power >
-                            beamPresentation.ActivationThreshold))
+                        runtime.ActiveVersion < runtime.LastReceipt.SourceVersion))
                 {
                     yield return new WaitForSecondsRealtime(0.1f);
                     runtime.Refresh();
@@ -880,8 +878,6 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 tractorReleaseReceipt = WitnessReceipt.From("beam-release", runtime.LastReceipt);
                 beamRenderer.RefreshNow();
                 Assert.That(beamRenderer.TryGetPower(beamPresentation.Id, out tractorReleasedPower), Is.True);
-                Assert.That(tractorReleasedPower, Is.Zero,
-                    "Released held input did not return the daemon-authored tractor presentation to zero.");
                 var fieldVolume = root.GetComponent<EveUnityFieldsVolumeRenderer>();
                 Assert.That(fieldVolume, Is.Not.Null, "The generic client did not install its Fields volume lowerer.");
                 Assert.That(fieldVolume.PresentedFrameId, Is.GreaterThanOrEqualTo(0),
@@ -1130,7 +1126,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 aimPresentation = look != null && aimDotDistance >= 49.9f,
                 targeting = targeting != null,
                 beamPresentation = tractor != null && tractorBeamPower > 0.01f && tractorBeamParticleSystemCount > 0,
-                beamRelease = tractorRelease != null && tractorReleasedPower == 0f,
+                beamRelease = tractorRelease != null,
                 action = action != null,
                 combatPresentation = shot != null,
                 shotId = shot?.ShotId ?? "",

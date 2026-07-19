@@ -875,7 +875,8 @@ namespace GameCult.Eve.UnityScene
                             _runtimeId,
                             entityBodyId))
                     .GetAwaiter().GetResult();
-                QueueBodyPublication(_entityBody.Current);
+                if (_entityBody.HasValue)
+                    QueueBodyPublication(_entityBody.Current);
                 _entityBody.Changed += QueueBodyPublication;
                 _entityBody.Removed += () => _liveDocuments.Enqueue(new InvalidOperationException(
                     $"The provider withdrew required entity body '{entityBodyId}'."));

@@ -239,8 +239,18 @@ namespace GameCult.Eve.UnityScene
             _transport.SurfaceDocumentAvailable += OnSurfaceDocumentAvailable;
             _transport.AssetManifestDocumentAvailable += OnAssetManifestDocumentAvailable;
             _transport.CommandReceiptAvailable += OnCommandReceiptAvailable;
-            _transport.Connect();
-            _connected = true;
+            try
+            {
+                _transport.Connect();
+                _connected = true;
+            }
+            catch
+            {
+                _transport.SurfaceDocumentAvailable -= OnSurfaceDocumentAvailable;
+                _transport.AssetManifestDocumentAvailable -= OnAssetManifestDocumentAvailable;
+                _transport.CommandReceiptAvailable -= OnCommandReceiptAvailable;
+                throw;
+            }
         }
 
         public void Disconnect()

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Reflection;
 using GameCult.Caching;
@@ -979,6 +980,37 @@ namespace GameCult.Eve.UnityScene.Tests
             Assert.That(runtime.LastReceipt, Is.Not.Null);
             Assert.That(runtime.LastReceipt!.IsProviderOwned, Is.True);
             Assert.That(transport.RefreshCount, Is.EqualTo(0));
+        }
+
+        [Test]
+        public void LiveProviderBridgeRollsBackSubscriptionsWhenTransportConnectFails()
+        {
+            var transport = new FakeLiveProviderTransport(
+                new EveUnitySceneProviderSurfaceDocument(
+                    PlayableArpgDocument(),
+                    Advertisement("aetheria.daemon.game"),
+                    "cultmesh://aetheria/eve/surfaces/aetheria.daemon.game",
+                    1),
+                new EveUnityPlayableWorldAssetManifestDocument(
+                    "cultmesh://aetheria/assets/manifest",
+                    Array.Empty<EveUnityPlayableWorldAssetManifestDocumentEntry>(),
+                    "aetheria"))
+            {
+                FailNextConnect = true
+            };
+            using var bridge = new EveUnitySceneLiveProviderBridge(transport);
+
+            Assert.Throws<IOException>(() => bridge.Connect());
+            Assert.That(transport.SurfaceSubscriberCount, Is.Zero);
+            Assert.That(transport.AssetManifestSubscriberCount, Is.Zero);
+            Assert.That(transport.ReceiptSubscriberCount, Is.Zero);
+
+            bridge.Connect();
+
+            Assert.That(transport.ConnectCount, Is.EqualTo(2));
+            Assert.That(transport.SurfaceSubscriberCount, Is.EqualTo(1));
+            Assert.That(transport.AssetManifestSubscriberCount, Is.EqualTo(1));
+            Assert.That(transport.ReceiptSubscriberCount, Is.EqualTo(1));
         }
 
         [Test]
@@ -2817,6 +2849,10 @@ namespace GameCult.Eve.UnityScene.Tests
 
         private sealed class FakeLiveProviderTransport : IEveUnitySceneLiveProviderTransport
         {
+            private Action<EveUnitySceneProviderSurfaceDocument>? _surfaceDocumentAvailable;
+            private Action<EveUnityPlayableWorldAssetManifestDocument>? _assetManifestDocumentAvailable;
+            private Action<EveUnitySceneCommandReceipt>? _commandReceiptAvailable;
+
             public FakeLiveProviderTransport(
                 EveUnitySceneProviderSurfaceDocument surfaceDocument,
                 EveUnityPlayableWorldAssetManifestDocument assetManifestDocument)
@@ -2843,15 +2879,38 @@ namespace GameCult.Eve.UnityScene.Tests
 
             public int RefreshCount { get; private set; }
 
-            public event Action<EveUnitySceneProviderSurfaceDocument>? SurfaceDocumentAvailable;
+            public bool FailNextConnect { get; set; }
 
-            public event Action<EveUnityPlayableWorldAssetManifestDocument>? AssetManifestDocumentAvailable;
+            public int SurfaceSubscriberCount => _surfaceDocumentAvailable?.GetInvocationList().Length ?? 0;
 
-            public event Action<EveUnitySceneCommandReceipt>? CommandReceiptAvailable;
+            public int AssetManifestSubscriberCount => _assetManifestDocumentAvailable?.GetInvocationList().Length ?? 0;
+
+            public int ReceiptSubscriberCount => _commandReceiptAvailable?.GetInvocationList().Length ?? 0;
+
+            public event Action<EveUnitySceneProviderSurfaceDocument>? SurfaceDocumentAvailable
+            {
+                add => _surfaceDocumentAvailable += value;
+                remove => _surfaceDocumentAvailable -= value;
+            }
+
+            public event Action<EveUnityPlayableWorldAssetManifestDocument>? AssetManifestDocumentAvailable
+            {
+                add => _assetManifestDocumentAvailable += value;
+                remove => _assetManifestDocumentAvailable -= value;
+            }
+
+            public event Action<EveUnitySceneCommandReceipt>? CommandReceiptAvailable
+            {
+                add => _commandReceiptAvailable += value;
+                remove => _commandReceiptAvailable -= value;
+            }
 
             public void Connect()
             {
                 ConnectCount++;
+                if (!FailNextConnect) return;
+                FailNextConnect = false;
+                throw new IOException("transient transport failure");
             }
 
             public void Disconnect()
@@ -2872,18 +2931,18 @@ namespace GameCult.Eve.UnityScene.Tests
             public void PublishSurface(EveUnitySceneProviderSurfaceDocument document)
             {
                 CurrentSurfaceDocument = document;
-                SurfaceDocumentAvailable?.Invoke(document);
+                _surfaceDocumentAvailable?.Invoke(document);
             }
 
             public void PublishAssetManifest(EveUnityPlayableWorldAssetManifestDocument document)
             {
                 CurrentAssetManifestDocument = document;
-                AssetManifestDocumentAvailable?.Invoke(document);
+                _assetManifestDocumentAvailable?.Invoke(document);
             }
 
             public void PublishReceipt(EveUnitySceneCommandReceipt receipt)
             {
-                CommandReceiptAvailable?.Invoke(receipt);
+                _commandReceiptAvailable?.Invoke(receipt);
             }
         }
 

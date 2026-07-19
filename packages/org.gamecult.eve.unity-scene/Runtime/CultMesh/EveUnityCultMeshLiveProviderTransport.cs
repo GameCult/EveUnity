@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Collections.Concurrent;
+using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
 using GameCult.Caching;
@@ -190,16 +191,27 @@ namespace GameCult.Eve.UnityScene
             if (_bootstrapped)
                 return;
 
-            var elapsed = Stopwatch.StartNew();
-            ResolveAdvertisement(forceRefresh: true);
-            TraceStartup("advertisement", elapsed);
-            RefreshSurface();
-            TraceStartup("surface", elapsed);
-            RefreshAssetCatalog();
-            TraceStartup("asset-catalog-and-bundles", elapsed);
-            EnsureLiveSubscriptions();
-            TraceStartup("subscriptions", elapsed);
-            _bootstrapped = true;
+            try
+            {
+                _snapshot ??= CreateSnapshotSession();
+                var elapsed = Stopwatch.StartNew();
+                ResolveAdvertisement(forceRefresh: true);
+                TraceStartup("advertisement", elapsed);
+                RefreshSurface();
+                TraceStartup("surface", elapsed);
+                RefreshAssetCatalog();
+                TraceStartup("asset-catalog-and-bundles", elapsed);
+                EnsureLiveSubscriptions();
+                TraceStartup("subscriptions", elapsed);
+                _bootstrapped = true;
+            }
+            catch (Exception error) when (error is IOException || error is SocketException || error is TimeoutException)
+            {
+                ResetSnapshotSession();
+                throw new InvalidOperationException(
+                    $"CultMesh provider '{_providerId}' bootstrap transport failed; the snapshot lane was reset for retry.",
+                    error);
+            }
         }
 
         private static void TraceStartup(string phase, Stopwatch elapsed)
@@ -510,7 +522,19 @@ namespace GameCult.Eve.UnityScene
                     })
                 .GetAwaiter()
                 .GetResult();
-            _snapshot = CultMesh.SnapshotSession(
+            _snapshot = CreateSnapshotSession();
+            _meshClient = new CultMeshClient(new CultMeshClientOptions
+            {
+                RendezvousEndpoints = new[] { _endpoint },
+                RealtimeConnectors = new ICultMeshRealtimeTransportConnector[]
+                {
+                    new CultMeshNativeQuicRealtimeTransportConnector()
+                }
+            });
+        }
+
+        private CultMeshSnapshotSession CreateSnapshotSession() =>
+            CultMesh.SnapshotSession(
                 _endpoint,
                 new CultMeshSnapshotRequestOptions
                 {
@@ -523,14 +547,11 @@ namespace GameCult.Eve.UnityScene
                     RudpMaxFragmentBytes = 1024
                 },
                 _networkRegistry);
-            _meshClient = new CultMeshClient(new CultMeshClientOptions
-            {
-                RendezvousEndpoints = new[] { _endpoint },
-                RealtimeConnectors = new ICultMeshRealtimeTransportConnector[]
-                {
-                    new CultMeshNativeQuicRealtimeTransportConnector()
-                }
-            });
+
+        private void ResetSnapshotSession()
+        {
+            _snapshot?.Dispose();
+            _snapshot = null;
         }
 
         private void ResolveAdvertisement(bool forceRefresh = false)

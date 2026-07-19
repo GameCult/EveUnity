@@ -174,6 +174,7 @@ namespace GameCult.Eve.UnityScene
             ResolveAdvertisement(forceRefresh: true);
             RefreshSurface();
             RefreshAssetCatalog();
+            EnsureLiveSubscriptions();
             _bootstrapped = true;
         }
 
@@ -695,7 +696,6 @@ namespace GameCult.Eve.UnityScene
         {
             _baseSurface = surface ?? throw new ArgumentNullException(nameof(surface));
             PublishComposedSurface();
-            EnsureLiveSubscriptions();
         }
 
         private void PublishEmbeddedSurface(string recordKey, EveSurfaceDocument surface)

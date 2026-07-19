@@ -54,6 +54,40 @@ namespace GameCult.Eve.UnityScene.Tests
         }
 
         [Test]
+        public void LiveTransportReusesStableLayoutForNewBodyPublications()
+        {
+            using var transport = new EveUnityCultMeshLiveProviderTransport(
+                "test-replica.cc",
+                "cultnet://127.0.0.1:3075",
+                "aetheria",
+                "aetheria.pilot");
+            var view = EntityLeaseDocument();
+            var publication = BodyPublication(view, view.Sequence + 1);
+            var queueView = typeof(EveUnityCultMeshLiveProviderTransport)
+                .GetMethod("QueueEntityView", BindingFlags.NonPublic | BindingFlags.Instance)!;
+            var queuePublication = typeof(EveUnityCultMeshLiveProviderTransport)
+                .GetMethod("QueueBodyPublication", BindingFlags.NonPublic | BindingFlags.Instance)!;
+            var queue = (System.Collections.Concurrent.ConcurrentQueue<object>)
+                typeof(EveUnityCultMeshLiveProviderTransport)
+                    .GetField("_liveDocuments", BindingFlags.NonPublic | BindingFlags.Instance)!
+                    .GetValue(transport)!;
+
+            queueView.Invoke(transport, new object[] { view });
+            Assert.That(queue.TryDequeue(out _), Is.True);
+            queuePublication.Invoke(transport, new object[] { publication });
+
+            Assert.That(queue.TryDequeue(out var queued), Is.True);
+            var generation = queued as EveEntitySoaViewDocument;
+            Assert.That(generation, Is.Not.Null);
+            Assert.That(generation!.Sequence, Is.EqualTo(publication.Sequence));
+            Assert.That(generation.ProducerEpoch, Is.EqualTo(publication.ProducerEpoch));
+            Assert.That(generation.Buffers, Is.SameAs(view.Buffers));
+            Assert.That(generation.Columns, Is.SameAs(view.Columns));
+            Assert.That(generation.Identities, Is.SameAs(view.Identities));
+            Assert.That(generation.DirtyRanges.All(range => range.Sequence == publication.Sequence), Is.True);
+        }
+
+        [Test]
         public void LiveTransportDropsExpiredHistoricalGenerationWithoutReinterpretingLatest()
         {
             var view = EntityLeaseDocument();

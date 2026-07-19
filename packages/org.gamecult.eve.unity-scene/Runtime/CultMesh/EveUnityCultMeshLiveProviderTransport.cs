@@ -67,6 +67,7 @@ namespace GameCult.Eve.UnityScene
         private EveProviderAdvertisementDocument? _advertisement;
         private EveAdvertisedSurface? _advertisedSurface;
         private CultMeshBodyPublicationResolver? _bodyResolver;
+        private EveEntitySoaViewDocument? _latestEntityLayout;
         private long _lastQueuedEntityViewEpoch = -1;
         private long _lastQueuedEntityViewSequence = -1;
         private bool _disposed;
@@ -200,6 +201,7 @@ namespace GameCult.Eve.UnityScene
 
         private void QueueEntityView(EveEntitySoaViewDocument document)
         {
+            _latestEntityLayout = document;
             if (document.ProducerEpoch < _lastQueuedEntityViewEpoch ||
                 (document.ProducerEpoch == _lastQueuedEntityViewEpoch &&
                  document.Sequence <= _lastQueuedEntityViewSequence))
@@ -207,6 +209,41 @@ namespace GameCult.Eve.UnityScene
             _lastQueuedEntityViewEpoch = document.ProducerEpoch;
             _lastQueuedEntityViewSequence = document.Sequence;
             _liveDocuments.Enqueue(document);
+        }
+
+        private void QueueBodyPublication(CultMeshBodyPublicationDocument publication)
+        {
+            var layout = _latestEntityLayout;
+            if (layout == null || layout.Buffers == null || layout.Buffers.Length == 0 ||
+                !string.Equals(layout.Buffers[0].BufferId, publication.BodyId, StringComparison.Ordinal))
+                return;
+
+            QueueEntityView(new EveEntitySoaViewDocument
+            {
+                Schema = layout.Schema,
+                ProviderId = layout.ProviderId,
+                ViewId = layout.ViewId,
+                PublishedAtUtc = DateTimeOffset.UtcNow.ToString("O"),
+                BodySchemaId = layout.BodySchemaId,
+                LayoutVersion = layout.LayoutVersion,
+                ProducerEpoch = publication.ProducerEpoch,
+                Sequence = publication.Sequence,
+                Capacity = layout.Capacity,
+                Buffers = layout.Buffers,
+                Columns = layout.Columns,
+                DirtyRanges = (layout.DirtyRanges ?? Array.Empty<EveEntitySoaDirtyRange>())
+                    .Select(range => new EveEntitySoaDirtyRange
+                    {
+                        ColumnId = range.ColumnId,
+                        StartIndex = range.StartIndex,
+                        Count = range.Count,
+                        Sequence = publication.Sequence
+                    })
+                    .ToArray(),
+                RenderGroups = layout.RenderGroups,
+                Identities = layout.Identities,
+                FrameId = publication.Sequence
+            });
         }
 
         public void SubmitCommand(EveSurfaceCommandRequest request)
@@ -612,6 +649,8 @@ namespace GameCult.Eve.UnityScene
                 {
                     if (document is EveEntitySoaViewDocument current)
                         QueueEntityView(current);
+                    else if (document is CultMeshBodyPublicationDocument publication)
+                        QueueBodyPublication(publication);
                     else if (document is EveFieldsSplatsDocument fields)
                         _liveDocuments.Enqueue(fields);
                 }
@@ -649,6 +688,8 @@ namespace GameCult.Eve.UnityScene
         {
             if (change.Document is EveEntitySoaViewDocument entityView)
                 QueueEntityView(entityView);
+            else if (change.Document is CultMeshBodyPublicationDocument publication)
+                QueueBodyPublication(publication);
             else if (change.Document is EveSurfaceDocument or EveCommandReceiptDocument or EveFieldsSplatsDocument)
                 _liveDocuments.Enqueue(change.Document);
         }

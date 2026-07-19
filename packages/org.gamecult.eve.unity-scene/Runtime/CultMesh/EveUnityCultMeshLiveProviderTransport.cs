@@ -52,6 +52,14 @@ namespace GameCult.Eve.UnityScene
         private readonly Dictionary<string, IReadOnlyDictionary<string, string>> _nativeAssetMetadata =
             new Dictionary<string, IReadOnlyDictionary<string, string>>(StringComparer.Ordinal);
         private readonly List<AssetBundle> _assetBundles = new List<AssetBundle>();
+        private readonly Dictionary<string, SelectedAsset> _assetSelections =
+            new Dictionary<string, SelectedAsset>(StringComparer.Ordinal);
+        private readonly Dictionary<string, List<SelectedAsset>> _bundleSelections =
+            new Dictionary<string, List<SelectedAsset>>(StringComparer.Ordinal);
+        private readonly Dictionary<string, EveAssetVariant> _bundleVariants =
+            new Dictionary<string, EveAssetVariant>(StringComparer.Ordinal);
+        private readonly HashSet<string> _loadedBundleUris = new HashSet<string>(StringComparer.Ordinal);
+        private readonly HashSet<string> _loadingBundleUris = new HashSet<string>(StringComparer.Ordinal);
         private readonly List<ICultMeshBodyReadLease> _assetBodyLeases = new List<ICultMeshBodyReadLease>();
         private readonly Dictionary<string, int> _renderChannelLayers = new Dictionary<string, int>(StringComparer.Ordinal);
         private readonly ConcurrentQueue<object> _liveDocuments = new ConcurrentQueue<object>();
@@ -382,6 +390,11 @@ namespace GameCult.Eve.UnityScene
             _prefabs.Clear();
             _nativeAssets.Clear();
             _nativeAssetMetadata.Clear();
+            _assetSelections.Clear();
+            _bundleSelections.Clear();
+            _bundleVariants.Clear();
+            _loadedBundleUris.Clear();
+            _loadingBundleUris.Clear();
             _mappedEntityFrameCursor?.Dispose();
             _mappedEntityFrameCursor = null;
             _mappedEntityFrameContract = null;
@@ -412,6 +425,7 @@ namespace GameCult.Eve.UnityScene
         public GameObject? ResolvePrefab(EveUnityPlayableWorldAssetBinding asset)
         {
             if (asset == null) throw new ArgumentNullException(nameof(asset));
+            EnsureAssetLoaded(asset.AssetRef);
             return _prefabs.TryGetValue(asset.AssetRef, out var prefab) ? prefab : null;
         }
 
@@ -419,6 +433,7 @@ namespace GameCult.Eve.UnityScene
         {
             if (asset == null) throw new ArgumentNullException(nameof(asset));
             if (assetType == null) throw new ArgumentNullException(nameof(assetType));
+            EnsureAssetLoaded(asset.AssetRef);
             return _nativeAssets.TryGetValue(asset.AssetRef, out var value) && assetType.IsInstanceOfType(value)
                 ? value : null;
         }
@@ -1029,15 +1044,18 @@ namespace GameCult.Eve.UnityScene
             _prefabs.Clear();
             _nativeAssets.Clear();
             _nativeAssetMetadata.Clear();
+            _assetSelections.Clear();
+            _bundleSelections.Clear();
+            _bundleVariants.Clear();
+            _loadedBundleUris.Clear();
+            _loadingBundleUris.Clear();
             _renderChannelLayers.Clear();
             var selected = catalog.Assets
-                .Select(asset => new
-                {
-                    Asset = asset,
-                    Variant = asset.Variants.FirstOrDefault(variant =>
+                .Select(asset => new SelectedAsset(
+                    asset,
+                    asset.Variants.FirstOrDefault(variant =>
                         string.Equals(variant.RuntimeId, "unity-scene", StringComparison.Ordinal) &&
-                        string.Equals(variant.Platform, CurrentBundlePlatform(), StringComparison.Ordinal))
-                })
+                        string.Equals(variant.Platform, CurrentBundlePlatform(), StringComparison.Ordinal))))
                 .Where(selection => selection.Variant != null)
                 .ToArray();
             if (selected.Length == 0)
@@ -1051,53 +1069,112 @@ namespace GameCult.Eve.UnityScene
                     $"Advertised variants: {string.Join(", ", advertisedVariants)}");
             }
             ReadCameraPolicies(selected.Select(selection => selection.Variant!));
-            foreach (var group in selected.GroupBy(selection => selection.Variant!.Uri, StringComparer.Ordinal))
+            foreach (var selection in selected)
             {
+                var variant = selection.Variant!;
+                _assetSelections[selection.Asset.AssetRef] = selection;
+                _bundleVariants[variant.Uri] = variant;
+                if (!_bundleSelections.TryGetValue(variant.Uri, out var group))
+                {
+                    group = new List<SelectedAsset>();
+                    _bundleSelections[variant.Uri] = group;
+                }
+                group.Add(selection);
+                var metadata = MergeAssetMetadata(selection.Asset.Metadata, variant.Metadata);
+                _nativeAssetMetadata[selection.Asset.AssetRef] = metadata;
+                if (selection.Asset.Metadata.TryGetValue("presentationRole", out var role) &&
+                    !string.IsNullOrWhiteSpace(role))
+                {
+                    _assetSelections[role] = selection;
+                    _nativeAssetMetadata[role] = metadata;
+                }
+            }
+
+            CurrentAssetCatalogVersion = catalog.Version;
+        }
+
+        private void EnsureAssetLoaded(string assetRef)
+        {
+            if (_nativeAssets.ContainsKey(assetRef) || !_assetSelections.TryGetValue(assetRef, out var selection))
+                return;
+            EnsureBundleLoaded(selection.Variant!.Uri);
+        }
+
+        private void EnsureBundleLoaded(string uri)
+        {
+            if (_loadedBundleUris.Contains(uri)) return;
+            if (!_bundleVariants.TryGetValue(uri, out var variant))
+                throw new InvalidOperationException($"Provider asset bundle '{uri}' is not present in the selected runtime catalog.");
+            if (!_loadingBundleUris.Add(uri))
+                throw new InvalidOperationException($"Provider asset bundle dependency cycle includes '{uri}'.");
+            try
+            {
+                if (variant.Metadata.TryGetValue("unity.bundleDependencyUris", out var dependencies))
+                foreach (var dependency in dependencies.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries))
+                    EnsureBundleLoaded(dependency);
+
                 var groupElapsed = Stopwatch.StartNew();
-                var variant = group.First().Variant!;
-                var manifest = _snapshot!.FetchDocumentsAsync<CultMeshCdnArtifactManifest>(
-                        recordKeys: new[] { variant.Uri },
+                var descriptor = _snapshot!.FetchDocumentsAsync<CultMeshCdnArtifactManifest>(
+                        recordKeys: new[] { uri },
                         schemaIds: new[] { CultMeshCdnSchemaVersions.ArtifactManifest })
                     .GetAwaiter()
-                    .GetResult();
-                var descriptor = manifest.FirstOrDefault();
+                    .GetResult()
+                    .FirstOrDefault();
                 if (descriptor == null)
-                    throw new InvalidOperationException($"Provider asset bundle manifest '{variant.Uri}' was not available.");
+                    throw new InvalidOperationException($"Provider asset bundle manifest '{uri}' was not available.");
                 TraceStartup("asset-manifest", groupElapsed);
                 var bundle = LoadVerifiedBundle(descriptor, variant);
                 TraceStartup("asset-transfer-and-bundle-load", groupElapsed);
                 if (bundle == null)
-                    throw new InvalidOperationException($"Unity could not load provider asset bundle '{variant.Uri}'.");
+                    throw new InvalidOperationException($"Unity could not load provider asset bundle '{uri}'.");
                 _assetBundles.Add(bundle);
                 var bundleAssetNames = bundle.GetAllAssetNames();
-                foreach (var selection in group)
+                foreach (var selection in _bundleSelections[uri])
                 {
                     var bundleAssetName = ResolveBundleAssetName(bundleAssetNames, selection.Variant!.AssetKey);
-                    var value = bundleAssetName == null ? null : bundle.LoadAsset(bundleAssetName);
+                    var value = bundleAssetName == null
+                        ? null
+                        : LoadBundleAsset(bundle, bundleAssetName, selection.Asset.AssetKind);
                     if (value == null)
                         throw new InvalidOperationException(
                             $"Provider asset '{selection.Asset.AssetRef}' advertises missing Unity bundle asset " +
-                            $"'{selection.Variant.AssetKey}'. Available assets: " +
-                            string.Join(", ", bundleAssetNames));
+                            $"'{selection.Variant.AssetKey}'. Available assets: " + string.Join(", ", bundleAssetNames));
                     _nativeAssets[selection.Asset.AssetRef] = value;
-                    var metadata = MergeAssetMetadata(selection.Asset.Metadata, selection.Variant.Metadata);
-                    _nativeAssetMetadata[selection.Asset.AssetRef] = metadata;
                     if (selection.Asset.Metadata.TryGetValue("presentationRole", out var role) &&
                         !string.IsNullOrWhiteSpace(role))
-                    {
                         _nativeAssets[role] = value;
-                        _nativeAssetMetadata[role] = metadata;
-                    }
                     if (value is GameObject prefab)
                     {
                         _prefabs[selection.Asset.AssetRef] = prefab;
                         if (!string.IsNullOrWhiteSpace(role)) _prefabs[role] = prefab;
                     }
                 }
+                _loadedBundleUris.Add(uri);
                 TraceStartup("bundle-assets", groupElapsed);
             }
+            finally
+            {
+                _loadingBundleUris.Remove(uri);
+            }
+        }
 
-            CurrentAssetCatalogVersion = catalog.Version;
+        private static UnityEngine.Object? LoadBundleAsset(AssetBundle bundle, string assetName, string assetKind)
+        {
+            return string.Equals(assetKind, "sprite", StringComparison.Ordinal)
+                ? bundle.LoadAsset<Sprite>(assetName)
+                : bundle.LoadAsset(assetName);
+        }
+
+        private sealed class SelectedAsset
+        {
+            public SelectedAsset(EveAssetCatalogEntry asset, EveAssetVariant? variant)
+            {
+                Asset = asset;
+                Variant = variant;
+            }
+
+            public EveAssetCatalogEntry Asset { get; }
+            public EveAssetVariant? Variant { get; }
         }
 
         private static string? ResolveBundleAssetName(IEnumerable<string> bundleAssetNames, string advertisedAssetKey)

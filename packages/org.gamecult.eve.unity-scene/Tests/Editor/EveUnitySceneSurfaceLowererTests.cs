@@ -424,6 +424,7 @@ namespace GameCult.Eve.UnityScene.Tests
             Assert.That(projection.PlayableWorld.StatePointerId, Is.EqualTo("cultmesh://aetheria/run/current"));
             Assert.That(projection.PlayableWorld.EntityViewPointerId, Is.EqualTo("cultmesh://aetheria/world/entities.soa"));
             Assert.That(projection.PlayableWorld.EntityViewSchema, Is.EqualTo(EveEntitySoaViewDocument.SchemaId));
+            Assert.That(projection.PlayableWorld.EntityBodyId, Is.EqualTo("eve:entity-soa:aetheria.daemon:pilot"));
             Assert.That(projection.PlayableWorld.ZoneRenderPointerId, Is.EqualTo("cultmesh://aetheria/world/zone-render"));
             Assert.That(projection.PlayableWorld.AssetManifest, Is.EqualTo("cultmesh://aetheria/assets/manifest"));
             Assert.That(projection.PlayableWorld.InputProfile, Is.EqualTo("arpg-third-person"));
@@ -2324,6 +2325,7 @@ namespace GameCult.Eve.UnityScene.Tests
                                     ["statePointerId"] = "cultmesh://aetheria/run/current",
                                     ["entityViewPointerId"] = "cultmesh://aetheria/world/entities.soa",
                                     ["entityViewSchema"] = EveEntitySoaViewDocument.SchemaId,
+                                    ["entityBodyId"] = "eve:entity-soa:aetheria.daemon:pilot",
                                     ["zoneRenderPointerId"] = "cultmesh://aetheria/world/zone-render",
                                     ["zoneRenderSchema"] = "gamecult.aetheria.zone_render.v1",
                                     ["assetManifest"] = "cultmesh://aetheria/assets/manifest",
@@ -2849,8 +2851,7 @@ namespace GameCult.Eve.UnityScene.Tests
                 Sequence = sequence,
                 Synchronization = descriptor.Synchronization,
                 LivenessExpiresAtUnixMs = descriptor.LeaseExpiresAtUnixMs,
-                PreferredLocal = descriptor,
-                NetworkFallback = network
+                Representations = new[] { descriptor, network }
             };
         }
 

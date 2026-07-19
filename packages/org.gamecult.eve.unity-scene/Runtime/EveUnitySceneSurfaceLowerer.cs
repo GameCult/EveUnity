@@ -131,6 +131,7 @@ namespace GameCult.Eve.UnityScene
                 entities,
                 worldRoot.GetProp("entityViewPointerId"),
                 worldRoot.GetProp("entityViewSchema"),
+                worldRoot.GetProp("entityBodyId"),
                 worldRoot.GetProp("zoneRenderPointerId"),
                 worldRoot.GetProp("zoneRenderSchema"),
                 ParseStringList(worldRoot.GetProp("excludedRenderChannels")),
@@ -401,6 +402,7 @@ namespace GameCult.Eve.UnityScene
             IReadOnlyList<EveUnityPlayableWorldEntity> entities,
             string entityViewPointerId = "",
             string entityViewSchema = "",
+            string entityBodyId = "",
             string zoneRenderPointerId = "",
             string zoneRenderSchema = "",
             IReadOnlyList<string>? excludedRenderChannels = null,
@@ -457,6 +459,7 @@ namespace GameCult.Eve.UnityScene
             Entities = entities ?? Array.Empty<EveUnityPlayableWorldEntity>();
             EntityViewPointerId = entityViewPointerId ?? "";
             EntityViewSchema = entityViewSchema ?? "";
+            EntityBodyId = entityBodyId ?? "";
             ZoneRenderPointerId = zoneRenderPointerId ?? "";
             ZoneRenderSchema = zoneRenderSchema ?? "";
             ExcludedRenderChannels = excludedRenderChannels ?? Array.Empty<string>();
@@ -513,6 +516,8 @@ namespace GameCult.Eve.UnityScene
         public string EntityViewPointerId { get; }
 
         public string EntityViewSchema { get; }
+
+        public string EntityBodyId { get; }
 
         public string ZoneRenderPointerId { get; }
 

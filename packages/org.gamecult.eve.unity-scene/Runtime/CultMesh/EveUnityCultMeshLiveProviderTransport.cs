@@ -612,14 +612,10 @@ namespace GameCult.Eve.UnityScene
             if (document.Buffers == null || document.Buffers.Length == 0)
                 throw new InvalidOperationException("Entity layout does not name a primary logical buffer.");
             var handle = BodyPublicationHandle(document);
-            var publication = _node!.Database.Cache.Get<CultMeshBodyPublicationDocument>(handle.RecordKey)
-                ?? _snapshot!
-                    .FetchDocumentsAsync<CultMeshBodyPublicationDocument>(
-                        recordKeys: new[] { handle.RecordKey.Value },
-                        schemaIds: new[] { CultMeshBodyPublicationSchemaVersions.Publication })
-                    .GetAwaiter().GetResult().FirstOrDefault()
+            var publicationKey = CultMeshBodyPublicationDocument.CreateLatestRecordKey(handle.BodyId);
+            var publication = _node!.Database.Cache.Get<CultMeshBodyPublicationDocument>(publicationKey)
                 ?? throw new InvalidOperationException(
-                    $"Provider did not publish CultMesh body generation '{handle.RecordKey.Value}'.");
+                    $"Subscribed CultMesh body publication '{publicationKey.Value}' is missing for generation {handle.Sequence}.");
             handle.Validate(publication);
             var now = DateTimeOffset.UtcNow;
             if (!IsPublicationLive(publication, now))
@@ -718,12 +714,34 @@ namespace GameCult.Eve.UnityScene
             string entityViewPointer = lowered.PlayableWorld == null
                 ? ""
                 : lowered.PlayableWorld.EntityViewPointerId;
+            string entityBodyId = lowered.PlayableWorld == null
+                ? ""
+                : lowered.PlayableWorld.EntityBodyId;
             if (!string.IsNullOrWhiteSpace(entityViewPointer))
             {
+                if (string.IsNullOrWhiteSpace(entityBodyId))
+                    throw new InvalidOperationException(
+                        "The playable world advertises an entity-view pointer without its logical body id.");
                 _entitySubscriptions.SubscribeAsync(
                         "eve-unity-entity-view",
-                        recordKeys: new[] { entityViewPointer },
-                        schemaIds: new[] { EveEntitySoaViewDocument.SchemaId })
+                        recordKeys: new[]
+                        {
+                            entityViewPointer,
+                            CultMeshBodyPublicationDocument.CreateLatestRecordKey(
+                                entityBodyId).Value
+                        },
+                        schemaIds: new[]
+                        {
+                            EveEntitySoaViewDocument.SchemaId,
+                            CultMeshBodyPublicationSchemaVersions.Publication
+                        },
+                        consumerRuntimeId: _runtimeId,
+                        bodyIds: new[] { entityBodyId },
+                        supportedBodyTransports: new[]
+                        {
+                            CultMeshBodyTransportKind.SharedMemory.ToString(),
+                            CultMeshBodyTransportKind.Network.ToString()
+                        })
                     .GetAwaiter().GetResult();
                 var current = _node!.Database.Cache.Get(new CultRecordKey(entityViewPointer)) as EveEntitySoaViewDocument
                     ?? _snapshot!

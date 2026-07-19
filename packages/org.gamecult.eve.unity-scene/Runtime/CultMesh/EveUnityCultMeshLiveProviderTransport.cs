@@ -63,6 +63,7 @@ namespace GameCult.Eve.UnityScene
         private CultNetShardDescriptor? _replicaShard;
         private CultNetDatabaseSubscriptionClient? _subscriptions;
         private CultNetDatabaseSubscriptionClient? _entitySubscriptions;
+        private CultMeshLiveBody? _entityBody;
         private CultNetLiveValue<EveInputCapabilityDocument>? _inputCapability;
         private CultMeshClient? _meshClient;
         private CultMeshContentTransferService? _contentTransfer;
@@ -371,6 +372,8 @@ namespace GameCult.Eve.UnityScene
             _mappedEntityFrameCursor?.Dispose();
             _mappedEntityFrameCursor = null;
             _mappedEntityFrameContract = null;
+            _entityBody?.Dispose();
+            _entityBody = null;
             _inputCapability?.Dispose();
             _inputCapability = null;
             _subscriptions?.Dispose();
@@ -806,6 +809,8 @@ namespace GameCult.Eve.UnityScene
         private void EnsureLiveSubscriptions()
         {
             if (_subscriptions != null && _entitySubscriptions != null) return;
+            _entityBody?.Dispose();
+            _entityBody = null;
             _inputCapability?.Dispose();
             _inputCapability = null;
             _subscriptions?.Dispose();
@@ -819,6 +824,8 @@ namespace GameCult.Eve.UnityScene
             }
             catch
             {
+                _entityBody?.Dispose();
+                _entityBody = null;
                 _inputCapability?.Dispose();
                 _inputCapability = null;
                 _subscriptions?.Dispose();
@@ -851,27 +858,37 @@ namespace GameCult.Eve.UnityScene
                     throw new InvalidOperationException(
                         "The playable world advertises an entity-view pointer without its logical body id.");
                 _bodyResolver ??= CreateBodyResolver();
-                var initial = CultMesh.SubscribeHotBodyAsync(
+                var initialLayout = _entitySubscriptions.SubscribeAsync(
+                        "eve-unity-entity-layout",
+                        recordKeys: new[] { entityViewPointer },
+                        schemaIds: new[] { EveEntitySoaViewDocument.SchemaId },
+                        deliveryMode: CultNetDatabaseSubscriptionDeliveryMode.Live)
+                    .GetAwaiter().GetResult();
+                foreach (var layout in initialLayout.OfType<EveEntitySoaViewDocument>())
+                    QueueEntityView(layout);
+
+                _entityBody = CultMesh.SubscribeLiveBodyAsync(
                         _entitySubscriptions,
                         _bodyResolver,
-                        new CultMeshHotBodySubscription(
-                            "eve-unity-entity-view",
+                        new CultMeshLiveBodySubscription(
+                            "eve-unity-entity-body",
                             _runtimeId,
-                            entityViewPointer,
-                            EveEntitySoaViewDocument.SchemaId,
-                            entityBodyId,
-                            fieldRefs,
-                            fieldRefs.Length > 0 ? new[] { EveFieldsSchemas.Splats } : null),
-                        CultNetDatabaseSubscriptionDeliveryMode.Live)
+                            entityBodyId))
                     .GetAwaiter().GetResult();
-                TraceHotState($"initial subscription documents=[{string.Join(",", initial.Select(value => value.GetType().Name))}]");
-                foreach (var document in initial)
+                QueueBodyPublication(_entityBody.Current);
+                _entityBody.Changed += QueueBodyPublication;
+                _entityBody.Removed += () => _liveDocuments.Enqueue(new InvalidOperationException(
+                    $"The provider withdrew required entity body '{entityBodyId}'."));
+
+                if (fieldRefs.Length > 0)
                 {
-                    if (document is EveEntitySoaViewDocument current)
-                        QueueEntityView(current);
-                    else if (document is CultMeshBodyPublicationDocument publication)
-                        QueueBodyPublication(publication);
-                    else if (document is EveFieldsSplatsDocument fields)
+                    var initialFields = _entitySubscriptions.SubscribeAsync(
+                            "eve-unity-fields",
+                            recordKeys: fieldRefs,
+                            schemaIds: new[] { EveFieldsSchemas.Splats },
+                            deliveryMode: CultNetDatabaseSubscriptionDeliveryMode.Live)
+                        .GetAwaiter().GetResult();
+                    foreach (var fields in initialFields.OfType<EveFieldsSplatsDocument>())
                         _liveDocuments.Enqueue(fields);
                 }
             }

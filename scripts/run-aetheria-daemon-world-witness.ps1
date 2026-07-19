@@ -17,10 +17,10 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$expectedEveUnityCommit = "0463ddff4e39c9cca14e632b7e46b6b0081c67cc"
+$expectedEveUnityCommit = "3da246aba8ee24af1c2528fe1c81b41a51a41c64"
 $expectedEveFieldsCommit = "c5a4a75c1b727499b16c2dae1895f29e2a9f72f0"
 $expectedEveUnityUiToolkitCommit = "4d0cbe0185bdc4fc65eb63503a7c5cb578539669"
-$expectedCultLibCommit = "c148d891c1d8713285ae15b2f17b59c106fb9426"
+$expectedCultLibCommit = "36a822d91416d7fecd4f3e67259186e45cf7cdaa"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $projectRoot = $ClientProject
 $outputRoot = if ([IO.Path]::IsPathRooted($OutputDirectory)) { $OutputDirectory } else { Join-Path $repoRoot $OutputDirectory }
@@ -42,7 +42,7 @@ $providerReadyPath = Join-Path $outputRoot "provider-ready.txt"
 $witnessPath = Join-Path $outputRoot "runtime-witness.json"
 $replicaPath = Join-Path $outputRoot "eve-unity-replica.cc"
 $statePath = Join-Path $outputRoot "aetheria-witness-state.cc"
-$providerBundlePath = Join-Path $AetheriaRoot "Build\EveAssets\StandaloneWindows64\aetheria-world"
+$providerBundleDirectory = Join-Path $AetheriaRoot "Build\EveAssets\StandaloneWindows64"
 $daemonProject = Join-Path $AetheriaRoot "Aetheria.State.Daemon\Aetheria.State.Daemon.csproj"
 $importProject = Join-Path $AetheriaRoot "Aetheria.State.Import\Aetheria.State.Import.csproj"
 
@@ -144,32 +144,36 @@ if ($PrimeWarmCacheFromProviderBundle) {
   if ($CacheState -ne "warm") {
     throw "Local provider-bundle priming is only valid for an explicitly warm witness."
   }
-  if (-not (Test-Path -LiteralPath $providerBundlePath)) {
-    throw "Provider-owned Aetheria bundle is missing: $providerBundlePath"
-  }
+  $providerBundlePaths = @(Get-ChildItem -LiteralPath $providerBundleDirectory -Filter "aetheria-*" -File -ErrorAction SilentlyContinue |
+    Where-Object { $_.Extension -ne ".manifest" } | Select-Object -ExpandProperty FullName)
+  if ($providerBundlePaths.Count -eq 0) { throw "Provider-owned Aetheria bundles are missing: $providerBundleDirectory" }
   New-Item -ItemType Directory -Force -Path $assetCachePath | Out-Null
-  $primeHash = (Get-FileHash -LiteralPath $providerBundlePath -Algorithm SHA256).Hash.ToLowerInvariant()
-  $primeTarget = Join-Path $assetCachePath "$primeHash.body"
-  if (-not (Test-Path -LiteralPath $primeTarget)) {
-    $primePartial = Join-Path $assetCachePath "$primeHash.partial.local-prime"
-    Copy-Item -LiteralPath $providerBundlePath -Destination $primePartial -Force
-    if ((Get-FileHash -LiteralPath $primePartial -Algorithm SHA256).Hash.ToLowerInvariant() -ne $primeHash) {
-      Remove-Item -LiteralPath $primePartial -Force -ErrorAction SilentlyContinue
-      throw "Locally primed provider bundle failed its content-hash check."
+  foreach ($providerBundlePath in $providerBundlePaths) {
+    $primeHash = (Get-FileHash -LiteralPath $providerBundlePath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $primeTarget = Join-Path $assetCachePath "$primeHash.body"
+    if (-not (Test-Path -LiteralPath $primeTarget)) {
+      $primePartial = Join-Path $assetCachePath "$primeHash.partial.local-prime"
+      Copy-Item -LiteralPath $providerBundlePath -Destination $primePartial -Force
+      if ((Get-FileHash -LiteralPath $primePartial -Algorithm SHA256).Hash.ToLowerInvariant() -ne $primeHash) {
+        Remove-Item -LiteralPath $primePartial -Force -ErrorAction SilentlyContinue
+        throw "Locally primed provider bundle failed its content-hash check."
+      }
+      Move-Item -LiteralPath $primePartial -Destination $primeTarget -Force
     }
-    Move-Item -LiteralPath $primePartial -Destination $primeTarget -Force
   }
-  Write-Host "Warm cache primed locally from the provider bundle; this is not CDN-transfer evidence: $primeTarget"
+  Write-Host "Warm cache primed locally from $($providerBundlePaths.Count) provider bundles; this is not CDN-transfer evidence: $assetCachePath"
 }
 if ($CacheState -eq "warm") {
-  if (-not (Test-Path -LiteralPath $providerBundlePath)) {
-    throw "Provider-owned Aetheria bundle is missing: $providerBundlePath"
-  }
-  $currentBundleHash = (Get-FileHash -LiteralPath $providerBundlePath -Algorithm SHA256).Hash.ToLowerInvariant()
-  $currentWarmBody = Get-ChildItem -LiteralPath $assetCachePath -Filter "$currentBundleHash.body" -File -Recurse -ErrorAction SilentlyContinue |
-    Select-Object -First 1
-  if ($null -eq $currentWarmBody) {
-    throw "Warm witness cache does not contain the current provider bundle. expected=$currentBundleHash cache=$assetCachePath"
+  $providerBundlePaths = @(Get-ChildItem -LiteralPath $providerBundleDirectory -Filter "aetheria-*" -File -ErrorAction SilentlyContinue |
+    Where-Object { $_.Extension -ne ".manifest" } | Select-Object -ExpandProperty FullName)
+  if ($providerBundlePaths.Count -eq 0) { throw "Provider-owned Aetheria bundles are missing: $providerBundleDirectory" }
+  foreach ($providerBundlePath in $providerBundlePaths) {
+    $currentBundleHash = (Get-FileHash -LiteralPath $providerBundlePath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $currentWarmBody = Get-ChildItem -LiteralPath $assetCachePath -Filter "$currentBundleHash.body" -File -Recurse -ErrorAction SilentlyContinue |
+      Select-Object -First 1
+    if ($null -eq $currentWarmBody) {
+      throw "Warm witness cache does not contain current provider bundle '$providerBundlePath'. expected=$currentBundleHash cache=$assetCachePath"
+    }
   }
 }
 

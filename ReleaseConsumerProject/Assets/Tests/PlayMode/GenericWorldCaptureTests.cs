@@ -305,9 +305,8 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 Assert.That(provider.Selection.VerseId, Is.Not.Empty);
                 Assert.That(provider.Selection.ProviderId, Is.Not.Empty);
                 Assert.That(provider.Selection.SurfaceId, Is.Not.Empty);
-                Assert.That(provider.CurrentAssetBodyTransportKind,
-                    Is.EqualTo(CultMeshBodyTransportKind.SharedFileMapping),
-                    "The generic client did not negotiate its verified provider bundle as a mapped body.");
+                Assert.That(provider.CurrentAssetBodyTransportKind, Is.Null,
+                    "Publishing the provider catalog eagerly transferred an asset bundle.");
                 host = root.AddComponent<EveUnityPlayableWorldClientHost>();
                 host.Configure(
                     root.transform,
@@ -376,6 +375,9 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     "provider-asset-ref"));
                 Assert.That(playerPrefab, Is.Not.Null,
                     $"Provider asset catalog did not resolve player AssetRef '{playerFact.AssetRef}'.");
+                Assert.That(provider.CurrentAssetBodyTransportKind,
+                    Is.EqualTo(CultMeshBodyTransportKind.SharedFileMapping),
+                    "The first requested provider bundle was not negotiated as a mapped body.");
                 var marker = FindMarker(root, playerId);
                 Assert.That(
                     marker.GetComponentsInChildren<Transform>(includeInactive: true).Length,

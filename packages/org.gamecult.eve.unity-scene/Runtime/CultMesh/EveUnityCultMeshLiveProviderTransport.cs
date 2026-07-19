@@ -55,6 +55,8 @@ namespace GameCult.Eve.UnityScene
         private readonly List<ICultMeshBodyReadLease> _assetBodyLeases = new List<ICultMeshBodyReadLease>();
         private readonly Dictionary<string, int> _renderChannelLayers = new Dictionary<string, int>(StringComparer.Ordinal);
         private readonly ConcurrentQueue<object> _liveDocuments = new ConcurrentQueue<object>();
+        private readonly Dictionary<string, EveSurfaceDocument> _embeddedSurfaces =
+            new Dictionary<string, EveSurfaceDocument>(StringComparer.Ordinal);
         private CultMeshNode? _node;
         private CultMeshSnapshotSession? _snapshot;
         private CultNetDocumentRegistry? _networkRegistry;
@@ -66,6 +68,7 @@ namespace GameCult.Eve.UnityScene
         private CultMeshVerifiedBodyMappingBroker? _assetBodyMappings;
         private EveProviderAdvertisementDocument? _advertisement;
         private EveAdvertisedSurface? _advertisedSurface;
+        private EveSurfaceDocument? _baseSurface;
         private CultMeshBodyPublicationResolver? _bodyResolver;
         private EveEntitySoaViewDocument? _latestEntityLayout;
         private CultMeshBodyPublicationDocument? _latestEntityPublication;
@@ -215,8 +218,13 @@ namespace GameCult.Eve.UnityScene
                     PublishEntityView(entityGeneration.View, entityGeneration.Publication);
                 else if (document is EveFieldsSplatsDocument fields)
                     FieldsSplatsAvailable?.Invoke(fields);
-                else if (document is EveSurfaceDocument surface)
-                    PublishSurface(surface);
+                else if (document is PendingSurfaceDocument surface)
+                {
+                    if (string.Equals(surface.RecordKey, _advertisedSurface?.RecordRef, StringComparison.Ordinal))
+                        PublishBaseSurface(surface.Document);
+                    else
+                        PublishEmbeddedSurface(surface.RecordKey, surface.Document);
+                }
                 else if (document is EveInputCapabilityDocument inputCapability)
                     CurrentInputCapability = inputCapability;
                 else if (document is EveAssetCatalogDocument assetCatalog)
@@ -392,6 +400,8 @@ namespace GameCult.Eve.UnityScene
             _assetBodyMappings = null;
             _networkRegistry = null;
             _replicaShard = null;
+            _baseSurface = null;
+            _embeddedSurfaces.Clear();
             _pendingCommandIds.Clear();
             _publishedReceiptIds.Clear();
         }
@@ -723,11 +733,29 @@ namespace GameCult.Eve.UnityScene
                 .GetResult()
                 .FirstOrDefault()
                 ?? throw new InvalidOperationException("The advertised Eve surface record was not available.");
-            PublishSurface(surface);
+            PublishBaseSurface(surface);
         }
 
-        private void PublishSurface(EveSurfaceDocument surface)
+        private void PublishBaseSurface(EveSurfaceDocument surface)
         {
+            _baseSurface = surface ?? throw new ArgumentNullException(nameof(surface));
+            PublishComposedSurface();
+            EnsureLiveSubscriptions();
+        }
+
+        private void PublishEmbeddedSurface(string recordKey, EveSurfaceDocument surface)
+        {
+            if (string.IsNullOrWhiteSpace(recordKey))
+                throw new InvalidOperationException("An embedded Eve surface update has no record identity.");
+            _embeddedSurfaces[recordKey] = surface ?? throw new ArgumentNullException(nameof(surface));
+            PublishComposedSurface();
+        }
+
+        private void PublishComposedSurface()
+        {
+            var surface = ComposeSurface(
+                _baseSurface ?? throw new InvalidOperationException("The base Eve surface is unavailable."),
+                _embeddedSurfaces);
             var interaction = RequireWorldInteraction();
             CurrentSurfaceDocument = new EveUnitySceneProviderSurfaceDocument(
                 surface,
@@ -742,7 +770,50 @@ namespace GameCult.Eve.UnityScene
                 _advertisedSurface.RecordRef,
                 surface.Version);
             SurfaceDocumentAvailable?.Invoke(CurrentSurfaceDocument);
-            EnsureLiveSubscriptions();
+        }
+
+        internal static EveSurfaceDocument ComposeSurface(
+            EveSurfaceDocument surface,
+            IReadOnlyDictionary<string, EveSurfaceDocument> embeddedSurfaces)
+        {
+            var root = ComposeComponent(surface.Surface.Root, embeddedSurfaces);
+            var version = embeddedSurfaces.Values.Select(value => value.Version)
+                .DefaultIfEmpty(surface.Version)
+                .Append(surface.Version)
+                .Max();
+            return new EveSurfaceDocument(
+                surface.Type,
+                surface.Schema,
+                surface.ProviderId,
+                surface.ProviderKind,
+                surface.Title,
+                version,
+                surface.UpdatedAtUtc,
+                new EveSurfaceTree(surface.Surface.Id, root, surface.Surface.Styles),
+                surface.Commands);
+        }
+
+        private static EveSurfaceComponent ComposeComponent(
+            EveSurfaceComponent component,
+            IReadOnlyDictionary<string, EveSurfaceDocument> embeddedSurfaces)
+        {
+            var children = component.Children.Select(child => ComposeComponent(child, embeddedSurfaces)).ToList();
+            foreach (var slot in component.EmbeddedDocuments ?? Array.Empty<EveEmbeddedDocumentSlot>())
+            {
+                if (!string.Equals(slot.SchemaId, EveSurfaceDocument.SchemaId, StringComparison.Ordinal) ||
+                    !embeddedSurfaces.TryGetValue(slot.DocumentId, out var embedded))
+                    continue;
+                children.Add(ComposeComponent(embedded.Surface.Root, embeddedSurfaces));
+            }
+            return new EveSurfaceComponent(
+                component.Id,
+                component.Kind,
+                component.Props,
+                children,
+                component.StateBindingRecords,
+                component.EmbeddedDocuments,
+                component.Layout,
+                component.Style);
         }
 
         private void EnsureLiveSubscriptions()
@@ -828,6 +899,25 @@ namespace GameCult.Eve.UnityScene
                     schemaIds: new[] { EveSurfaceDocument.SchemaId },
                     includeSnapshot: false)
                 .GetAwaiter().GetResult();
+            var embeddedSlots = EnumerateEmbeddedDocuments(CurrentSurfaceDocument.SurfaceDocument.Surface.Root)
+                .Where(slot => string.Equals(slot.SchemaId, EveSurfaceDocument.SchemaId, StringComparison.Ordinal))
+                .Where(slot => !string.IsNullOrWhiteSpace(slot.DocumentId))
+                .GroupBy(slot => slot.DocumentId, StringComparer.Ordinal)
+                .Select(group => group.First())
+                .ToArray();
+            for (var index = 0; index < embeddedSlots.Length; index++)
+            {
+                var slot = embeddedSlots[index];
+                var initialEmbedded = _subscriptions.SubscribeAsync(
+                        $"eve-unity-embedded-surface-{index}",
+                        recordKeys: new[] { slot.DocumentId },
+                        schemaIds: new[] { EveSurfaceDocument.SchemaId })
+                    .GetAwaiter().GetResult()
+                    .OfType<EveSurfaceDocument>()
+                    .FirstOrDefault();
+                if (initialEmbedded != null)
+                    PublishEmbeddedSurface(slot.DocumentId, initialEmbedded);
+            }
             var inputCapabilityRef = FindComponentProp(
                 CurrentSurfaceDocument.SurfaceDocument.Surface.Root,
                 "inputCapability");
@@ -880,9 +970,32 @@ namespace GameCult.Eve.UnityScene
                 QueueEntityView(entityView);
             else if (change.Document is CultMeshBodyPublicationDocument publication)
                 QueueBodyPublication(publication);
-            else if (change.Document is EveSurfaceDocument or EveInputCapabilityDocument or
+            else if (change.Document is EveSurfaceDocument surface)
+                _liveDocuments.Enqueue(new PendingSurfaceDocument(change.RecordKey, surface));
+            else if (change.Document is EveInputCapabilityDocument or
                      EveAssetCatalogDocument or EveCommandReceiptDocument or EveFieldsSplatsDocument)
                 _liveDocuments.Enqueue(change.Document);
+        }
+
+        private static IEnumerable<EveEmbeddedDocumentSlot> EnumerateEmbeddedDocuments(EveSurfaceComponent component)
+        {
+            foreach (var slot in component.EmbeddedDocuments ?? Array.Empty<EveEmbeddedDocumentSlot>())
+                yield return slot;
+            foreach (var child in component.Children ?? Array.Empty<EveSurfaceComponent>())
+            foreach (var slot in EnumerateEmbeddedDocuments(child))
+                yield return slot;
+        }
+
+        private sealed class PendingSurfaceDocument
+        {
+            public PendingSurfaceDocument(string recordKey, EveSurfaceDocument document)
+            {
+                RecordKey = recordKey ?? "";
+                Document = document ?? throw new ArgumentNullException(nameof(document));
+            }
+
+            public string RecordKey { get; }
+            public EveSurfaceDocument Document { get; }
         }
 
         private static void TraceHotState(string message)

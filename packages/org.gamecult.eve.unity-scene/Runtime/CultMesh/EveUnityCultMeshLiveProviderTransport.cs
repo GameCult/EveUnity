@@ -940,7 +940,8 @@ namespace GameCult.Eve.UnityScene
                         "eve-unity-input-capability",
                         inputCapabilityRef)
                     .GetAwaiter().GetResult();
-                CurrentInputCapability = _inputCapability.Current;
+                if (_inputCapability.HasValue)
+                    CurrentInputCapability = _inputCapability.Current;
                 _inputCapability.Changed += document => _liveDocuments.Enqueue(document);
                 _inputCapability.Removed += () => _liveDocuments.Enqueue(new InvalidOperationException(
                     $"The provider withdrew required input capability '{inputCapabilityRef}'."));

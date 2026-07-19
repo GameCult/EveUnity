@@ -200,36 +200,14 @@ namespace GameCult.Eve.UnityScene.Tests
         }
 
         [Test]
-        public async System.Threading.Tasks.Task LiveTransportValidatesNetworkBodyControlDocumentsWithoutSnapshotChunks()
+        public void LiveTransportDoesNotRegisterBodyBytesAsSnapshotDocuments()
         {
-            var view = EntityLeaseDocument();
-            var bytes = Enumerable.Range(0, 32).Select(value => (byte)value).ToArray();
-            var source = new CultCache();
-            var generation = new CultMeshBodyGeneration
-            {
-                BodyId = view.Buffers[0].BufferId,
-                ProducerId = view.ProviderId,
-                SchemaId = view.BodySchemaId,
-                LayoutVersion = view.LayoutVersion,
-                Capacity = view.Capacity,
-                ProducerEpoch = view.ProducerEpoch,
-                Sequence = view.Sequence,
-                Synchronization = CultMeshBodySynchronization.TripleBuffer,
-                LeaseExpiresAtUnixMs = DateTimeOffset.UtcNow.AddMinutes(1).ToUnixTimeMilliseconds()
-            };
-            var descriptor = await new CultMeshNetworkBodyPublisher(source, _ => true).PublishAsync(generation, bytes);
-            var binding = source.Get<CultMeshNetworkBodyDocument>(
-                CultMeshNetworkBodyDocument.CreateRecordKey(descriptor.CapabilityToken))!;
-            var manifest = source.Get<CultMeshCdnArtifactManifest>(new CultRecordKey(binding.ManifestRecordKey))!;
-            var method = typeof(EveUnityCultMeshLiveProviderTransport)
-                .GetMethod("ValidateNetworkBody", BindingFlags.NonPublic | BindingFlags.Static)!;
-
-            method.Invoke(null, new object[] { descriptor, binding, manifest });
             var wireTypes = (Type[])typeof(EveUnityCultMeshLiveProviderTransport)
                 .GetField("WireDocumentTypes", BindingFlags.NonPublic | BindingFlags.Static)!
                 .GetValue(null)!;
 
             Assert.That(wireTypes.Any(type => type == typeof(CultMeshCdnArtifactChunk)), Is.False);
+            Assert.That(wireTypes.Any(type => type.Name == "CultMeshNetworkBodyDocument"), Is.False);
         }
 
         [Test]

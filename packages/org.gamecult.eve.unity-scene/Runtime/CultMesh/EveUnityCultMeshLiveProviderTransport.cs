@@ -35,7 +35,6 @@ namespace GameCult.Eve.UnityScene
             typeof(EveEntitySoaViewDocument),
             typeof(EveFieldsSplatsDocument),
             typeof(CultMeshBodyPublicationDocument),
-            typeof(CultMeshNetworkBodyDocument),
             typeof(CultMeshCdnArtifactManifest),
             typeof(CultMeshContentTransferStateDocument)
         };
@@ -501,13 +500,20 @@ namespace GameCult.Eve.UnityScene
         private CultMeshBodyPublicationResolver CreateBodyResolver()
         {
             var producerIds = RequireAdvertisedBodyProducerIds(_advertisement);
+            if (string.IsNullOrWhiteSpace(_advertisement!.ServiceId))
+                throw new InvalidOperationException(
+                    $"Eve provider '{_advertisement.ProviderId}' has no service-instance identity for body transport.");
             var mappedRoot = Path.GetDirectoryName(_replicaPath) ?? ".";
+            var networkBodies = _meshClient!.BodyProvider(
+                _advertisement.ProviderId,
+                _advertisement.ServiceId,
+                new CultMeshSessionBodyProviderOptions { ResponseTimeout = TimeSpan.FromSeconds(2) });
             return new CultMeshBodyPublicationResolver(new CultMeshBodyTransportService(
                 new ICultMeshBodyTransportAdapter[]
                 {
                     new CultMeshSharedMemoryBodyAdapter(),
                     new CultMeshMappedBodyAdapter(mappedRoot),
-                    new CultMeshNetworkBodyAdapter(ReadNetworkBody)
+                    new CultMeshNetworkBodyAdapter(networkBodies)
                 },
                 (candidateProducerId, _) => IsAdvertisedBodyProducer(producerIds, candidateProducerId)));
         }
@@ -530,47 +536,6 @@ namespace GameCult.Eve.UnityScene
                 throw new InvalidOperationException(
                     $"Eve provider '{advertisement.ProviderId}' does not advertise an authorized body producer.");
             return producerIds;
-        }
-
-        private byte[] ReadNetworkBody(CultMeshBodyDescriptor descriptor)
-        {
-            var binding = _snapshot!
-                .FetchDocumentsAsync<CultMeshNetworkBodyDocument>(
-                    recordKeys: new[] { CultMeshNetworkBodyDocument.CreateRecordKey(descriptor.CapabilityToken).Value },
-                    schemaIds: new[] { CultMeshBodyPublicationSchemaVersions.NetworkBody })
-                .GetAwaiter().GetResult().SingleOrDefault()
-                ?? throw new FileNotFoundException("Provider network body capability is missing.", descriptor.CapabilityToken);
-            var manifest = _snapshot
-                .FetchDocumentsAsync<CultMeshCdnArtifactManifest>(
-                    recordKeys: new[] { binding.ManifestRecordKey },
-                    schemaIds: new[] { CultMeshCdnSchemaVersions.ArtifactManifest })
-                .GetAwaiter().GetResult().SingleOrDefault()
-                ?? throw new FileNotFoundException("Provider network body manifest is missing.", binding.ManifestRecordKey);
-            ValidateNetworkBody(descriptor, binding, manifest);
-            var path = ContentTransfer().FetchAsync(manifest).GetAwaiter().GetResult();
-            return File.ReadAllBytes(path);
-        }
-
-        private static void ValidateNetworkBody(
-            CultMeshBodyDescriptor descriptor,
-            CultMeshNetworkBodyDocument binding,
-            CultMeshCdnArtifactManifest manifest)
-        {
-            if (!string.Equals(binding.CapabilityToken, descriptor.CapabilityToken, StringComparison.Ordinal) ||
-                !string.Equals(binding.BodyId, descriptor.BodyId, StringComparison.Ordinal) ||
-                !string.Equals(binding.SchemaId, descriptor.SchemaId, StringComparison.Ordinal) ||
-                binding.LayoutVersion != descriptor.LayoutVersion || binding.ByteSize != descriptor.ByteSize ||
-                binding.Capacity != descriptor.Capacity || binding.ProducerEpoch != descriptor.ProducerEpoch ||
-                binding.Sequence != descriptor.Sequence || binding.Synchronization != descriptor.Synchronization ||
-                binding.LeaseExpiresAtUnixMs != descriptor.LeaseExpiresAtUnixMs ||
-                !string.Equals(binding.SemanticHash, descriptor.SemanticHash, StringComparison.Ordinal))
-                throw new InvalidDataException("CultMesh network body descriptor disagrees with its capability binding.");
-            if (!string.Equals(CultMeshCdnArtifactManifest.CreateRecordKey(manifest).Value,
-                    binding.ManifestRecordKey, StringComparison.Ordinal) ||
-                manifest.SizeBytes != binding.ByteSize ||
-                !string.Equals(NormalizeContentHash(manifest.ContentHash),
-                    binding.SemanticHash, StringComparison.Ordinal))
-                throw new InvalidDataException("CultMesh network body manifest disagrees with its capability binding.");
         }
 
         private static string NormalizeContentHash(string value)

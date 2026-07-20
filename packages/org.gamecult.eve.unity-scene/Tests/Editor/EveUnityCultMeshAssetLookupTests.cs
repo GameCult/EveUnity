@@ -53,6 +53,21 @@ namespace GameCult.Eve.UnityScene.Tests
         }
 
         [Test]
+        public void ProviderSubscriptionsDoNotDependOnPreparedTransportLifetime()
+        {
+            var gameObject = new GameObject("unprepared-eve-provider-subscriptions");
+            var provider = gameObject.AddComponent<EveUnityCultMeshPlayableWorldProvider>();
+            Action<EveUnitySceneProviderSurfaceDocument> documentHandler = _ => { };
+            Action<EveUnitySceneCommandReceipt> receiptHandler = _ => { };
+
+            Assert.DoesNotThrow(() => provider.DocumentAvailable += documentHandler);
+            Assert.DoesNotThrow(() => provider.ReceiptAvailable += receiptHandler);
+            Assert.DoesNotThrow(() => provider.DocumentAvailable -= documentHandler);
+            Assert.DoesNotThrow(() => provider.ReceiptAvailable -= receiptHandler);
+            Assert.DoesNotThrow(() => UnityEngine.Object.DestroyImmediate(gameObject));
+        }
+
+        [Test]
         public void ResolvesUnityNormalizedBundleNamesWithoutChangingLogicalAssetIdentity()
         {
             var method = typeof(EveUnityCultMeshLiveProviderTransport).GetMethod(

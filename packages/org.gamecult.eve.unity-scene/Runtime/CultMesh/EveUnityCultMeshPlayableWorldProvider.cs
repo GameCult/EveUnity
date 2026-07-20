@@ -70,17 +70,9 @@ namespace GameCult.Eve.UnityScene
             }
         }
 
-        public event Action<EveUnitySceneProviderSurfaceDocument>? DocumentAvailable
-        {
-            add { Bridge.DocumentAvailable += value; }
-            remove { Bridge.DocumentAvailable -= value; }
-        }
+        public event Action<EveUnitySceneProviderSurfaceDocument>? DocumentAvailable;
 
-        public event Action<EveUnitySceneCommandReceipt>? ReceiptAvailable
-        {
-            add { Bridge.ReceiptAvailable += value; }
-            remove { Bridge.ReceiptAvailable -= value; }
-        }
+        public event Action<EveUnitySceneCommandReceipt>? ReceiptAvailable;
 
         public void Configure(
             string endpoint,
@@ -163,6 +155,11 @@ namespace GameCult.Eve.UnityScene
 
         private void OnDestroy()
         {
+            if (_bridge != null)
+            {
+                _bridge.DocumentAvailable -= ForwardDocument;
+                _bridge.ReceiptAvailable -= ForwardReceipt;
+            }
             _bridge?.Dispose();
             _transport?.Dispose();
             while (_pendingEntityViews.TryDequeue(out var pending)) pending.Lease.Dispose();
@@ -230,8 +227,16 @@ namespace GameCult.Eve.UnityScene
             _transport.EntityViewAvailable += (view, lease) => _pendingEntityViews.Enqueue(new EntityViewLease(view, lease));
             _transport.FieldsSplatsAvailable += fields => _pendingFields.Enqueue(fields);
             _bridge = new EveUnitySceneLiveProviderBridge(_transport);
+            _bridge.DocumentAvailable += ForwardDocument;
+            _bridge.ReceiptAvailable += ForwardReceipt;
             TraceStartup($"transport-construction {elapsed.Elapsed.TotalMilliseconds:0.###}ms");
         }
+
+        private void ForwardDocument(EveUnitySceneProviderSurfaceDocument document) =>
+            DocumentAvailable?.Invoke(document);
+
+        private void ForwardReceipt(EveUnitySceneCommandReceipt receipt) =>
+            ReceiptAvailable?.Invoke(receipt);
 
         private static void TraceStartup(string message)
         {

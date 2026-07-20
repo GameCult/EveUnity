@@ -121,6 +121,9 @@ namespace GameCult.Eve.UnityScene
             var actionBar = GetComponent<EveUnityInputActionBar>();
             if (actionBar == null) actionBar = gameObject.AddComponent<EveUnityInputActionBar>();
             actionBar.Bind(this);
+            var uiOverlay = GetComponent<EveUnityUiToolkitOverlay>();
+            if (uiOverlay == null) uiOverlay = gameObject.AddComponent<EveUnityUiToolkitOverlay>();
+            uiOverlay.Bind(providerSurfaceDocuments!, commandSink!);
 
             var presentation = Runtime.Connect();
             ConnectionEpoch++;

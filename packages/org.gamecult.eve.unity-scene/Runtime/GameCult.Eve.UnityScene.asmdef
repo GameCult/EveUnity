@@ -4,6 +4,7 @@
     "references": [
         "GameCult.Eve.Surface",
         "GameCult.Eve.PluginFields",
+        "GameCult.Eve.UnityUIToolkit",
         "Unity.Mathematics",
         "Unity.RenderPipelines.Core.Runtime",
         "Unity.RenderPipelines.Universal.Runtime"

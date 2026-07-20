@@ -5,7 +5,12 @@ interactive worlds.
 
 Providers implement the surface-document, asset-manifest, command-sink, and
 receipt-source ports. `EveUnityPlayableWorldClientBootstrap` wires those ports
-to the generic scene host, input driver, camera rig, and `GameObject` sink.
+to the generic scene host, input driver, camera rig, `GameObject` sink, and UI
+Toolkit surface overlay. The overlay lowers provider-owned panes, metrics,
+progress, inventory, and controls from the same Eve document used by the scene.
+Stable structures update their native controls in place; only structural
+changes rebuild the visual tree. Scene, field, and reactive render subtrees are
+owned by their native lowerers and are not duplicated into empty UI elements.
 
 `EveUnityCultMeshPlayableWorldProvider` is the runtime composition root for a
 networked client. Give it one Verse rendezvous endpoint and it discovers an

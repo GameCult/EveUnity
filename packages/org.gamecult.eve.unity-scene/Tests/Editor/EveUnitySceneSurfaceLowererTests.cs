@@ -1098,6 +1098,8 @@ namespace GameCult.Eve.UnityScene.Tests
                 Assert.That(bootstrap.SceneRoot!.childCount, Is.EqualTo(3));
                 Assert.That(hostObject.GetComponent<EveUnityPlayableWorldInputDriver>(), Is.Not.Null);
                 Assert.That(hostObject.GetComponent<EveUnityPlayableWorldCameraRig>(), Is.Not.Null);
+                Assert.That(hostObject.GetComponent<EveUnityUiToolkitOverlay>(), Is.Not.Null);
+                Assert.That(hostObject.GetComponent<EveUnityUiToolkitOverlay>().Root, Is.Not.Null);
                 Assert.That(bootstrap.CameraTransform, Is.Not.Null);
                 Assert.That(provider.RefreshCount, Is.EqualTo(1));
 

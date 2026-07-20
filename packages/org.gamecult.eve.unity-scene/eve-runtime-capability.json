@@ -113,6 +113,7 @@
                                                            "packages/org.gamecult.eve.unity-scene/Runtime/EveUnityPlayableWorldLiveClient.cs",
                                                            "packages/org.gamecult.eve.unity-scene/Runtime/EveUnityPlayableWorldRuntime.cs",
                                                            "packages/org.gamecult.eve.unity-scene/Runtime/EveUnityPlayableWorldClientHost.cs",
+                                                           "packages/org.gamecult.eve.unity-scene/Runtime/EveUnityUiToolkitOverlay.cs",
                                                            "packages/org.gamecult.eve.unity-scene/Runtime/EveUnityPlayableWorldClientBootstrap.cs",
                                                            "packages/org.gamecult.eve.unity-scene/Runtime/EveUnityPlayableWorldInputDriver.cs",
                                                            "packages/org.gamecult.eve.unity-scene/Runtime/EveUnityPlayableWorldCameraRig.cs",
@@ -159,10 +160,17 @@
                                                               "requiredPackageDependencies":  [
                                                                                                   {
                                                                                                       "packageName":  "org.gamecult.eve.surface",
-                                                                                                      "version":  "0.1.0",
+                                                                                                      "version":  "0.2.4",
                                                                                                       "packageManager":  "upm",
                 "ownerRepo":  "EveUnity",
                                                                                                       "purpose":  "Shared Unity DTOs for gamecult.eve.surface.v1 documents."
+                                                                                                  },
+                                                                                                  {
+                                                                                                      "packageName":  "org.gamecult.eve.unity-uitoolkit",
+                                                                                                      "version":  "0.1.2",
+                                                                                                      "packageManager":  "upm",
+                                                                                                      "ownerRepo":  "EveUnity",
+                                                                                                      "purpose":  "Generic UI Toolkit lowering for provider-owned Eve panes, metrics, progress, text, and controls."
                                                                                                   }
                                                                                               ]
                                                           },

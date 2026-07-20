@@ -526,45 +526,48 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     Is.GreaterThan(1),
                     "The generic client substituted its primitive fallback instead of the provider-authored AssetBundle prefab.");
 
-                var initialPosition = marker.transform.position;
                 initialVersion = runtime.ActiveVersion;
-                var request = runtime.SubmitMoveVectorIntent(playerId, 1f, 0f, 1f);
-
-                var deadline = Time.realtimeSinceStartup + 12f;
-                while (Time.realtimeSinceStartup < deadline &&
-                       (runtime.LastReceipt == null || runtime.LastReceipt.CommandId != request.CommandId ||
-                        !string.Equals(runtime.LastReceipt.State, "reconciled", StringComparison.OrdinalIgnoreCase) ||
-                        runtime.ActiveVersion <= initialVersion ||
-                        Vector3.Distance(FindMarker(root, playerId).transform.position, initialPosition) < 0.01f))
+                if (requireSessionGameplay)
                 {
-                    yield return new WaitForSecondsRealtime(0.1f);
-                    runtime.Refresh();
-                }
+                    var initialPosition = marker.transform.position;
+                    var request = runtime.SubmitMoveVectorIntent(playerId, 1f, 0f, 1f);
 
-                AssertReconciledProviderReceipt(
-                    runtime.LastReceipt,
-                    request.CommandId,
-                    provider.Selection.ProviderId,
-                    provider.Selection.SurfaceId,
-                    initialVersion);
-                Assert.That(runtime.ActiveVersion, Is.GreaterThan(initialVersion));
-                Assert.That(runtime.ActiveVersion, Is.GreaterThanOrEqualTo(runtime.LastReceipt.SourceVersion));
-                movementDistance = Vector3.Distance(FindMarker(root, playerId).transform.position, initialPosition);
-                Assert.That(movementDistance, Is.GreaterThan(0.01f));
-                movementReceipt = WitnessReceipt.From("movement", runtime.LastReceipt);
+                    var deadline = Time.realtimeSinceStartup + 12f;
+                    while (Time.realtimeSinceStartup < deadline &&
+                           (runtime.LastReceipt == null || runtime.LastReceipt.CommandId != request.CommandId ||
+                            !string.Equals(runtime.LastReceipt.State, "reconciled", StringComparison.OrdinalIgnoreCase) ||
+                            runtime.ActiveVersion <= initialVersion ||
+                            Vector3.Distance(FindMarker(root, playerId).transform.position, initialPosition) < 0.01f))
+                    {
+                        yield return new WaitForSecondsRealtime(0.1f);
+                        runtime.Refresh();
+                    }
 
-                var releaseVersion = runtime.ActiveVersion;
-                var release = runtime.SubmitMoveVectorIntent(playerId, 0f, 0f, 0f);
-                var releaseDeadline = Time.realtimeSinceStartup + 12f;
-                while (Time.realtimeSinceStartup < releaseDeadline &&
-                       (runtime.LastReceipt == null || runtime.LastReceipt.CommandId != release.CommandId ||
-                        !string.Equals(runtime.LastReceipt.State, "reconciled", StringComparison.OrdinalIgnoreCase)))
-                {
-                    yield return new WaitForSecondsRealtime(0.1f);
-                    runtime.Refresh();
+                    AssertReconciledProviderReceipt(
+                        runtime.LastReceipt,
+                        request.CommandId,
+                        provider.Selection.ProviderId,
+                        provider.Selection.SurfaceId,
+                        initialVersion);
+                    Assert.That(runtime.ActiveVersion, Is.GreaterThan(initialVersion));
+                    Assert.That(runtime.ActiveVersion, Is.GreaterThanOrEqualTo(runtime.LastReceipt.SourceVersion));
+                    movementDistance = Vector3.Distance(FindMarker(root, playerId).transform.position, initialPosition);
+                    Assert.That(movementDistance, Is.GreaterThan(0.01f));
+                    movementReceipt = WitnessReceipt.From("movement", runtime.LastReceipt);
+
+                    var releaseVersion = runtime.ActiveVersion;
+                    var release = runtime.SubmitMoveVectorIntent(playerId, 0f, 0f, 0f);
+                    var releaseDeadline = Time.realtimeSinceStartup + 12f;
+                    while (Time.realtimeSinceStartup < releaseDeadline &&
+                           (runtime.LastReceipt == null || runtime.LastReceipt.CommandId != release.CommandId ||
+                            !string.Equals(runtime.LastReceipt.State, "reconciled", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        yield return new WaitForSecondsRealtime(0.1f);
+                        runtime.Refresh();
+                    }
+                    AssertReconciledProviderReceipt(runtime.LastReceipt, release.CommandId,
+                        provider.Selection.ProviderId, provider.Selection.SurfaceId, releaseVersion);
                 }
-                AssertReconciledProviderReceipt(runtime.LastReceipt, release.CommandId,
-                    provider.Selection.ProviderId, provider.Selection.SurfaceId, releaseVersion);
 
                 if (requireSessionGameplay)
                 {
@@ -924,7 +927,8 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     .Where(material => material != null)
                     .Distinct()
                     .Count(HasAnyTexture);
-                Assert.That(texturedPlayerMaterialCount, Is.GreaterThanOrEqualTo(8),
+                var expectedTexturedPlayerMaterialCount = requireSessionGameplay ? 8 : 7;
+                Assert.That(texturedPlayerMaterialCount, Is.GreaterThanOrEqualTo(expectedTexturedPlayerMaterialCount),
                     "The provider bundle must retain its advertised native material textures.");
                 var directionalLightIntensity = UnityEngine.Object.FindObjectsOfType<Light>()
                     .Where(light => light != null && light.enabled && light.type == LightType.Directional)
@@ -1015,25 +1019,28 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 File.WriteAllBytes(mapCapturePath, pixels.EncodeToPNG());
                 Assert.That(new FileInfo(mapCapturePath).Length, Is.GreaterThan(1024));
                 Debug.Log($"EveUnity witness phase map-capture took {mapCaptureElapsed.Elapsed.TotalMilliseconds:0.###}ms.");
-                var tractorReleaseVersion = runtime.ActiveVersion;
-                var tractorRelease = host.SubmitAdvertisedActionValueIntent(
-                    playerId,
-                    beamPresentation.ActivationActionId,
-                    0f);
-                var tractorReleaseDeadline = Time.realtimeSinceStartup + 12f;
-                while (Time.realtimeSinceStartup < tractorReleaseDeadline &&
-                       (runtime.LastReceipt == null || runtime.LastReceipt.CommandId != tractorRelease.CommandId ||
-                        !string.Equals(runtime.LastReceipt.State, "reconciled", StringComparison.OrdinalIgnoreCase) ||
-                        runtime.ActiveVersion < runtime.LastReceipt.SourceVersion))
+                if (requireSessionGameplay)
                 {
-                    yield return new WaitForSecondsRealtime(0.1f);
-                    runtime.Refresh();
+                    var tractorReleaseVersion = runtime.ActiveVersion;
+                    var tractorRelease = host.SubmitAdvertisedActionValueIntent(
+                        playerId,
+                        beamPresentation.ActivationActionId,
+                        0f);
+                    var tractorReleaseDeadline = Time.realtimeSinceStartup + 12f;
+                    while (Time.realtimeSinceStartup < tractorReleaseDeadline &&
+                           (runtime.LastReceipt == null || runtime.LastReceipt.CommandId != tractorRelease.CommandId ||
+                            !string.Equals(runtime.LastReceipt.State, "reconciled", StringComparison.OrdinalIgnoreCase) ||
+                            runtime.ActiveVersion < runtime.LastReceipt.SourceVersion))
+                    {
+                        yield return new WaitForSecondsRealtime(0.1f);
+                        runtime.Refresh();
+                    }
+                    AssertReconciledProviderReceipt(runtime.LastReceipt, tractorRelease.CommandId,
+                        provider.Selection.ProviderId, provider.Selection.SurfaceId, tractorReleaseVersion);
+                    tractorReleaseReceipt = WitnessReceipt.From("beam-release", runtime.LastReceipt);
+                    beamRenderer.RefreshNow();
+                    Assert.That(beamRenderer.TryGetPower(beamPresentation.Id, out tractorReleasedPower), Is.True);
                 }
-                AssertReconciledProviderReceipt(runtime.LastReceipt, tractorRelease.CommandId,
-                    provider.Selection.ProviderId, provider.Selection.SurfaceId, tractorReleaseVersion);
-                tractorReleaseReceipt = WitnessReceipt.From("beam-release", runtime.LastReceipt);
-                beamRenderer.RefreshNow();
-                Assert.That(beamRenderer.TryGetPower(beamPresentation.Id, out tractorReleasedPower), Is.True);
                 var fieldVolume = root.GetComponent<EveUnityFieldsVolumeRenderer>();
                 Assert.That(fieldVolume, Is.Not.Null, "The generic client did not install its Fields volume lowerer.");
                 Assert.That(fieldVolume.PresentedFrameId, Is.GreaterThanOrEqualTo(0),

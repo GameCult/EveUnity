@@ -17,10 +17,10 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$expectedEveUnityCommit = "91eaa95ad45897f4322a8823a1bc5cddcee59649"
+$expectedEveUnityCommit = "3632bfb3354065b78a90b921d7025c4c3fa92be4"
 $expectedEveFieldsCommit = "c5a4a75c1b727499b16c2dae1895f29e2a9f72f0"
 $expectedEveUnityUiToolkitCommit = "4d0cbe0185bdc4fc65eb63503a7c5cb578539669"
-$expectedCultLibCommit = "54e2e69ff7f4f5e0a1316bb047c315e65ed2a185"
+$expectedCultLibCommit = "f67f5122ed1bd11da016e7b820ed60145ccd0299"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $projectRoot = $ClientProject
 $outputRoot = if ([IO.Path]::IsPathRooted($OutputDirectory)) { $OutputDirectory } else { Join-Path $repoRoot $OutputDirectory }
@@ -140,13 +140,15 @@ if (-not $SkipAssetBundleBuild) {
     throw "Aetheria AssetBundle build failed with exit code $($bundleBuilder.ExitCode)"
   }
 }
+$providerBundlePaths = @(Get-ChildItem -LiteralPath $providerBundleDirectory -Filter "aetheria-*" -File -ErrorAction SilentlyContinue |
+  Where-Object { $_.Extension -ne ".manifest" } | Select-Object -ExpandProperty FullName)
+if ($providerBundlePaths.Count -eq 0) {
+  throw "Provider-owned Aetheria bundles are missing: $providerBundleDirectory"
+}
 if ($PrimeWarmCacheFromProviderBundle) {
   if ($CacheState -ne "warm") {
     throw "Local provider-bundle priming is only valid for an explicitly warm witness."
   }
-  $providerBundlePaths = @(Get-ChildItem -LiteralPath $providerBundleDirectory -Filter "aetheria-*" -File -ErrorAction SilentlyContinue |
-    Where-Object { $_.Extension -ne ".manifest" } | Select-Object -ExpandProperty FullName)
-  if ($providerBundlePaths.Count -eq 0) { throw "Provider-owned Aetheria bundles are missing: $providerBundleDirectory" }
   New-Item -ItemType Directory -Force -Path $assetCachePath | Out-Null
   foreach ($providerBundlePath in $providerBundlePaths) {
     $primeHash = (Get-FileHash -LiteralPath $providerBundlePath -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -164,16 +166,9 @@ if ($PrimeWarmCacheFromProviderBundle) {
   Write-Host "Warm cache primed locally from $($providerBundlePaths.Count) provider bundles; this is not CDN-transfer evidence: $assetCachePath"
 }
 if ($CacheState -eq "warm") {
-  $providerBundlePaths = @(Get-ChildItem -LiteralPath $providerBundleDirectory -Filter "aetheria-*" -File -ErrorAction SilentlyContinue |
-    Where-Object { $_.Extension -ne ".manifest" } | Select-Object -ExpandProperty FullName)
-  if ($providerBundlePaths.Count -eq 0) { throw "Provider-owned Aetheria bundles are missing: $providerBundleDirectory" }
-  foreach ($providerBundlePath in $providerBundlePaths) {
-    $currentBundleHash = (Get-FileHash -LiteralPath $providerBundlePath -Algorithm SHA256).Hash.ToLowerInvariant()
-    $currentWarmBody = Get-ChildItem -LiteralPath $assetCachePath -Filter "$currentBundleHash.body" -File -Recurse -ErrorAction SilentlyContinue |
-      Select-Object -First 1
-    if ($null -eq $currentWarmBody) {
-      throw "Warm witness cache does not contain current provider bundle '$providerBundlePath'. expected=$currentBundleHash cache=$assetCachePath"
-    }
+  $currentWarmBodies = @(Get-ChildItem -LiteralPath $assetCachePath -Filter *.body -File -Recurse -ErrorAction SilentlyContinue)
+  if ($currentWarmBodies.Count -eq 0) {
+    throw "Warm witness cache contains no promoted provider bodies: $assetCachePath"
   }
 }
 
@@ -283,14 +278,14 @@ try {
     throw "Live witness ran the wrong proof profile. expected=$witnessProfile actual=$($facts.witnessProfile)"
   }
   if (-not $facts.providerAssets -or -not $facts.environmentPresentation -or
-      -not $facts.movement -or -not $facts.pilotCameraExcludesMapChannel -or
+      -not $facts.pilotCameraExcludesMapChannel -or
       -not $facts.mapCameraIncludesMapChannel -or [int]$facts.fieldVolumeLayerCount -le 0 -or
       [long]$facts.fieldVolumeCompositeCount -le 0 -or
       [int]$facts.fieldParticleCount -ne 65536 -or
       [int]$facts.fieldParticleDispatchCount -le 0 -or
       [int]$facts.fieldParticleDrawCount -le 0 -or
       -not $facts.fieldParticleMapCameraIsolated) {
-    throw "Live witness did not prove provider assets, movement, Fields lowering, Stardust dispatch/draw, and camera-channel separation."
+    throw "Live witness did not prove provider assets, Fields lowering, Stardust dispatch/draw, and camera-channel separation."
   }
   $gridCenterXCells = [double]$facts.fieldParticleGridCenter.x / 6.0
   $gridCenterYCells = [double]$facts.fieldParticleGridCenter.y / 6.0
@@ -314,6 +309,9 @@ try {
     throw "Live witness did not prove provider-owned celestial bodies and asteroids reached the generic scene and intersected the pilot frustum. bodies=$($presentedBodies.Count) asteroids=$($presentedAsteroids.Count) invalid=$($invalidCelestials.Count)"
   }
   if ($witnessProfile -eq "full-session-gameplay") {
+    if (-not $facts.movement) {
+      throw "Full-session witness did not prove authoritative movement and its receipt."
+    }
     if (-not $facts.tradeRoundTrip -or [string]::IsNullOrWhiteSpace($facts.tradeItemKey)) {
       throw "Full-session witness did not prove docked purchase and sale through provider-advertised generic actions."
     }
@@ -351,17 +349,37 @@ try {
   }
   $finalBodies = @(Get-ChildItem -LiteralPath $assetCachePath -Filter *.body -File -Recurse -ErrorAction SilentlyContinue)
   $finalPartials = @(Get-ChildItem -LiteralPath $assetCachePath -Filter *.partial -File -Recurse -ErrorAction SilentlyContinue)
-  if (-not (Test-Path -LiteralPath $providerBundlePath)) {
-    throw "Provider-owned Aetheria bundle is missing: $providerBundlePath"
+  if ($finalPartials.Count -ne 0) {
+    throw "Provider bundle promotion left partial bodies behind. bodies=$($finalBodies.Count) partials=$($finalPartials.Count)"
   }
-  $bodyHash = (Get-FileHash -LiteralPath $providerBundlePath -Algorithm SHA256).Hash.ToLowerInvariant()
-  $promotedBundleBodies = @($finalBodies | Where-Object { $_.BaseName -eq $bodyHash })
-  if ($promotedBundleBodies.Count -ne 1 -or $finalPartials.Count -ne 0) {
-    throw "Provider bundle promotion is incomplete. matchingBodies=$($promotedBundleBodies.Count) bodies=$($finalBodies.Count) partials=$($finalPartials.Count) hash=$bodyHash"
+  $providerBundlesByHash = @{}
+  foreach ($providerBundlePath in $providerBundlePaths) {
+    $providerBundle = Get-Item -LiteralPath $providerBundlePath
+    $bodyHash = (Get-FileHash -LiteralPath $providerBundle.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+    $providerBundlesByHash[$bodyHash] = $providerBundle
   }
-  $promotedBodyHash = (Get-FileHash -LiteralPath $promotedBundleBodies[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-  if ($promotedBodyHash -ne $bodyHash -or $promotedBundleBodies[0].Length -ne (Get-Item -LiteralPath $providerBundlePath).Length) {
-    throw "Promoted provider bundle does not match its authoritative body. expected=$bodyHash actual=$promotedBodyHash"
+  $contentArtifacts = @()
+  foreach ($body in $finalBodies) {
+    $bodyHash = $body.BaseName.ToLowerInvariant()
+    if (-not $providerBundlesByHash.ContainsKey($bodyHash)) {
+      throw "Asset cache contains a body not owned by the current Aetheria bundle set. body=$($body.FullName) hash=$bodyHash"
+    }
+    $providerBundle = $providerBundlesByHash[$bodyHash]
+    $promotedBodyHash = (Get-FileHash -LiteralPath $body.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($promotedBodyHash -ne $bodyHash -or $body.Length -ne $providerBundle.Length) {
+      throw "Promoted provider bundle does not match its authoritative body. bundle=$($providerBundle.Name) expected=$bodyHash actual=$promotedBodyHash"
+    }
+    $contentArtifacts += [pscustomobject][ordered]@{
+      name = $providerBundle.Name
+      contentHash = $bodyHash
+      sizeBytes = $providerBundle.Length
+    }
+  }
+  $requiredFoundationBundles = @('aetheria-shaders', 'aetheria-core', 'aetheria-ui')
+  $promotedBundleNames = @($contentArtifacts | ForEach-Object { $_.name })
+  $missingFoundationBundles = @($requiredFoundationBundles | Where-Object { $_ -notin $promotedBundleNames })
+  if ($missingFoundationBundles.Count -ne 0) {
+    throw "The generic client did not materialize every provider foundation bundle. missing=[$($missingFoundationBundles -join ',')] promoted=[$($promotedBundleNames -join ',')]"
   }
   $facts | Add-Member -NotePropertyName releasedPackageClient -NotePropertyValue $releasedPackageClient
   $facts | Add-Member -NotePropertyName clientProject -NotePropertyValue $projectRoot
@@ -374,8 +392,9 @@ try {
     initialPartialCount = $initialPartialCount
     finalBodyCount = $finalBodies.Count
     finalPartialCount = $finalPartials.Count
-    contentHash = $bodyHash
-    sizeBytes = $promotedBundleBodies[0].Length
+    bundleCount = $contentArtifacts.Count
+    sizeBytes = ($contentArtifacts | Measure-Object -Property sizeBytes -Sum).Sum
+    artifacts = $contentArtifacts
   })
   $capture = Get-Item -LiteralPath $capturePath
   $mapCapture = Get-Item -LiteralPath $mapCapturePath

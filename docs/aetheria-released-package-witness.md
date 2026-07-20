@@ -4,84 +4,64 @@
 
 The generic `ReleaseConsumerProject` is pinned to released Git packages:
 
-- `org.gamecult.eve.unity-scene` `0.3.94`, commit
-  `0463ddff4e39c9cca14e632b7e46b6b0081c67cc`, and
+- `org.gamecult.eve.unity-scene` `0.3.100`, commit
+  `3632bfb3354065b78a90b921d7025c4c3fa92be4`, and
   `org.gamecult.eve.surface` `0.2.4`, commit
   `e08fa08335f99e9edddeb706912eecfad07cb281`;
 - `org.gamecult.eve.plugin-fields` `0.2.3`, commit
   `c5a4a75c1b727499b16c2dae1895f29e2a9f72f0`;
 - `org.gamecult.eve.unity-uitoolkit` `0.1.1`, commit
   `4d0cbe0185bdc4fc65eb63503a7c5cb578539669`;
-- `org.gamecult.cultlib` `1.0.34`, commit
-  `c148d891c1d8713285ae15b2f17b59c106fb9426`.
+- `org.gamecult.cultlib` `1.0.43`, commit
+  `f67f5122ed1bd11da016e7b820ed60145ccd0299`.
 
-The hand-run integration gate is the warm released-package witness:
+The hand-run integration gates are the cold lowering proof and the warm
+full-session proof:
 
 ```powershell
 pwsh -File .\scripts\run-aetheria-daemon-world-witness.ps1 `
-  -CacheState warm `
-  -AssetCacheDirectory E:\Projects\Aetheria\Aetheria.Unity\Build\AssetCache `
-  -OutputDirectory artifacts\dockyard-trade-warm-8 `
+  -CultLibRoot E:\Projects\CultLib-codex-cultmesh-reliability `
+  -CacheState cold `
+  -AssetCacheDirectory artifacts\cultlib-1043-scene-03100-cold-cache `
+  -OutputDirectory artifacts\cultlib-1043-scene-03100-cold `
   -SkipAssetBundleBuild
 ```
 
-It connects directly to the Aetheria daemon and must produce one passing
-PlayMode result, a pilot capture, a map-only capture, and typed witness facts.
-The current assertions require provider-owned assets, movement, camera-channel
-isolation, combat, destruction-created loot, daemon-owned XZ proximity
-collection or capacity refusal, held tractor input, and authoritative receipts.
-They do not require or accept Ymir contact identity as the owner of looting.
-The explicit prime flag rebuilds the provider bundle and installs that exact
-content-hashed body into the local warm cache. This is convenient local setup,
-not CDN-transfer evidence. On later runs, use `-SkipAssetBundleBuild` and omit
-the prime flag when neither provider assets nor their catalog changed.
+Both connect directly to the Aetheria daemon. Control, subscriptions, commands,
+and receipts use `cultnet+tcp`; provider files use `cultmesh-content+tcp`;
+same-machine entity state uses a mapped SoA body; and the released native QUIC
+client receives the advertised latest-only realtime body. No Odin hop or
+Aetheria-specific gameplay code participates in the Unity runtime.
 
-The split transport proof now passes warm and cold. Control/discovery,
-subscriptions, commands, and receipts use `cultnet+tcp`; the same-machine entity
-body resolves to `SharedFileMapping`; CDN bytes use a separate
-`cultmesh-content+tcp` endpoint. The empty-cache run in
-`artifacts/aetheria-daemon-tcp-cold` began with zero bodies and zero partials,
-transferred the 56,204,750-byte provider bundle in 215 TCP content chunks,
-verified hash `f2c8acf938998703799e909cbf0c6e3ed9ad5d6f83b708a0b7b6e76ee33f7160`,
-and atomically promoted one body with no partial left behind. The cold-start
-Unity test completed in 28.4 seconds and the complete wrapper in 82.1 seconds.
-The prior path that carried bundle chunks through batched snapshot records
-timed out and remains rejected; this passing evidence belongs only to the
-dedicated TCP content plane.
+The current cold proof is
+`artifacts/cultlib-1043-scene-03100-cold5/runtime-witness.cold.json`. It began
+with no bodies or partials and passed in 57.8 seconds end to end (14.9 seconds
+inside PlayMode). The client materialized nine requested bundles totaling
+56,872,521 bytes: shaders, core resources, UI, Longinus, tractor beam, the three
+visible celestial types, and the visible asteroid. Every body matches the
+current provider file by SHA-256 and length; no partial remained. Unused ships,
+stations, shield, mine, turret, pickup, lightning, and explosion bundles stayed
+unloaded. This cold profile owns content transfer, world lowering, fog and
+Stardust execution, and pilot/map camera isolation. It deliberately issues no
+gameplay command into the paused Terminus fixture.
 
-The July 19 released-package run in `artifacts/aetheria-daemon-tcp-warm` passes the
-full-session gate. The generic client lowers the provider-owned bundle through
-`SharedFileMapping`, docks at the daemon-authored 12-berth Zenith Dockyard,
-buys and sells one typed item, undocks, moves, targets, aims, runs a held tractor
-beam, destroys the sole proof hostile, and collects the resulting loot exactly
-once through daemon-owned proximity. All eight retained witness receipts are
-provider-owned and reconciled. The run records 65,536 Stardust particles, 396
-field composites/dispatches/draws, and both camera-channel invariants. The pilot
-capture contains the 3D fog/Stardust/ship frame and no map icons; the map capture
-contains the map icons against its map background. The pilot image remains
-visually overexposed and is integration evidence, not final art approval.
-The wrapper starts the client before the daemon so package import time does not
-advance the live proof world. EveUnity 0.3.94 reports a refused TCP rendezvous as
-a retryable provider-preparation failure; once the daemon binds, the same generic
-preparation path connects without an Aetheria-specific reconnect shim.
+The current warm full-session proof is
+`artifacts/cultlib-1043-scene-03100-warm/runtime-witness.warm.json`. It passed in
+70.7 seconds end to end (27.9 seconds inside PlayMode). The generic client docks,
+buys and sells one typed item, resumes and undocks, moves, targets, aims, holds
+and releases the tractor beam, destroys the proof hostile, and collects the
+resulting loot exactly once through daemon-owned XZ proximity. All eight
+retained receipts are provider-owned and reconciled. Eleven on-demand bundles
+totaling 74,191,724 bytes were present by the end; gameplay loaded only the
+additional content it exercised. The pilot camera excludes all eleven map
+renderers and the map camera includes them.
 
-The July 19 transport-boundary run in `artifacts/demanded-fields-warm-6`
-passed its released-consumer PlayMode test and produced both camera captures.
-The provider published the requested Fields viewport only after CultMesh
-observed the client's exact record/schema demand. Entity state used the
-same-machine mapped SoA body, while the one-second Eve surface remained a
-separate reactive control/presentation stream. The facts record 65,536
-Stardust particles, 145 field composites and draws, pilot/map camera isolation,
-movement, combat, exactly-once destruction-loot collection, tractor activation,
-and a reconciled held-input release. Terminus attention had paused simulation,
-so the released target latch coexists honestly with frozen ramped beam power
-`0.84`; the generic client does not manufacture a visual zero.
-
-The wrapper currently rejects this otherwise passing run after Unity exits
-because its full-session gate requires docked purchase/sale fields that the
-generic capture test does not yet emit. Consequently this run is transport and
-gameplay evidence, not a completed full-session readiness witness, and no
-`runtime-witness.json` was issued.
+The pilot capture proves that provider fog, Stardust, celestial meshes, and ship
+meshes reach URP, but it is not final visual approval: hulls remain crushed to
+black and the cloud frame remains too hot and cyan-grey. Those are provider
+visual-lever and shader-calibration issues, not concealed transport failures.
+The map capture is clean and contains only map-channel glyphs on its dark map
+background.
 
 ## Historical witness ledger
 

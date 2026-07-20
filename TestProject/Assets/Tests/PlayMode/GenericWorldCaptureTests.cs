@@ -331,15 +331,19 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     provider,
                     provider);
                 host.Connect();
-                var loweredSurface = new EveUiToolkitSurfaceLowerer().Lower(
-                    provider.CurrentDocument.SurfaceDocument,
-                    provider.Submit);
-                var cockpit = loweredSurface.Q<VisualElement>("aetheria.daemon.game.cockpit");
+                var mountedOverlay = root.GetComponent<EveUnityUiToolkitOverlay>();
+                Assert.That(mountedOverlay, Is.Not.Null);
+                var cockpit = mountedOverlay.Root.Q<VisualElement>("aetheria.daemon.game.cockpit");
                 Assert.That(cockpit, Is.Not.Null, "The provider did not publish a generic cockpit overlay.");
                 cockpitProgressCount = cockpit.Query<ProgressBar>().ToList().Count;
                 Assert.That(cockpitProgressCount, Is.GreaterThanOrEqualTo(7));
-                Assert.That(loweredSurface.Q<VisualElement>("aetheria.daemon.game.frame").style.display.value,
-                    Is.EqualTo(DisplayStyle.None), "Daemon diagnostics leaked into the pilot UI.");
+                Assert.That(mountedOverlay.Root.Q<VisualElement>("aetheria.daemon.game.frame").style.display.value,
+                    Is.EqualTo(DisplayStyle.None), "Daemon diagnostics leaked into the mounted pilot UI.");
+                Assert.That(mountedOverlay.Root.Q<VisualElement>("aetheria.daemon.game.main_menu").style.display.value,
+                    Is.EqualTo(DisplayStyle.None), "The closed main menu leaked into the mounted pilot UI.");
+                Assert.That(provider.CurrentDocument.SurfaceDocument.Surface.Root.Children
+                        .Single(component => component.Id == "aetheria.daemon.game.frame").Layout["display"],
+                    Is.EqualTo("none"), "Daemon diagnostics leaked into the pilot UI.");
                 trajectories = root.GetComponent<EveUnityShotTrajectoryRenderer>();
                 Assert.That(trajectories, Is.Not.Null);
                 host.ShotAvailable += shot =>
@@ -956,6 +960,9 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 Assert.That(captureFieldVolume.CompositeCount - initialCompositeCount,
                     Is.GreaterThanOrEqualTo(temporalSettlingFrames),
                     "The pilot capture ran before the advertised temporal reconstruction had settled.");
+                Assert.That(cockpit.resolvedStyle.display, Is.Not.EqualTo(DisplayStyle.None));
+                Assert.That(cockpit.worldBound.width, Is.GreaterThan(0),
+                    "The mounted provider cockpit has no visible screen layout.");
                 Debug.Log($"EveUnity witness phase temporal-settling-128-frames took {temporalSettlingElapsed.Elapsed.TotalMilliseconds:0.###}ms.");
                 var pilotCaptureElapsed = Stopwatch.StartNew();
                 yield return null;

@@ -11,6 +11,7 @@ using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
+using UnityEngine.UIElements;
 
 #nullable enable
 
@@ -1100,6 +1101,7 @@ namespace GameCult.Eve.UnityScene.Tests
                 Assert.That(hostObject.GetComponent<EveUnityPlayableWorldCameraRig>(), Is.Not.Null);
                 Assert.That(hostObject.GetComponent<EveUnityUiToolkitOverlay>(), Is.Not.Null);
                 Assert.That(hostObject.GetComponent<EveUnityUiToolkitOverlay>().Root, Is.Not.Null);
+                Assert.That(hostObject.GetComponent<UIDocument>().panelSettings.themeStyleSheet, Is.Not.Null);
                 Assert.That(bootstrap.CameraTransform, Is.Not.Null);
                 Assert.That(provider.RefreshCount, Is.EqualTo(1));
 

@@ -56,16 +56,7 @@ namespace GameCult.Eve.UnityScene
 
         private void EnsureDocument()
         {
-            _document = GetComponent<UIDocument>();
-            if (_document != null) return;
-            var panel = ScriptableObject.CreateInstance<PanelSettings>();
-            panel.name = "Eve playable-world surface panel";
-            panel.scaleMode = PanelScaleMode.ScaleWithScreenSize;
-            panel.referenceResolution = new Vector2Int(1920, 1080);
-            panel.match = 0.5f;
-            _document = gameObject.AddComponent<UIDocument>();
-            _document.panelSettings = panel;
-            _document.sortingOrder = 100;
+            _document = EveUnityUiDocumentRuntime.Ensure(gameObject);
         }
 
         private void AttachToDocument()

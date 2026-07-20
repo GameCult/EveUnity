@@ -30,18 +30,7 @@ namespace GameCult.Eve.UnityScene
                 AttachToDocument();
                 return;
             }
-            _document = GetComponent<UIDocument>();
-            if (_document == null)
-            {
-                var panel = ScriptableObject.CreateInstance<PanelSettings>();
-                panel.name = "Eve playable-world HUD panel";
-                panel.scaleMode = PanelScaleMode.ScaleWithScreenSize;
-                panel.referenceResolution = new Vector2Int(1920, 1080);
-                panel.match = 0.5f;
-                _document = gameObject.AddComponent<UIDocument>();
-                _document.panelSettings = panel;
-                _document.sortingOrder = 100;
-            }
+            _document = EveUnityUiDocumentRuntime.Ensure(gameObject);
             _root = new VisualElement();
             Build(_root);
             AttachToDocument();

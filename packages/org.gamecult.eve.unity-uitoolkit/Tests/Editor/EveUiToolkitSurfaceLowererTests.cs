@@ -143,6 +143,50 @@ namespace GameCult.Eve.UnityUIToolkit.Tests
         }
 
         [Test]
+        public void PresenterUpdatesCockpitValuesWithoutRebuildingTheSurface()
+        {
+            var presenter = new EveUiToolkitSurfacePresenter();
+            var first = CockpitDocument("0.25", "301.5");
+
+            Assert.That(presenter.Present(first), Is.True);
+            var root = presenter.Root;
+            var hull = root!.Q<ProgressBar>("hull");
+            var temperature = root.Q<VisualElement>("temperature").Q<Label>("value");
+            Assert.That(hull.value, Is.EqualTo(0.25f));
+            Assert.That(temperature.text, Is.EqualTo("301.5"));
+            Assert.That(root.Q<VisualElement>("world-metric"), Is.Null,
+                "Scene projection subtrees must not become empty UI hierarchies.");
+
+            Assert.That(presenter.Present(CockpitDocument("0.75", "318")), Is.False);
+            Assert.That(presenter.Root, Is.SameAs(root));
+            Assert.That(hull.value, Is.EqualTo(0.75f));
+            Assert.That(temperature.text, Is.EqualTo("318"));
+        }
+
+        [Test]
+        public void PresenterRebuildsWhenProviderUiStructureChanges()
+        {
+            var presenter = new EveUiToolkitSurfacePresenter();
+            presenter.Present(CockpitDocument("0.25", "301.5"));
+            var firstRoot = presenter.Root;
+            var changedRoot = Component(
+                "root",
+                "surface",
+                children: new[]
+                {
+                    Component("status", "metric", new Dictionary<string, string>
+                    {
+                        ["label"] = "Status",
+                        ["value"] = "Docked"
+                    })
+                });
+
+            Assert.That(presenter.Present(Document(changedRoot)), Is.True);
+            Assert.That(presenter.Root, Is.Not.SameAs(firstRoot));
+            Assert.That(presenter.Root!.Q<VisualElement>("status"), Is.Not.Null);
+        }
+
+        [Test]
         public void InventoryDropBuildsAdvertisedTypedOperationPayload()
         {
             var source = Component("ore", EveInventoryInteraction.ItemKind, new Dictionary<string, string>
@@ -225,16 +269,45 @@ namespace GameCult.Eve.UnityUIToolkit.Tests
                 Array.Empty<EveCommandTemplate>());
         }
 
+        private static EveSurfaceDocument CockpitDocument(string hull, string temperature)
+        {
+            var worldMetric = Component("world-metric", "metric", new Dictionary<string, string>
+            {
+                ["label"] = "Should not mount",
+                ["value"] = "hidden with scene"
+            });
+            var world = Component("world", "world.scene3d", children: new[] { worldMetric });
+            var cockpit = Component(
+                "cockpit",
+                "pane",
+                new Dictionary<string, string> { ["title"] = "Pilot" },
+                new[]
+                {
+                    Component("hull", "progress", new Dictionary<string, string>
+                    {
+                        ["label"] = "Hull",
+                        ["ratio"] = hull
+                    }),
+                    Component("temperature", "metric", new Dictionary<string, string>
+                    {
+                        ["label"] = "Cockpit",
+                        ["value"] = temperature
+                    })
+                });
+            return Document(Component("root", "surface", children: new[] { world, cockpit }));
+        }
+
         private static EveSurfaceComponent Component(
             string id,
             string kind,
-            IReadOnlyDictionary<string, string>? props = null)
+            IReadOnlyDictionary<string, string>? props = null,
+            IReadOnlyList<EveSurfaceComponent>? children = null)
         {
             return new EveSurfaceComponent(
                 id,
                 kind,
                 props ?? EmptyProps(),
-                Array.Empty<EveSurfaceComponent>());
+                children ?? Array.Empty<EveSurfaceComponent>());
         }
 
         private static IReadOnlyDictionary<string, string> EmptyProps()

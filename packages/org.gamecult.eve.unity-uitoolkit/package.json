@@ -1,11 +1,11 @@
 {
     "name": "org.gamecult.eve.unity-uitoolkit",
     "displayName": "Eve UI Toolkit Lowering",
-    "version": "0.1.1",
+    "version": "0.1.2",
     "unity": "2021.3",
     "description": "Unity UI Toolkit lowering for gamecult.eve.surface.v1 documents.",
     "dependencies": {
-        "org.gamecult.eve.surface": "0.1.0"
+        "org.gamecult.eve.surface": "0.2.4"
     },
     "keywords": [
         "Eve",

@@ -46,6 +46,9 @@ namespace GameCult.Eve.UnityUIToolkit
             element.userData = component;
             ApplyGeneratedLayout(element, component);
 
+            if (IsHidden(component) || IsExternalProjectionRoot(component.Kind))
+                return element;
+
             foreach (var child in component.Children)
             {
                 var loweredChild = LowerComponent(child, document, commandSink);
@@ -129,7 +132,11 @@ namespace GameCult.Eve.UnityUIToolkit
                     card.style.flexDirection = FlexDirection.Column;
                     var title = component.GetProp("title");
                     if (!string.IsNullOrWhiteSpace(title))
-                        card.Add(TitleLabel(title));
+                    {
+                        var titleLabel = TitleLabel(title);
+                        titleLabel.name = "title";
+                        card.Add(titleLabel);
+                    }
                     return card;
                 }
                 case "metric":
@@ -137,8 +144,12 @@ namespace GameCult.Eve.UnityUIToolkit
                     var metric = new VisualElement();
                     metric.AddToClassList("eve-metric");
                     metric.style.flexDirection = FlexDirection.Column;
-                    metric.Add(MutedLabel(component.GetProp("label")));
-                    metric.Add(ValueLabel(component.GetProp("value")));
+                    var label = MutedLabel(component.GetProp("label"));
+                    label.name = "label";
+                    metric.Add(label);
+                    var value = ValueLabel(component.GetProp("value"));
+                    value.name = "value";
+                    metric.Add(value);
                     return metric;
                 }
                 case "progress":
@@ -739,6 +750,21 @@ namespace GameCult.Eve.UnityUIToolkit
                 return "control.text";
 
             return kind;
+        }
+
+        internal static bool IsHidden(EveSurfaceComponent component) =>
+            component.Layout != null &&
+            component.Layout.TryGetValue("display", out var display) &&
+            string.Equals(display, "none", StringComparison.OrdinalIgnoreCase);
+
+        internal static bool IsExternalProjectionRoot(string kind)
+        {
+            kind = NormalizeKind(kind);
+            return string.Equals(kind, "world.scene3d", StringComparison.Ordinal) ||
+                   string.Equals(kind, "world.scene2d", StringComparison.Ordinal) ||
+                   string.Equals(kind, "field.volume3d", StringComparison.Ordinal) ||
+                   string.Equals(kind, "field.particles3d", StringComparison.Ordinal) ||
+                   string.Equals(kind, "layer.reactive", StringComparison.Ordinal);
         }
 
         private static string SafeName(string value)

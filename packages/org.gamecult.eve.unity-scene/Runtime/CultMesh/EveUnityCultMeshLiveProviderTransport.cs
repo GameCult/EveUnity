@@ -387,21 +387,29 @@ namespace GameCult.Eve.UnityScene
             if (string.IsNullOrWhiteSpace(commandId))
                 throw new InvalidOperationException("Eve command invocations require an idempotency key.");
 
-            var recordKey = ChildRecordKey(interaction.CommandRecordRef, commandId);
-            var message = _networkRegistry!.CreateRawDocumentPutMessage(
-                $"eve-unity-{commandId}",
-                new CultRecordHandle<EveSurfaceCommandRequest>(new CultRecordKey(recordKey)),
-                request,
-                new CultNetDocumentMessageOptions
-                {
-                    SourceRuntimeId = _runtimeId,
-                    SourceRole = "eve-unity"
-                });
-            new CultNetSchemaWriteForwarder(new CultNetSchemaWriteForwarderOptions())
-                .ForwardPutAsync(_replicaShard!, message)
-                .GetAwaiter()
-                .GetResult();
             _pendingCommandIds.Add(commandId);
+            try
+            {
+                var recordKey = ChildRecordKey(interaction.CommandRecordRef, commandId);
+                var message = _networkRegistry!.CreateRawDocumentPutMessage(
+                    $"eve-unity-{commandId}",
+                    new CultRecordHandle<EveSurfaceCommandRequest>(new CultRecordKey(recordKey)),
+                    request,
+                    new CultNetDocumentMessageOptions
+                    {
+                        SourceRuntimeId = _runtimeId,
+                        SourceRole = "eve-unity"
+                    });
+                new CultNetSchemaWriteForwarder(new CultNetSchemaWriteForwarderOptions())
+                    .ForwardPutAsync(_replicaShard!, message)
+                    .GetAwaiter()
+                    .GetResult();
+            }
+            catch
+            {
+                _pendingCommandIds.Remove(commandId);
+                throw;
+            }
         }
 
         public void Dispose()

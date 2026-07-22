@@ -41,7 +41,10 @@ namespace GameCult.Eve.UnityScene
             _connection = new EveUnitySceneProviderConnection(_surfaceSource, commandSink);
             _client = new EveUnityPlayableWorldLiveClient(
                 _connection,
-                new EveUnityPlayableWorldPresenter(sceneSink, assetResolver ?? new EveUnityAssetRefResolver()),
+                new EveUnityPlayableWorldPresenter(
+                    sceneSink,
+                    assetResolver ?? new EveUnityAssetRefResolver(),
+                    liveEntityBodyOwner: _entityViews != null),
                 receiptSource);
 
             if (assetManifestDocuments != null)

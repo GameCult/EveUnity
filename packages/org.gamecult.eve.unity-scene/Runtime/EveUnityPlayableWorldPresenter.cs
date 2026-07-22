@@ -23,14 +23,17 @@ namespace GameCult.Eve.UnityScene
     {
         private readonly IEveUnityPlayableWorldSceneSink _sceneSink;
         private readonly IEveUnityPlayableWorldAssetResolver _assetResolver;
+        private readonly bool _liveEntityBodyOwner;
         private readonly HashSet<string> _knownEntityIds = new HashSet<string>(StringComparer.Ordinal);
 
         public EveUnityPlayableWorldPresenter(
             IEveUnityPlayableWorldSceneSink sceneSink,
-            IEveUnityPlayableWorldAssetResolver assetResolver)
+            IEveUnityPlayableWorldAssetResolver assetResolver,
+            bool liveEntityBodyOwner = false)
         {
             _sceneSink = sceneSink ?? throw new ArgumentNullException(nameof(sceneSink));
             _assetResolver = assetResolver ?? throw new ArgumentNullException(nameof(assetResolver));
+            _liveEntityBodyOwner = liveEntityBodyOwner;
         }
 
         public EveUnityPlayableWorldPresentation Apply(EveUnitySceneProjection projection)
@@ -46,8 +49,25 @@ namespace GameCult.Eve.UnityScene
         {
             if (world == null) throw new ArgumentNullException(nameof(world));
 
-            var nextEntityIds = new HashSet<string>(StringComparer.Ordinal);
             _sceneSink.ConfigureWorld(world);
+
+            // A world that advertises a live entity body has one transform and
+            // membership owner: the SoA generation presenter. The durable Eve
+            // surface remains configuration/topology and must not periodically
+            // overwrite realtime body state.
+            if (_liveEntityBodyOwner &&
+                (!string.IsNullOrWhiteSpace(world.EntityViewPointerId) ||
+                 !string.IsNullOrWhiteSpace(world.EntityBodyId)))
+                return new EveUnityPlayableWorldPresentation(
+                    world.WorldRootId,
+                    world.PlayerEntityId,
+                    world.InputProfile,
+                    world.CameraRig,
+                    0,
+                    0,
+                    _knownEntityIds.Count);
+
+            var nextEntityIds = new HashSet<string>(StringComparer.Ordinal);
 
             var upserted = 0;
             foreach (var entity in world.Entities)

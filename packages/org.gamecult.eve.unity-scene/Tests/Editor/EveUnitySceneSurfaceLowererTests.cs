@@ -1856,7 +1856,7 @@ namespace GameCult.Eve.UnityScene.Tests
             var presenter = new EveUnityPlayableWorldPresenter(sink, new EveUnityAssetRefResolver());
 
             var firstProjection = lowerer.Lower(PlayableArpgDocument(), Advertisement("aetheria.daemon.game"));
-            var firstPresentation = presenter.Apply(firstProjection);
+            var firstPresentation = presenter.Apply(SnapshotWorld(firstProjection.PlayableWorld!));
 
             Assert.That(firstPresentation.WorldRootId, Is.EqualTo("aetheria.daemon.game.playable"));
             Assert.That(firstPresentation.PlayerEntityId, Is.EqualTo("player-vanguard"));
@@ -1875,7 +1875,7 @@ namespace GameCult.Eve.UnityScene.Tests
             var secondProjection = lowerer.Lower(
                 PlayableArpgDocument(includeRaider: false, playerPosition: "5,0,2"),
                 Advertisement("aetheria.daemon.game"));
-            var secondPresentation = presenter.Apply(secondProjection);
+            var secondPresentation = presenter.Apply(SnapshotWorld(secondProjection.PlayableWorld!));
 
             Assert.That(secondPresentation.UpsertedEntities, Is.EqualTo(2));
             Assert.That(secondPresentation.RemovedEntities, Is.EqualTo(1));
@@ -1886,6 +1886,27 @@ namespace GameCult.Eve.UnityScene.Tests
             Assert.That(sink.Upserts[3].entity.EntityId, Is.EqualTo("player-vanguard"));
             Assert.That(sink.Upserts[3].entity.PositionX, Is.EqualTo(5f));
             Assert.That(sink.Upserts[3].entity.PositionZ, Is.EqualTo(2f));
+        }
+
+        [Test]
+        public void PlayableWorldSurfaceCannotOverwriteLiveBodyEntities()
+        {
+            var projection = new EveUnitySceneSurfaceLowerer()
+                .Lower(PlayableArpgDocument(), Advertisement("aetheria.daemon.game"));
+            var sink = new FakePlayableWorldSceneSink();
+            var presenter = new EveUnityPlayableWorldPresenter(
+                sink,
+                new EveUnityAssetRefResolver(),
+                liveEntityBodyOwner: true);
+
+            var presentation = presenter.Apply(projection);
+
+            Assert.That(projection.PlayableWorld!.EntityBodyId, Is.Not.Empty);
+            Assert.That(sink.ConfiguredWorlds.Count, Is.EqualTo(1));
+            Assert.That(sink.Upserts, Is.Empty);
+            Assert.That(sink.RemovedEntityIds, Is.Empty);
+            Assert.That(presentation.UpsertedEntities, Is.Zero);
+            Assert.That(presentation.RemovedEntities, Is.Zero);
         }
 
         [Test]
@@ -2949,6 +2970,21 @@ namespace GameCult.Eve.UnityScene.Tests
                 _commandReceiptAvailable?.Invoke(receipt);
             }
         }
+
+        private static EveUnityPlayableWorldProjection SnapshotWorld(EveUnityPlayableWorldProjection source) =>
+            new EveUnityPlayableWorldProjection(
+                source.WorldRootId,
+                source.StatePointerId,
+                source.AssetManifest,
+                source.InputProfile,
+                source.CameraRig,
+                source.ViewId,
+                source.PlayerEntityId,
+                source.MovementCommand,
+                source.FocusCommand,
+                source.TargetCommand,
+                source.ActionCommand,
+                source.Entities);
 
         private static EveUnityPlayableWorldEntity PlayableEntityModel(
             string entityId,

@@ -448,10 +448,14 @@ namespace GameCult.Eve.UnityUIToolkit
             foreach (var template in document.Commands)
             {
                 if (string.Equals(template.Command, command, StringComparison.Ordinal))
-                    return GameCult.Mesh.CultMesh.OperationInvocation(template.Operation);
+                    return GameCult.Mesh.CultMesh.OperationInvocation(
+                        template.Operation,
+                        idempotencyKey: $"unity-uitoolkit-{Guid.NewGuid():N}");
             }
 
-            return GameCult.Mesh.CultMesh.OperationInvocation(command);
+            return GameCult.Mesh.CultMesh.OperationInvocation(
+                command,
+                idempotencyKey: $"unity-uitoolkit-{Guid.NewGuid():N}");
         }
 
         private static Label TitleLabel(string text)

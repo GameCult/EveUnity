@@ -49,6 +49,11 @@ namespace GameCult.Eve.UnityUIToolkit
             if (IsHidden(component) || IsExternalProjectionRoot(component.Kind))
                 return element;
 
+            // Select options are semantic children consumed by the control itself.
+            // They are not separately lowered visual elements.
+            if (NormalizeKind(component.Kind) == "control.select")
+                return element;
+
             foreach (var child in component.Children)
             {
                 var loweredChild = LowerComponent(child, document, commandSink);
@@ -114,6 +119,8 @@ namespace GameCult.Eve.UnityUIToolkit
                     return InventoryItem(component, document, commandSink);
                 case EveInventoryInteraction.DragSessionKind:
                     return InventoryDragSession(component);
+                case "control.select":
+                    return Select(component, document, commandSink);
                 case "partition":
                 {
                     var element = new VisualElement();
@@ -456,6 +463,46 @@ namespace GameCult.Eve.UnityUIToolkit
             return GameCult.Mesh.CultMesh.OperationInvocation(
                 command,
                 idempotencyKey: $"unity-uitoolkit-{Guid.NewGuid():N}");
+        }
+
+        private static VisualElement Select(
+            EveSurfaceComponent component,
+            EveSurfaceDocument document,
+            Action<EveSurfaceCommandRequest>? commandSink)
+        {
+            var options = component.Children
+                .Where(child => NormalizeKind(child.Kind) == "control.option")
+                .Select(child => new
+                {
+                    Label = child.GetProp("label", child.GetProp("value")),
+                    Value = child.GetProp("value")
+                })
+                .Where(option => !string.IsNullOrWhiteSpace(option.Value))
+                .ToArray();
+            var labels = options.Select(option => option.Label).ToList();
+            var selectedValue = component.GetProp("value");
+            var selectedIndex = Array.FindIndex(options, option =>
+                string.Equals(option.Value, selectedValue, StringComparison.Ordinal));
+            var field = new DropdownField(component.GetProp("label"), labels, Math.Max(0, selectedIndex));
+            field.SetEnabled(!ParseBool(component.GetProp("disabled")));
+            field.RegisterValueChangedCallback(change =>
+            {
+                var option = options.FirstOrDefault(candidate =>
+                    string.Equals(candidate.Label, change.newValue, StringComparison.Ordinal));
+                if (option == null)
+                    return;
+                var payload = new Dictionary<string, string>(component.Props, StringComparer.Ordinal)
+                {
+                    ["value"] = option.Value
+                };
+                EmitCommand(
+                    document,
+                    component,
+                    component.GetProp("command", component.GetProp("operationId")),
+                    GameCult.Mesh.CultMesh.OperationPayload(payload),
+                    commandSink);
+            });
+            return field;
         }
 
         private static Label TitleLabel(string text)

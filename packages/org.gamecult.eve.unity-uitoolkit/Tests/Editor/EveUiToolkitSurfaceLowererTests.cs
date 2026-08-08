@@ -12,6 +12,35 @@ namespace GameCult.Eve.UnityUIToolkit.Tests
     public sealed class EveUiToolkitSurfaceLowererTests
     {
         [Test]
+        public void SelectLowersProviderOptionsAndEmitsSelectedTypedValue()
+        {
+            EveSurfaceCommandRequest? emitted = null;
+            var select = Component(
+                "verse",
+                "control.select",
+                new Dictionary<string, string>
+                {
+                    ["label"] = "VERSE",
+                    ["value"] = "local",
+                    ["command"] = "eve.client.verse.select"
+                },
+                new[]
+                {
+                    Component("local", "control.option", new Dictionary<string, string> { ["label"] = "Local", ["value"] = "local" }),
+                    Component("hosted", "control.option", new Dictionary<string, string> { ["label"] = "Hosted", ["value"] = "hosted" })
+                });
+            var root = new EveUiToolkitSurfaceLowerer().Lower(Document(select), request => emitted = request);
+            var field = root.Q<DropdownField>();
+
+            Assert.That(field, Is.Not.Null);
+            Assert.That(field.choices, Is.EqualTo(new[] { "Local", "Hosted" }));
+            field.value = "Hosted";
+            Assert.That(emitted, Is.Not.Null);
+            Assert.That(emitted!.Command, Is.EqualTo("eve.client.verse.select"));
+            Assert.That(emitted.PayloadFields["value"], Is.EqualTo("hosted"));
+        }
+
+        [Test]
         public void DefaultOptionsExposeSaiNornAndTeXProjectionAdapters()
         {
             var options = EveUiToolkitSurfaceOptions.Default;

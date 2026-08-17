@@ -5,7 +5,7 @@
     "unity": "6000.0",
     "description": "Provider-agnostic Unity scene shell for gamecult.eve.surface.v1 interactive world surfaces.",
     "dependencies": {
-        "org.gamecult.cultlib": "1.0.43",
+        "org.gamecult.cultlib": "1.0.45",
         "org.gamecult.eve.plugin-fields": "0.2.3",
         "org.gamecult.eve.surface": "0.3.0",
         "org.gamecult.eve.unity-uitoolkit": "0.1.3",

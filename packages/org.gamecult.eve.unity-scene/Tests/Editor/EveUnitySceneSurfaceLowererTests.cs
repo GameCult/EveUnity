@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Collections;
+using System.Threading.Tasks;
 using GameCult.Caching;
 using GameCult.Eve.PluginFields;
 using GameCult.Eve.Surface;
@@ -12,6 +14,7 @@ using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
 using UnityEngine.UIElements;
+using UnityEngine.TestTools;
 
 #nullable enable
 
@@ -912,11 +915,19 @@ namespace GameCult.Eve.UnityScene.Tests
                 "aetheria.daemon.move_intent",
                 "accepted",
                 "Aetheria",
-                "provider-owned-daemon"));
+                "provider-owned-daemon",
+                navigation: new EveUnitySceneNavigationTarget(
+                    "gamecult.aetheria",
+                    "aetheria",
+                    "aetheria.pilot",
+                    "interactive-world")));
 
             Assert.That(runtime.LastReceipt, Is.Not.Null);
             Assert.That(runtime.LastReceipt!.IsProviderOwned, Is.True);
             Assert.That(runtime.LastReceipt.ShouldRefreshProviderSurface, Is.True);
+            Assert.That(runtime.LastReceipt.Navigation, Is.Not.Null);
+            Assert.That(runtime.LastReceipt.Navigation!.VerseId, Is.EqualTo("gamecult.aetheria"));
+            Assert.That(runtime.LastReceipt.Navigation.SurfaceId, Is.EqualTo("aetheria.pilot"));
         }
 
         [Test]
@@ -1127,6 +1138,55 @@ namespace GameCult.Eve.UnityScene.Tests
                 Assert.That(moveVector.CommandBoundary, Is.EqualTo("aetheria.daemon.commands"));
                 Assert.That(moveVector.Payload.GetString("commandId"), Is.EqualTo("aetheria.daemon.move_intent"));
                 Assert.That(moveVector.Payload.GetString("entityId"), Is.EqualTo("player-vanguard"));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(hostObject);
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator PlayableWorldClientBootstrapFollowsProviderOwnedReceiptNavigation()
+        {
+            var hostObject = new GameObject("generic-eve-navigation-client");
+            try
+            {
+                var provider = hostObject.AddComponent<FakePlayableWorldProviderComponent>();
+                provider.Set(
+                    new EveUnitySceneProviderSurfaceDocument(
+                        PlayableArpgDocument(),
+                        Advertisement("aetheria.daemon.game"),
+                        "cultmesh://aetheria/eve/surfaces/aetheria.daemon.game",
+                        1),
+                    new EveUnityPlayableWorldAssetManifestDocument(
+                        "cultmesh://aetheria/assets/manifest",
+                        Array.Empty<EveUnityPlayableWorldAssetManifestDocumentEntry>(),
+                        "aetheria"));
+                var bootstrap = hostObject.AddComponent<EveUnityPlayableWorldClientBootstrap>();
+                bootstrap.ConfigureProvider(provider);
+                bootstrap.Mount();
+
+                provider.PublishReceipt(new EveUnitySceneCommandReceipt(
+                    "receipt:launch",
+                    "aetheria.hangar.launch",
+                    "launch",
+                    "accepted",
+                    "Aetheria",
+                    "commander-daemon",
+                    navigation: new EveUnitySceneNavigationTarget(
+                        "gamecult.aetheria",
+                        "aetheria.daemon",
+                        "aetheria.pilot",
+                        "interactive-world",
+                        new[] { "cultnet+tcp://odin.example:3076" })));
+
+                yield return null;
+                yield return null;
+
+                Assert.That(provider.LastNavigation, Is.Not.Null);
+                Assert.That(provider.LastNavigation!.VerseId, Is.EqualTo("gamecult.aetheria"));
+                Assert.That(provider.LastNavigation.RendezvousEndpoints, Is.EqualTo(new[] { "cultnet+tcp://odin.example:3076" }));
+                Assert.That(bootstrap.Host!.ConnectionEpoch, Is.EqualTo(2));
             }
             finally
             {
@@ -3219,11 +3279,14 @@ namespace GameCult.Eve.UnityScene.Tests
             IEveUnitySceneCommandSink,
             IEveUnitySceneCommandReceiptSource,
             IEveUnityProviderRefreshSource,
-            IEveUnityInputCapabilitySource
+            IEveUnityInputCapabilitySource,
+            IEveUnityNavigableProvider
         {
             public List<EveSurfaceCommandRequest> Submitted { get; } = new List<EveSurfaceCommandRequest>();
 
             public int RefreshCount { get; private set; }
+
+            public EveUnitySceneNavigationTarget? LastNavigation { get; private set; }
 
             public string SinkKind => "fake-provider-command-sink";
 
@@ -3285,6 +3348,12 @@ namespace GameCult.Eve.UnityScene.Tests
             public void PublishReceipt(EveUnitySceneCommandReceipt receipt)
             {
                 ReceiptAvailable?.Invoke(receipt);
+            }
+
+            public Task NavigateAsync(EveUnitySceneNavigationTarget target)
+            {
+                LastNavigation = target;
+                return Task.CompletedTask;
             }
         }
     }

@@ -1389,7 +1389,15 @@ namespace GameCult.Eve.UnityScene
                 receipt.SurfaceId,
                 receipt.Message,
                 DateTimeOffset.TryParse(receipt.IssuedAtUtc, out var issuedAt) ? issuedAt : null,
-                receipt.SourceVersion));
+                receipt.SourceVersion,
+                receipt.Navigation == null
+                    ? null
+                    : new EveUnitySceneNavigationTarget(
+                        receipt.Navigation.VerseId,
+                        receipt.Navigation.ProviderId,
+                        receipt.Navigation.SurfaceId,
+                        receipt.Navigation.SurfaceKind,
+                        receipt.Navigation.RendezvousEndpoints)));
             if (string.Equals(receipt.State, "accepted", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(receipt.State, "denied", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(receipt.State, "reconciled", StringComparison.OrdinalIgnoreCase))

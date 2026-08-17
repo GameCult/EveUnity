@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using UnityEngine;
 
 #nullable enable
@@ -29,13 +30,64 @@ namespace GameCult.Eve.UnityScene
 
         public EveUnityPlayableWorldPresentation? LastPresentation { get; private set; }
 
+        private IEveUnitySceneCommandReceiptSource? _navigationReceiptSource;
+        private bool _navigationInProgress;
+
         public void ConfigureProvider(MonoBehaviour providerComponent)
         {
+            UnbindNavigation();
             provider = providerComponent != null ? providerComponent : throw new ArgumentNullException(nameof(providerComponent));
             providerSurfaceDocuments = provider;
             commandSink = provider;
             assetManifestDocuments = provider;
             receiptSource = provider;
+            BindNavigation();
+        }
+
+        private void OnDestroy() => UnbindNavigation();
+
+        private void BindNavigation()
+        {
+            if (provider is not IEveUnityNavigableProvider || provider is not IEveUnitySceneCommandReceiptSource source)
+                return;
+            _navigationReceiptSource = source;
+            source.ReceiptAvailable += OnReceiptAvailable;
+        }
+
+        private void UnbindNavigation()
+        {
+            if (_navigationReceiptSource != null)
+                _navigationReceiptSource.ReceiptAvailable -= OnReceiptAvailable;
+            _navigationReceiptSource = null;
+        }
+
+        private void OnReceiptAvailable(EveUnitySceneCommandReceipt receipt)
+        {
+            if (_navigationInProgress || receipt.Navigation == null)
+                return;
+            if (!string.Equals(receipt.State, "accepted", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(receipt.State, "reconciled", StringComparison.OrdinalIgnoreCase))
+                return;
+            StartCoroutine(NavigateAsync(receipt.Navigation));
+        }
+
+        private IEnumerator NavigateAsync(EveUnitySceneNavigationTarget target)
+        {
+            if (provider is not IEveUnityNavigableProvider navigable)
+                yield break;
+            _navigationInProgress = true;
+            var navigation = navigable.NavigateAsync(target);
+            while (!navigation.IsCompleted)
+                yield return null;
+            try
+            {
+                navigation.GetAwaiter().GetResult();
+                Mount();
+            }
+            finally
+            {
+                _navigationInProgress = false;
+            }
         }
 
         public EveUnityPlayableWorldPresentation Mount()

@@ -121,7 +121,7 @@ namespace GameCult.Eve.UnityScene
 
                     return new EveUnityCultMeshProviderSelection(
                         rendezvousEndpoint,
-                        advertisement.Document.ProviderId,
+                        candidate.VerseId,
                         candidate.VerseId,
                         advertisement.Document.ProviderId,
                         advertisement.Surface.SurfaceId,

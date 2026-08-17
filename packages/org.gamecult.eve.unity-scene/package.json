@@ -1,13 +1,13 @@
 {
     "name": "org.gamecult.eve.unity-scene",
     "displayName": "Eve Unity Scene Lowering",
-    "version": "0.3.104",
+    "version": "0.3.105",
     "unity": "6000.0",
     "description": "Provider-agnostic Unity scene shell for gamecult.eve.surface.v1 interactive world surfaces.",
     "dependencies": {
-        "org.gamecult.cultlib": "1.0.45",
+        "org.gamecult.cultlib": "1.0.46",
         "org.gamecult.eve.plugin-fields": "0.2.3",
-        "org.gamecult.eve.surface": "0.3.0",
+        "org.gamecult.eve.surface": "0.3.1",
         "org.gamecult.eve.unity-uitoolkit": "0.1.3",
         "com.unity.mathematics": "1.3.2",
         "com.unity.render-pipelines.universal": "17.4.0",

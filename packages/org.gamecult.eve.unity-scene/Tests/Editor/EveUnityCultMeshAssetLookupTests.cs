@@ -19,14 +19,14 @@ namespace GameCult.Eve.UnityScene.Tests
         {
             var selection = new EveUnityCultMeshProviderSelection(
                 "cultnet+tcp://odin.example:3075",
-                "aetheria.daemon",
+                "aetheria.public",
                 "aetheria.public",
                 "aetheria.daemon",
                 "aetheria.pilot",
                 "interactive-world");
 
             Assert.That(selection.RendezvousEndpoint, Is.EqualTo("cultnet+tcp://odin.example:3075"));
-            Assert.That(selection.EndpointId, Is.EqualTo("aetheria.daemon"));
+            Assert.That(selection.EndpointId, Is.EqualTo("aetheria.public"));
             Assert.That(selection.VerseId, Is.EqualTo("aetheria.public"));
             Assert.That(typeof(EveUnityCultMeshProviderSelection).GetProperty("Endpoint"), Is.Null);
         }

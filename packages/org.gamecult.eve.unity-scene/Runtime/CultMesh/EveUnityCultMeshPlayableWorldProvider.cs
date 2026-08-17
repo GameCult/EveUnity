@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using Stopwatch = System.Diagnostics.Stopwatch;
 using GameCult.Eve.Surface;
@@ -27,7 +28,8 @@ namespace GameCult.Eve.UnityScene
         IEveUnityCameraRenderPolicySource,
         IEveUnityNativeAssetProvider,
         IEveUnityNativeAssetMetadataProvider,
-        IEveUnityInputCapabilitySource
+        IEveUnityInputCapabilitySource,
+        IEveUnityNavigableProvider
     {
         [SerializeField] private string rendezvousEndpoint = "";
         [SerializeField] private string providerFilter = "";
@@ -116,6 +118,26 @@ namespace GameCult.Eve.UnityScene
             _bridge?.Disconnect();
         }
 
+        public async Task NavigateAsync(EveUnitySceneNavigationTarget target)
+        {
+            if (target == null) throw new ArgumentNullException(nameof(target));
+            if (string.IsNullOrWhiteSpace(target.VerseId))
+                throw new ArgumentException("Eve provider navigation requires a stable Verse identity.", nameof(target));
+            if (string.IsNullOrWhiteSpace(target.SurfaceId))
+                throw new ArgumentException("Eve provider navigation requires a surface identity.", nameof(target));
+
+            ReleaseTransport();
+            var navigationEndpoint = target.RendezvousEndpoints
+                .FirstOrDefault(endpoint => !string.IsNullOrWhiteSpace(endpoint));
+            if (!string.IsNullOrWhiteSpace(navigationEndpoint))
+                rendezvousEndpoint = navigationEndpoint;
+            verseFilter = target.VerseId;
+            providerFilter = target.ProviderId;
+            surfaceFilter = target.SurfaceId;
+            surfaceKind = string.IsNullOrWhiteSpace(target.SurfaceKind) ? "interactive-world" : target.SurfaceKind;
+            await PrepareAsync();
+        }
+
         public void Refresh()
         {
             if (Bridge.IsConnected)
@@ -156,6 +178,11 @@ namespace GameCult.Eve.UnityScene
         }
 
         private void OnDestroy()
+        {
+            ReleaseTransport();
+        }
+
+        private void ReleaseTransport()
         {
             if (_bridge != null)
             {

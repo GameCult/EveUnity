@@ -15,7 +15,10 @@ assembly is part of the client.
 
 `EveUnityCultMeshPlayableWorldProvider` is the shipped composition root. Its
 provider, surface, and Verse filters default to empty, so a client can select by
-the generic `interactive-world` contract alone.
+the generic `interactive-world` contract alone. After selection, Unity retains
+the rendezvous address, Verse ID, and stable provider identity only. `CultMeshClient` owns
+physical route discovery, reconnection, typed live-resource leases, command
+submission, and content/body sessions.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\run-package-tests.ps1

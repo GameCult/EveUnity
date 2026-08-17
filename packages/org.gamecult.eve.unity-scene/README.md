@@ -17,6 +17,12 @@ networked client. Give it one Verse rendezvous endpoint and it discovers an
 advertised `interactive-world`, constructs the generic CultMesh transport, and
 provides every bootstrap port. Provider, surface, and Verse IDs are optional
 selection filters; they are not product knowledge required by the client.
+The selected provider ID remains the stable CultMesh endpoint identity while
+the Verse ID names the selected rule/progression world. Physical routes are
+resolved and re-resolved inside `CultMeshClient`; they are never
+published as provider selection state or cached as Unity authority. The optional
+local path is only an ephemeral content/body cache, not a replicated gameplay
+database.
 Await `PrepareAsync()` before mounting the bootstrap or reading provider ports.
 Discovery and session setup never run synchronously from Unity lifecycle or
 input getters, so an unavailable provider cannot stall the editor main thread.

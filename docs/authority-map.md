@@ -9,6 +9,9 @@ importing provider product code into the generic runtime.
 
 EveUnity owns Unity scene projection, `GameObject` lifecycle, camera and input
 drivers, asset-provider hooks, package release, runtime tests, and captures.
+`CultMeshClient` owns physical route selection, reconnection, shared typed
+resource sessions, and their lease lifetime. Unity receives stable Verse and
+provider identities and cannot preserve a physical route as gameplay authority.
 
 ## Inputs
 
@@ -40,6 +43,10 @@ presentation counters, and receipt display state are projections. They are not
 world truth. Temporal targets reset when the volume program, node, or render size
 changes and can never become provider state.
 
+The optional Unity cache directory contains verified content-transfer state and
+mapped body bytes only. It is disposable derived data, not a CultCache replica
+of provider gameplay documents.
+
 Camera-relative field viewports have one generic resolver. The advertised
 viewport frame owns its extent, spatial-cell scale, raster texels per cell, and
 snap policy; fog volumes and stateless particle programs consume the identical
@@ -65,6 +72,11 @@ temporal pass must also advertise its current-sample, history,
 previous-view-projection, and reset-history ports; partial temporal programs fail
 closed.
 
+Unity code may not open provider snapshot sessions, schema clients, write
+forwarders, subscriptions, or replica shards against a discovered physical
+route. Reads, watches, content/body transfer, realtime frames, and command
+submissions share the same stable-identity `CultMeshClient` owner.
+
 Viewport-sized shader inputs are likewise presentation state. A provider may
 relate a logical vector port to a logical native texture port through
 `viewportTextureScaleBindings`; EveUnity derives the vector from the active
@@ -86,11 +98,12 @@ modes into one camera opinion or infer a product camera from entity kind.
 
 ## Shared Paths
 
-Initial connect discovers a Verse endpoint and selects a provider surface by
-semantic kind. Refresh, reconnect, and terminal-receipt reconciliation consume
-that provider's surface documents. Movement, focus, target, and action input all
-become `gamecult.eve.command_invocation.v1` through the provider-advertised
-command boundary.
+Initial connect asks one rendezvous for Verses, selects a provider surface by
+semantic kind, then leases it through the selected stable provider identity.
+Refresh, route rotation, reconnect, and terminal-receipt reconciliation remain
+inside the same identity-owned session. Movement, focus, target, and action
+input all become `gamecult.eve.command_invocation.v1` through the
+provider-advertised command boundary.
 
 ## Cut Line
 

@@ -9,6 +9,7 @@ using GameCult.Eve.PluginFields;
 using GameCult.Eve.UnityScene.Fields;
 using GameCult.Mesh;
 using UnityEngine;
+using UnityEngine.Serialization;
 
 #nullable enable
 
@@ -33,7 +34,8 @@ namespace GameCult.Eve.UnityScene
         [SerializeField] private string surfaceFilter = "";
         [SerializeField] private string verseFilter = "";
         [SerializeField] private string surfaceKind = "interactive-world";
-        [SerializeField] private string replicaPath = "";
+        [FormerlySerializedAs("replicaPath")]
+        [SerializeField] private string cacheDirectory = "";
         [SerializeField] private string runtimeId = "eve-unity";
 
         private EveUnityCultMeshLiveProviderTransport? _transport;
@@ -76,7 +78,7 @@ namespace GameCult.Eve.UnityScene
 
         public void Configure(
             string endpoint,
-            string replicaStorePath = "",
+            string localCacheDirectory = "",
             string providerId = "",
             string surfaceId = "",
             string verseId = "",
@@ -87,7 +89,7 @@ namespace GameCult.Eve.UnityScene
                 throw new InvalidOperationException("Disconnect the active provider before changing discovery configuration.");
 
             rendezvousEndpoint = endpoint ?? "";
-            replicaPath = replicaStorePath ?? "";
+            cacheDirectory = localCacheDirectory ?? "";
             providerFilter = providerId ?? "";
             surfaceFilter = surfaceId ?? "";
             verseFilter = verseId ?? "";
@@ -215,12 +217,13 @@ namespace GameCult.Eve.UnityScene
                 verseFilter);
             TraceStartup($"discovery {elapsed.Elapsed.TotalMilliseconds:0.###}ms");
             elapsed.Restart();
-            var resolvedReplicaPath = string.IsNullOrWhiteSpace(replicaPath)
-                ? Path.Combine(Application.temporaryCachePath, $"eve-unity-{GetInstanceID()}.cc")
-                : replicaPath;
+            var resolvedCachePath = string.IsNullOrWhiteSpace(cacheDirectory)
+                ? Path.Combine(Application.temporaryCachePath, $"eve-unity-{GetInstanceID()}")
+                : cacheDirectory;
             _transport = new EveUnityCultMeshLiveProviderTransport(
-                resolvedReplicaPath,
-                Selection.Endpoint,
+                resolvedCachePath,
+                Selection.RendezvousEndpoint,
+                Selection.EndpointId,
                 Selection.ProviderId,
                 Selection.SurfaceId,
                 runtimeId);

@@ -182,8 +182,8 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
 
             var providerId = Environment.GetEnvironmentVariable("EVEUNITY_PROVIDER_ID") ?? "";
             var surfaceId = Environment.GetEnvironmentVariable("EVEUNITY_SURFACE_ID") ?? "";
-            var replicaPath = Environment.GetEnvironmentVariable("EVEUNITY_REPLICA_PATH") ??
-                              Path.Combine(Application.temporaryCachePath, $"eve-unity-{Guid.NewGuid():N}.cc");
+            var cacheDirectory = Environment.GetEnvironmentVariable("EVEUNITY_CACHE_DIRECTORY") ??
+                                 Path.Combine(Application.temporaryCachePath, $"eve-unity-{Guid.NewGuid():N}");
             var capturePath = Environment.GetEnvironmentVariable("EVEUNITY_AETHERIA_CAPTURE_PATH") ??
                               Path.Combine(Application.temporaryCachePath, "aetheria-daemon-world.png");
             var mapCapturePath = Environment.GetEnvironmentVariable("EVEUNITY_AETHERIA_MAP_CAPTURE_PATH") ??
@@ -258,7 +258,7 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 provider = root.AddComponent<EveUnityCultMeshPlayableWorldProvider>();
                 provider.Configure(
                     rendezvousEndpoint,
-                    replicaPath,
+                    cacheDirectory,
                     providerId,
                     surfaceId,
                     requiredSurfaceKind: "interactive-world",

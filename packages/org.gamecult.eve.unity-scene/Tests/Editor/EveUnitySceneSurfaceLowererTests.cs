@@ -25,8 +25,9 @@ namespace GameCult.Eve.UnityScene.Tests
             Assert.DoesNotThrow(() =>
             {
                 using var transport = new EveUnityCultMeshLiveProviderTransport(
-                    "test-replica.cc",
+                    "test-cache",
                     "cultnet://127.0.0.1:3075",
+                    "aetheria",
                     "aetheria",
                     "aetheria.pilot");
             });
@@ -59,8 +60,9 @@ namespace GameCult.Eve.UnityScene.Tests
         public void LiveTransportReusesStableLayoutForNewBodyPublications()
         {
             using var transport = new EveUnityCultMeshLiveProviderTransport(
-                "test-replica.cc",
+                "test-cache",
                 "cultnet://127.0.0.1:3075",
+                "aetheria",
                 "aetheria",
                 "aetheria.pilot");
             var view = EntityLeaseDocument();
@@ -93,8 +95,9 @@ namespace GameCult.Eve.UnityScene.Tests
         public void LiveTransportPairsBodyPublicationThatArrivesBeforeItsLayout()
         {
             using var transport = new EveUnityCultMeshLiveProviderTransport(
-                "test-replica.cc",
+                "test-cache",
                 "cultnet://127.0.0.1:3075",
+                "aetheria",
                 "aetheria",
                 "aetheria.pilot");
             var view = EntityLeaseDocument();
@@ -121,8 +124,9 @@ namespace GameCult.Eve.UnityScene.Tests
         public void LiveTransportKeepsOnlyLatestPendingRealtimeGenerationPerBody()
         {
             using var transport = new EveUnityCultMeshLiveProviderTransport(
-                "test-replica.cc",
+                "test-cache",
                 "cultnet://127.0.0.1:3075",
+                "provider",
                 "provider",
                 "provider.pilot");
             var enqueue = typeof(EveUnityCultMeshLiveProviderTransport)
@@ -150,8 +154,9 @@ namespace GameCult.Eve.UnityScene.Tests
         public void LiveTransportReadsLaterMappedFramesWithoutNewControlDocuments()
         {
             using var transport = new EveUnityCultMeshLiveProviderTransport(
-                "test-replica.cc",
+                "test-cache",
                 "cultnet://127.0.0.1:3075",
+                "provider",
                 "provider",
                 "provider.pilot");
             var view = EntityLeaseDocument();
@@ -231,14 +236,20 @@ namespace GameCult.Eve.UnityScene.Tests
         }
 
         [Test]
-        public void LiveTransportDoesNotRegisterBodyBytesAsSnapshotDocuments()
+        public void LiveTransportHasNoSnapshotWireRegistryForBodyBytes()
         {
-            var wireTypes = (Type[])typeof(EveUnityCultMeshLiveProviderTransport)
-                .GetField("WireDocumentTypes", BindingFlags.NonPublic | BindingFlags.Static)!
-                .GetValue(null)!;
+            var transport = typeof(EveUnityCultMeshLiveProviderTransport);
+            var wireRegistry = transport.GetField(
+                "WireDocumentTypes",
+                BindingFlags.NonPublic | BindingFlags.Static);
+            var fieldTypes = transport
+                .GetFields(BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static)
+                .Select(field => field.FieldType)
+                .ToArray();
 
-            Assert.That(wireTypes.Any(type => type == typeof(CultMeshCdnArtifactChunk)), Is.False);
-            Assert.That(wireTypes.Any(type => type.Name == "CultMeshNetworkBodyDocument"), Is.False);
+            Assert.That(wireRegistry, Is.Null);
+            Assert.That(fieldTypes.Any(type => type == typeof(CultMeshCdnArtifactChunk)), Is.False);
+            Assert.That(fieldTypes.Any(type => type.Name == "CultMeshNetworkBodyDocument"), Is.False);
         }
 
         [Test]

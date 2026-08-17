@@ -19,7 +19,7 @@ $daemonLog = Join-Path $outputRoot "daemon.log"
 $importLog = Join-Path $outputRoot "import.log"
 $importErrorLog = Join-Path $outputRoot "import.error.log"
 $state = Join-Path $outputRoot "aetheria.cc"
-$replica = Join-Path $outputRoot "eve-unity-replica.cc"
+$clientCache = Join-Path $outputRoot "eve-unity-cache"
 $assetCache = Join-Path $outputRoot "asset-cache"
 $exe = Join-Path $project "Build\Windows\EveUnity.exe"
 $importProject = Join-Path $AetheriaRoot "Aetheria.State.Import\Aetheria.State.Import.csproj"
@@ -32,7 +32,7 @@ if (Get-NetUDPEndpoint -LocalPort $Port -ErrorAction SilentlyContinue) {
   throw "UDP port $Port is already occupied."
 }
 New-Item -ItemType Directory -Force $outputRoot, $assetCache | Out-Null
-foreach ($ephemeralPath in @($state, "$state.records", "$state.cultmesh", $replica, "$replica.records", "$replica.cultmesh")) {
+foreach ($ephemeralPath in @($state, "$state.records", "$state.cultmesh", $clientCache)) {
   $resolved = [IO.Path]::GetFullPath($ephemeralPath)
   if (-not $resolved.StartsWith([IO.Path]::GetFullPath($outputRoot), [StringComparison]::OrdinalIgnoreCase)) {
     throw "Interactive cleanup escaped its artifact directory: $resolved"
@@ -106,7 +106,7 @@ try {
 
   $env:EVEUNITY_RENDEZVOUS_ENDPOINT = "rudp://127.0.0.1:$Port"
   $env:EVEUNITY_PROVIDER_ID = "aetheria"
-  $env:EVEUNITY_REPLICA_PATH = $replica
+  $env:EVEUNITY_CACHE_DIRECTORY = $clientCache
   $env:EVEUNITY_ASSET_CACHE_PATH = $assetCache
   Remove-Item Env:EVEUNITY_SURFACE_ID -ErrorAction SilentlyContinue
   $client = Start-Process $exe -ArgumentList "-force-d3d11" -PassThru
@@ -117,5 +117,5 @@ try {
 }
 finally {
   if ($null -ne $daemon -and -not $daemon.HasExited) { Stop-Process $daemon.Id -Force }
-  Remove-Item Env:EVEUNITY_RENDEZVOUS_ENDPOINT, Env:EVEUNITY_PROVIDER_ENDPOINT, Env:EVEUNITY_PROVIDER_ID, Env:EVEUNITY_SURFACE_ID, Env:EVEUNITY_REPLICA_PATH, Env:EVEUNITY_ASSET_CACHE_PATH -ErrorAction SilentlyContinue
+  Remove-Item Env:EVEUNITY_RENDEZVOUS_ENDPOINT, Env:EVEUNITY_PROVIDER_ENDPOINT, Env:EVEUNITY_PROVIDER_ID, Env:EVEUNITY_SURFACE_ID, Env:EVEUNITY_CACHE_DIRECTORY, Env:EVEUNITY_ASSET_CACHE_PATH -ErrorAction SilentlyContinue
 }

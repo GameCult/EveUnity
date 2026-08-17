@@ -13,20 +13,23 @@ namespace GameCult.Eve.UnityScene
     public sealed class EveUnityCultMeshProviderSelection
     {
         public EveUnityCultMeshProviderSelection(
-            string endpoint,
+            string rendezvousEndpoint,
+            string endpointId,
             string verseId,
             string providerId,
             string surfaceId,
             string surfaceKind)
         {
-            Endpoint = endpoint ?? "";
+            RendezvousEndpoint = rendezvousEndpoint ?? "";
+            EndpointId = endpointId ?? "";
             VerseId = verseId ?? "";
             ProviderId = providerId ?? "";
             SurfaceId = surfaceId ?? "";
             SurfaceKind = surfaceKind ?? "";
         }
 
-        public string Endpoint { get; }
+        public string RendezvousEndpoint { get; }
+        public string EndpointId { get; }
         public string VerseId { get; }
         public string ProviderId { get; }
         public string SurfaceId { get; }
@@ -35,11 +38,6 @@ namespace GameCult.Eve.UnityScene
 
     public sealed class EveUnityCultMeshProviderDiscovery
     {
-        private static readonly Type[] AdvertisementDocumentTypes =
-        {
-            typeof(EveProviderAdvertisementDocument)
-        };
-
         public EveUnityCultMeshProviderSelection Discover(
             string rendezvousEndpoint,
             string providerId = "",
@@ -80,22 +78,31 @@ namespace GameCult.Eve.UnityScene
             var candidates = response.Verses
                 .Where(verse => string.IsNullOrWhiteSpace(verseId) ||
                                 string.Equals(verse.VerseId, verseId, StringComparison.Ordinal))
-                .SelectMany(verse => (verse.DiscoveryEndpoints ?? Array.Empty<string>())
-                    .Select(endpoint => new { Verse = verse, Endpoint = endpoint }))
-                .Where(candidate => !string.IsNullOrWhiteSpace(candidate.Endpoint))
+                .Where(verse => !string.IsNullOrWhiteSpace(verse.VerseId) &&
+                                (verse.DiscoveryEndpoints ?? Array.Empty<string>()).Any(endpoint =>
+                                    !string.IsNullOrWhiteSpace(endpoint)))
+                .GroupBy(verse => verse.VerseId, StringComparer.Ordinal)
+                .Select(group => group.First())
                 .ToArray();
             if (candidates.Length == 0)
                 throw new InvalidOperationException("The rendezvous endpoint advertised no compatible Verse endpoints.");
 
             var failures = new List<string>();
             var observed = new List<string>();
+            using var mesh = new CultMeshClient(new CultMeshClientOptions
+            {
+                RendezvousEndpoints = new[] { rendezvousEndpoint }
+            });
             foreach (var candidate in candidates)
             {
                 try
                 {
-                    var advertisements = await FetchAdvertisementsAsync(candidate.Endpoint);
+                    using var advertisementsLease = await mesh
+                        .LeaseCollectionAsync<EveProviderAdvertisementDocument>(candidate.VerseId)
+                        .ConfigureAwait(false);
+                    var advertisements = await advertisementsLease.Handle.LatestAsync().ConfigureAwait(false);
                     observed.AddRange(advertisements.Select(document =>
-                        $"{candidate.Endpoint}: {document.ProviderId}[{string.Join(",", document.Surfaces.Select(surface => $"{surface.SurfaceId}:{surface.SurfaceKind}"))}]"));
+                        $"{candidate.VerseId}: {document.ProviderId}[{string.Join(",", document.Surfaces.Select(surface => $"{surface.SurfaceId}:{surface.SurfaceKind}"))}]"));
                     var advertisement = advertisements
                         .Where(document => string.IsNullOrWhiteSpace(providerId) ||
                                            string.Equals(document.ProviderId, providerId, StringComparison.Ordinal))
@@ -113,15 +120,16 @@ namespace GameCult.Eve.UnityScene
                         continue;
 
                     return new EveUnityCultMeshProviderSelection(
-                        candidate.Endpoint,
-                        candidate.Verse.VerseId,
+                        rendezvousEndpoint,
+                        advertisement.Document.ProviderId,
+                        candidate.VerseId,
                         advertisement.Document.ProviderId,
                         advertisement.Surface.SurfaceId,
                         advertisement.Surface.SurfaceKind);
                 }
                 catch (Exception error)
                 {
-                    failures.Add($"{candidate.Endpoint}: {error.Message}");
+                    failures.Add($"{candidate.VerseId}: {error.Message}");
                 }
             }
 
@@ -131,28 +139,5 @@ namespace GameCult.Eve.UnityScene
             throw new InvalidOperationException($"No advertised Eve surface matched {filter}.{detail}{observedDetail}");
         }
 
-        private static async Task<EveProviderAdvertisementDocument[]> FetchAdvertisementsAsync(string endpoint)
-        {
-            var cacheRegistry = CultMesh.CreateCultCacheDocumentRegistry(AdvertisementDocumentTypes);
-            var networkRegistry = CultMesh.CreateCultNetDocumentRegistry(AdvertisementDocumentTypes, cacheRegistry);
-            var snapshot = CultMesh.SnapshotEndpoint(
-                endpoint,
-                new CultMeshSnapshotEndpointOptions
-                {
-                    Context = CultMesh.Verse("eve.discovery", "eve-unity").Context,
-                    DocumentRegistry = networkRegistry,
-                    Request = new CultMeshSnapshotRequestOptions
-                    {
-                        ShardId = "provider",
-                        ShardEpoch = 1,
-                        ConnectTimeout = TimeSpan.FromSeconds(5),
-                        ResponseTimeout = TimeSpan.FromSeconds(10),
-                        MessageIdPrefix = "eve-unity-discovery",
-                        RudpRuntimeId = "eve-unity.discovery",
-                        RudpMaxFragmentBytes = 1024
-                    }
-                });
-            return (await snapshot.FetchDocumentsAsync<EveProviderAdvertisementDocument>()).ToArray();
-        }
     }
 }

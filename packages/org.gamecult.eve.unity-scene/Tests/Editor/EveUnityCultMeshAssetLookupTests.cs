@@ -15,6 +15,39 @@ namespace GameCult.Eve.UnityScene.Tests
     public sealed class EveUnityCultMeshAssetLookupTests
     {
         [Test]
+        public void ProviderSelectionCarriesStableIdentityWithoutExposingAPhysicalRoute()
+        {
+            var selection = new EveUnityCultMeshProviderSelection(
+                "cultnet+tcp://odin.example:3075",
+                "aetheria.daemon",
+                "aetheria.public",
+                "aetheria.daemon",
+                "aetheria.pilot",
+                "interactive-world");
+
+            Assert.That(selection.RendezvousEndpoint, Is.EqualTo("cultnet+tcp://odin.example:3075"));
+            Assert.That(selection.EndpointId, Is.EqualTo("aetheria.daemon"));
+            Assert.That(selection.VerseId, Is.EqualTo("aetheria.public"));
+            Assert.That(typeof(EveUnityCultMeshProviderSelection).GetProperty("Endpoint"), Is.Null);
+        }
+
+        [Test]
+        public void LiveTransportOwnsOneCultMeshClientAndNoDirectSnapshotReplica()
+        {
+            var fields = typeof(EveUnityCultMeshLiveProviderTransport)
+                .GetFields(BindingFlags.Instance | BindingFlags.NonPublic);
+            var names = Array.ConvertAll(fields, field => field.Name);
+
+            CollectionAssert.Contains(names, "_meshClient");
+            CollectionAssert.DoesNotContain(names, "_node");
+            CollectionAssert.DoesNotContain(names, "_snapshot");
+            CollectionAssert.DoesNotContain(names, "_networkRegistry");
+            CollectionAssert.DoesNotContain(names, "_replicaShard");
+            CollectionAssert.DoesNotContain(names, "_subscriptions");
+            CollectionAssert.DoesNotContain(names, "_entitySubscriptions");
+        }
+
+        [Test]
         public void UnavailableTcpRendezvousIsReportedAsRetryablePreparationFailure()
         {
             var listener = new TcpListener(IPAddress.Loopback, 0);
@@ -145,6 +178,7 @@ namespace GameCult.Eve.UnityScene.Tests
             using var transport = new EveUnityCultMeshLiveProviderTransport(
                 Path.Combine(Path.GetTempPath(), $"eve-lazy-assets-{Guid.NewGuid():N}.cc"),
                 "cultnet+tcp://127.0.0.1:1",
+                "provider",
                 "provider",
                 "surface");
             var variant = new EveAssetVariant(

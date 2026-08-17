@@ -40,7 +40,7 @@ $mapCapturePath = Join-Path $outputRoot "aetheria-daemon-map.png"
 $factsPath = Join-Path $outputRoot "witness-facts.json"
 $providerReadyPath = Join-Path $outputRoot "provider-ready.txt"
 $witnessPath = Join-Path $outputRoot "runtime-witness.json"
-$replicaPath = Join-Path $outputRoot "eve-unity-replica.cc"
+$clientCachePath = Join-Path $outputRoot "eve-unity-cache"
 $statePath = Join-Path $outputRoot "aetheria-witness-state.cc"
 $providerBundleDirectory = Join-Path $AetheriaRoot "Build\EveAssets\StandaloneWindows64"
 $daemonProject = Join-Path $AetheriaRoot "Aetheria.State.Daemon\Aetheria.State.Daemon.csproj"
@@ -86,9 +86,7 @@ $witnessProfile = if ($observedCacheState -eq "cold") {
 }
 $witnessStartedAt = [DateTimeOffset]::UtcNow
 foreach ($ephemeralPath in @(
-  $replicaPath,
-  "$replicaPath.records",
-  "$replicaPath.cultmesh",
+  $clientCachePath,
   $statePath,
   "$statePath.records",
   "$statePath.cultmesh",
@@ -211,7 +209,7 @@ $env:AETHERIA_TRACE_STARTUP_PHASES = "1"
 $env:EVEUNITY_RENDEZVOUS_ENDPOINT = "cultnet+tcp://127.0.0.1:$Port"
 $env:EVEUNITY_PROVIDER_ID = "aetheria"
 Remove-Item Env:EVEUNITY_SURFACE_ID -ErrorAction SilentlyContinue
-$env:EVEUNITY_REPLICA_PATH = $replicaPath
+$env:EVEUNITY_CACHE_DIRECTORY = $clientCachePath
 $env:EVEUNITY_AETHERIA_CAPTURE_PATH = $capturePath
 $env:EVEUNITY_AETHERIA_MAP_CAPTURE_PATH = $mapCapturePath
 $env:EVEUNITY_DISABLE_AUTO_LAUNCHER = "1"
@@ -474,6 +472,6 @@ try {
 finally {
   if ($null -ne $unity -and -not $unity.HasExited) { Stop-Process -Id $unity.Id -Force -ErrorAction SilentlyContinue }
   if ($null -ne $daemon -and -not $daemon.HasExited) { Stop-Process -Id $daemon.Id -Force }
-  Remove-Item Env:EVEUNITY_RENDEZVOUS_ENDPOINT, Env:EVEUNITY_PROVIDER_ENDPOINT, Env:EVEUNITY_PROVIDER_ID, Env:EVEUNITY_SURFACE_ID, Env:EVEUNITY_REPLICA_PATH, Env:EVEUNITY_AETHERIA_CAPTURE_PATH, Env:EVEUNITY_AETHERIA_MAP_CAPTURE_PATH, Env:EVEUNITY_DISABLE_AUTO_LAUNCHER, Env:EVEUNITY_ASSET_CACHE_PATH, Env:EVEUNITY_WITNESS_FACTS_PATH, Env:EVEUNITY_PROVIDER_READY_PATH, Env:EVEUNITY_WITNESS_PROFILE, Env:EVEUNITY_WITNESS_GAMEPLAY_SCENARIO -ErrorAction SilentlyContinue
+  Remove-Item Env:EVEUNITY_RENDEZVOUS_ENDPOINT, Env:EVEUNITY_PROVIDER_ENDPOINT, Env:EVEUNITY_PROVIDER_ID, Env:EVEUNITY_SURFACE_ID, Env:EVEUNITY_CACHE_DIRECTORY, Env:EVEUNITY_AETHERIA_CAPTURE_PATH, Env:EVEUNITY_AETHERIA_MAP_CAPTURE_PATH, Env:EVEUNITY_DISABLE_AUTO_LAUNCHER, Env:EVEUNITY_ASSET_CACHE_PATH, Env:EVEUNITY_WITNESS_FACTS_PATH, Env:EVEUNITY_PROVIDER_READY_PATH, Env:EVEUNITY_WITNESS_PROFILE, Env:EVEUNITY_WITNESS_GAMEPLAY_SCENARIO -ErrorAction SilentlyContinue
   Remove-Item Env:AETHERIA_TRACE_EVE_SNAPSHOTS, Env:AETHERIA_TRACE_CLIENT_TRANSPORT -ErrorAction SilentlyContinue
 }

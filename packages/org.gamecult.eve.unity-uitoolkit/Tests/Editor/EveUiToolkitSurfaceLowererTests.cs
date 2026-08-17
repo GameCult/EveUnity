@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using GameCult.Eve.Surface;
 using GameCult.Mesh;
 using NUnit.Framework;
+using UnityEditor;
 using UnityEngine.UIElements;
 
 #nullable enable
@@ -31,13 +32,23 @@ namespace GameCult.Eve.UnityUIToolkit.Tests
                 });
             var root = new EveUiToolkitSurfaceLowerer().Lower(Document(select), request => emitted = request);
             var field = root.Q<DropdownField>();
+            var window = EditorWindow.CreateInstance<EditorWindow>();
 
-            Assert.That(field, Is.Not.Null);
-            Assert.That(field.choices, Is.EqualTo(new[] { "Local", "Hosted" }));
-            field.value = "Hosted";
-            Assert.That(emitted, Is.Not.Null);
-            Assert.That(emitted!.Command, Is.EqualTo("eve.client.verse.select"));
-            Assert.That(emitted.PayloadFields["value"], Is.EqualTo("hosted"));
+            try
+            {
+                window.rootVisualElement.Add(root);
+                window.Show();
+                Assert.That(field, Is.Not.Null);
+                Assert.That(field.choices, Is.EqualTo(new[] { "Local", "Hosted" }));
+                field.value = "Hosted";
+                Assert.That(emitted, Is.Not.Null);
+                Assert.That(emitted!.Command, Is.EqualTo("eve.client.verse.select"));
+                Assert.That(emitted.PayloadFields["value"], Is.EqualTo("hosted"));
+            }
+            finally
+            {
+                window.Close();
+            }
         }
 
         [Test]

@@ -160,14 +160,14 @@
                                                               "requiredPackageDependencies":  [
                                                                                                   {
                                                                                                       "packageName":  "org.gamecult.eve.surface",
-                                                                                                      "version":  "0.2.4",
+                                                                                                      "version":  "0.3.0",
                                                                                                       "packageManager":  "upm",
-                "ownerRepo":  "EveUnity",
-                                                                                                      "purpose":  "Shared Unity DTOs for gamecult.eve.surface.v1 documents."
+                "ownerRepo":  "Eve",
+                                                                                                      "purpose":  "Renderer-neutral contracts and builders for gamecult.eve.surface.v1 documents."
                                                                                                   },
                                                                                                   {
                                                                                                       "packageName":  "org.gamecult.eve.unity-uitoolkit",
-                                                                                                      "version":  "0.1.2",
+                                                                                                      "version":  "0.1.3",
                                                                                                       "packageManager":  "upm",
                                                                                                       "ownerRepo":  "EveUnity",
                                                                                                       "purpose":  "Generic UI Toolkit lowering for provider-owned Eve panes, metrics, progress, text, and controls."

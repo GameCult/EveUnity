@@ -83,10 +83,10 @@
         "requiredPackageDependencies": [
           {
             "packageName": "org.gamecult.eve.surface",
-            "version": "0.1.0",
+            "version": "0.3.0",
             "packageManager": "upm",
-            "ownerRepo": "EveUnity",
-            "purpose": "Shared Unity DTOs for gamecult.eve.surface.v1 documents."
+            "ownerRepo": "Eve",
+            "purpose": "Renderer-neutral contracts and builders for gamecult.eve.surface.v1 documents."
           }
         ]
       },

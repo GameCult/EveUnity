@@ -10,6 +10,16 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $projectPath = if ([IO.Path]::IsPathRooted($ProjectRoot)) { $ProjectRoot } else { Join-Path $repoRoot $ProjectRoot }
 $output = if ([IO.Path]::IsPathRooted($OutputRoot)) { $OutputRoot } else { Join-Path $repoRoot $OutputRoot }
 $cultLibBuilder = Join-Path $CultLibRoot "scripts\build-unity-package.ps1"
+$obsoleteSurfacePackage = Join-Path $repoRoot "packages\org.gamecult.eve.surface"
+$testManifestPath = Join-Path $projectPath "Packages\manifest.json"
+if (Test-Path -LiteralPath $obsoleteSurfacePackage) {
+  throw "EveUnity must consume the Eve-owned surface package; duplicate source exists at $obsoleteSurfacePackage"
+}
+$testManifest = Get-Content -LiteralPath $testManifestPath -Raw | ConvertFrom-Json
+$surfaceDependency = [string]$testManifest.dependencies."org.gamecult.eve.surface"
+if ($surfaceDependency -notmatch '(?i)Eve/packages/org\.gamecult\.eve\.surface$') {
+  throw "EveUnity test consumer must resolve org.gamecult.eve.surface from Eve; found '$surfaceDependency'."
+}
 foreach ($required in @($UnityExe, $projectPath, $cultLibBuilder)) {
   if (-not (Test-Path -LiteralPath $required)) { throw "Required EveUnity package-test path not found: $required" }
 }

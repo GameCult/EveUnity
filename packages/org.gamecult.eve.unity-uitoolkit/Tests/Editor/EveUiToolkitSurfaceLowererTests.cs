@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using GameCult.Eve.Surface;
 using GameCult.Mesh;
 using NUnit.Framework;
@@ -244,18 +245,64 @@ namespace GameCult.Eve.UnityUIToolkit.Tests
                 ["targetKind"] = "equipment",
                 ["targetEntityKey"] = "zone.0.entity.1",
                 ["targetIndex"] = "-1",
-                ["dropCommand.cargo"] = "aetheria.daemon.commands.EquipItem"
+                ["dropCommand.cargo"] = "aetheria.daemon.commands.EquipItem",
+                ["payload.shipId"] = "hangar.ship.1",
+                ["payload.expectedHangarRevision"] = "42"
             });
 
             Assert.That(EveInventoryInteraction.TryCreateDropRequest(
                 Document(target), source, target, 7, 9, "unity-test", out var request), Is.True);
             Assert.That(request, Is.Not.Null);
             Assert.That(request!.Command, Is.EqualTo("aetheria.daemon.commands.EquipItem"));
+            Assert.That(request.CommandId, Is.Not.Empty);
             Assert.That(request.Payload.GetString("originEntityKey"), Is.EqualTo("zone.0.entity.1"));
             Assert.That(request.Payload.GetString("originCargoIndex"), Is.EqualTo("2"));
             Assert.That(request.Payload.GetString("destinationX"), Is.EqualTo("7"));
             Assert.That(request.Payload.GetString("destinationY"), Is.EqualTo("9"));
             Assert.That(request.Payload.GetString("hasDestinationPosition"), Is.EqualTo("true"));
+            Assert.That(request.Payload.GetString("shipId"), Is.EqualTo("hangar.ship.1"));
+            Assert.That(request.Payload.GetString("expectedHangarRevision"), Is.EqualTo("42"));
+        }
+
+        [Test]
+        public void InventoryPlacementPreviewUsesIrregularShapeAndCurrentOccupancy()
+        {
+            var moving = Component("moving", EveInventoryInteraction.ItemKind, new Dictionary<string, string>
+            {
+                ["shapeCells"] = "0,0;1,0;0,1"
+            });
+            var installed = Component("installed", EveInventoryInteraction.ItemKind, new Dictionary<string, string>
+            {
+                ["x"] = "2",
+                ["y"] = "1",
+                ["shapeCells"] = "0,0"
+            });
+            var grid = new EveSurfaceComponent(
+                "grid",
+                EveInventoryInteraction.GridKind,
+                new Dictionary<string, string>
+                {
+                    ["columns"] = "4",
+                    ["rows"] = "3",
+                    ["validCells"] = "0,0;1,0;2,0;3,0;0,1;1,1;2,1;3,1;0,2;1,2;2,2;3,2"
+                },
+                new[] { installed });
+
+            Assert.That(EveInventoryInteraction.TryCreatePlacementPreview(
+                moving, grid, 0, 0, out var valid), Is.True);
+            Assert.That(valid!.IsValid, Is.True);
+            Assert.That(valid.Cells.Select(cell => (cell.X, cell.Y)),
+                Is.EquivalentTo(new[] { (0, 0), (1, 0), (0, 1) }));
+
+            Assert.That(EveInventoryInteraction.TryCreatePlacementPreview(
+                moving, grid, 1, 1, out var occupied), Is.True);
+            Assert.That(occupied!.IsValid, Is.False);
+            Assert.That(occupied.Reason, Is.EqualTo("occupied"));
+
+            Assert.That(EveInventoryInteraction.TryCreatePlacementPreview(
+                moving, grid, 3, 2, out var outside), Is.True);
+            Assert.That(outside!.IsValid, Is.False);
+            Assert.That(outside.Reason, Is.EqualTo("outside-grid"));
         }
 
         [Test]

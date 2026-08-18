@@ -17,6 +17,7 @@ namespace GameCult.Eve.UnityUIToolkit
         private Vector2 _inventoryDragStart;
         private bool _inventoryPointerMoved;
         private bool _suppressInventoryClick;
+        private readonly List<VisualElement> _inventoryPreviewCells = new();
 
         public EveUiToolkitSurfaceLowerer(EveUiToolkitSurfaceOptions? options = null)
         {
@@ -273,6 +274,7 @@ namespace GameCult.Eve.UnityUIToolkit
                     return;
                 if (TryEmitInventoryDrop(document, _inventoryDragSource, component, grid, evt.position, commandSink))
                     _inventoryDragSource = null;
+                ClearInventoryPreview();
             });
             return grid;
         }
@@ -291,6 +293,7 @@ namespace GameCult.Eve.UnityUIToolkit
                 _inventoryDragSource = component;
                 _inventoryDragStart = evt.position;
                 _inventoryPointerMoved = false;
+                ClearInventoryPreview();
                 item.CapturePointer(evt.pointerId);
                 evt.StopPropagation();
             });
@@ -300,7 +303,15 @@ namespace GameCult.Eve.UnityUIToolkit
                     return;
                 var pointerPosition = new Vector2(evt.position.x, evt.position.y);
                 if ((pointerPosition - _inventoryDragStart).sqrMagnitude > 16f)
+                {
                     _inventoryPointerMoved = true;
+                    var picked = item.panel?.Pick(evt.position);
+                    var targetElement = InventoryGridAncestor(picked);
+                    if (targetElement?.userData is EveSurfaceComponent target)
+                        ShowInventoryPreview(component, target, targetElement, evt.position);
+                    else
+                        ClearInventoryPreview();
+                }
             });
             item.RegisterCallback<PointerUpEvent>(evt =>
             {
@@ -315,6 +326,7 @@ namespace GameCult.Eve.UnityUIToolkit
                         TryEmitInventoryDrop(document, component, target, targetElement, evt.position, commandSink);
                     _inventoryDragSource = null;
                     _suppressInventoryClick = true;
+                    ClearInventoryPreview();
                 }
                 evt.StopPropagation();
             });
@@ -399,11 +411,58 @@ namespace GameCult.Eve.UnityUIToolkit
                 Math.Max(0f, ParseNumber(target.GetProp("cellGap"), 4f)));
             var x = Math.Max(0, (int)Math.Floor(local.x / pitch));
             var y = Math.Max(0, (int)Math.Floor(local.y / pitch));
+            if (!EveInventoryInteraction.TryCreatePlacementPreview(source, target, x, y, out var preview) ||
+                preview == null || !preview.IsValid)
+                return false;
             if (!EveInventoryInteraction.TryCreateDropRequest(
                     document, source, target, x, y, "unity-uitoolkit", out var request) || request == null)
                 return false;
             commandSink(request);
             return true;
+        }
+
+        private void ShowInventoryPreview(
+            EveSurfaceComponent source,
+            EveSurfaceComponent target,
+            VisualElement targetElement,
+            Vector2 panelPosition)
+        {
+            ClearInventoryPreview();
+            var local = targetElement.WorldToLocal(panelPosition);
+            var cellSize = Math.Max(1f, ParseNumber(target.GetProp("cellSize"), 72f));
+            var gap = Math.Max(0f, ParseNumber(target.GetProp("cellGap"), 4f));
+            var pitch = cellSize + gap;
+            var x = Math.Max(0, (int)Math.Floor(local.x / Math.Max(1f, pitch)));
+            var y = Math.Max(0, (int)Math.Floor(local.y / Math.Max(1f, pitch)));
+            if (!EveInventoryInteraction.TryCreatePlacementPreview(source, target, x, y, out var preview) ||
+                preview == null)
+                return;
+
+            foreach (var cell in preview.Cells)
+            {
+                var element = new VisualElement { pickingMode = PickingMode.Ignore };
+                element.AddToClassList("eve-inventory-placement-preview");
+                element.AddToClassList(preview.IsValid
+                    ? "eve-inventory-placement-valid"
+                    : "eve-inventory-placement-invalid");
+                element.style.position = Position.Absolute;
+                element.style.left = cell.X * pitch;
+                element.style.top = cell.Y * pitch;
+                element.style.width = cellSize;
+                element.style.height = cellSize;
+                element.style.backgroundColor = preview.IsValid
+                    ? new Color(0.2f, 0.9f, 0.65f, 0.34f)
+                    : new Color(1f, 0.25f, 0.2f, 0.38f);
+                targetElement.Add(element);
+                _inventoryPreviewCells.Add(element);
+            }
+        }
+
+        private void ClearInventoryPreview()
+        {
+            foreach (var cell in _inventoryPreviewCells)
+                cell.RemoveFromHierarchy();
+            _inventoryPreviewCells.Clear();
         }
 
         private static int ParseInt(string value, int fallback) =>

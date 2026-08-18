@@ -46,6 +46,7 @@ namespace GameCult.Eve.UnityUIToolkit
             element.AddToClassList($"eve-kind-{SafeClass(component.Kind)}");
             element.userData = component;
             ApplyGeneratedLayout(element, component);
+            element.SetEnabled(IsEnabled(component));
 
             if (IsHidden(component) || IsExternalProjectionRoot(component.Kind))
                 return element;
@@ -131,6 +132,8 @@ namespace GameCult.Eve.UnityUIToolkit
                     element.style.flexWrap = Wrap.Wrap;
                     return element;
                 }
+                case "scroll":
+                    return new ScrollView(ScrollViewMode.Vertical);
                 case "pane":
                 case "modal":
                 case "card":
@@ -538,18 +541,26 @@ namespace GameCult.Eve.UnityUIToolkit
                 })
                 .Where(option => !string.IsNullOrWhiteSpace(option.Value))
                 .ToArray();
-            var labels = options.Select(option => option.Label).ToList();
+            var duplicateLabels = options
+                .GroupBy(option => option.Label, StringComparer.Ordinal)
+                .Where(group => group.Count() > 1)
+                .Select(group => group.Key)
+                .ToHashSet(StringComparer.Ordinal);
+            var labels = options
+                .Select(option => duplicateLabels.Contains(option.Label)
+                    ? $"{option.Label} [{option.Value}]"
+                    : option.Label)
+                .ToList();
             var selectedValue = component.GetProp("value");
             var selectedIndex = Array.FindIndex(options, option =>
                 string.Equals(option.Value, selectedValue, StringComparison.Ordinal));
             var field = new DropdownField(component.GetProp("label"), labels, Math.Max(0, selectedIndex));
-            field.SetEnabled(!ParseBool(component.GetProp("disabled")));
             field.RegisterValueChangedCallback(change =>
             {
-                var option = options.FirstOrDefault(candidate =>
-                    string.Equals(candidate.Label, change.newValue, StringComparison.Ordinal));
-                if (option == null)
+                var index = field.index;
+                if (index < 0 || index >= options.Length)
                     return;
+                var option = options[index];
                 var payload = new Dictionary<string, string>(component.Props, StringComparer.Ordinal)
                 {
                     ["value"] = option.Value
@@ -659,6 +670,12 @@ namespace GameCult.Eve.UnityUIToolkit
                 element.style.alignItems = align;
             if (TryGet(layout, "justifyContent", out var justifyContent) && TryParseJustify(justifyContent, out var justify))
                 element.style.justifyContent = justify;
+            if (TryGet(layout, "flexGrow", out var flexGrow))
+                element.style.flexGrow = ParseFloat(flexGrow);
+            if (TryGet(layout, "flexShrink", out var flexShrink))
+                element.style.flexShrink = ParseFloat(flexShrink);
+            if (TryGet(layout, "flexBasis", out var flexBasis))
+                element.style.flexBasis = ParseLength(flexBasis);
             if (TryGet(layout, "width", out var width))
                 element.style.width = ParseLength(width);
             if (TryGet(layout, "minWidth", out var minWidth))
@@ -733,6 +750,14 @@ namespace GameCult.Eve.UnityUIToolkit
 
             value = "";
             return false;
+        }
+
+        private static bool IsEnabled(EveSurfaceComponent component)
+        {
+            if (ParseBool(component.GetProp("disabled")))
+                return false;
+            var enabled = component.GetProp("enabled");
+            return string.IsNullOrWhiteSpace(enabled) || ParseBool(enabled);
         }
 
         private static StyleLength ParseLength(string value)

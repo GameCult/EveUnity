@@ -30,6 +30,10 @@ namespace GameCult.Eve.UnityScene
 
         public EveUnityPlayableWorldPresentation? LastPresentation { get; private set; }
 
+        public EveUnitySceneNavigationFailure? LastNavigationFailure { get; private set; }
+
+        public event Action<EveUnitySceneNavigationFailure>? NavigationFailed;
+
         private IEveUnitySceneCommandReceiptSource? _navigationReceiptSource;
         private bool _navigationInProgress;
 
@@ -82,7 +86,15 @@ namespace GameCult.Eve.UnityScene
             try
             {
                 navigation.GetAwaiter().GetResult();
+                LastNavigationFailure = null;
                 Mount();
+            }
+            catch (Exception error)
+            {
+                var failure = new EveUnitySceneNavigationFailure(target, error.Message, DateTimeOffset.UtcNow);
+                LastNavigationFailure = failure;
+                NavigationFailed?.Invoke(failure);
+                Debug.LogError($"Eve provider navigation failed; the current surface remains mounted. {error}");
             }
             finally
             {
@@ -243,4 +255,9 @@ namespace GameCult.Eve.UnityScene
             return null;
         }
     }
+
+    public sealed record EveUnitySceneNavigationFailure(
+        EveUnitySceneNavigationTarget Target,
+        string Diagnostic,
+        DateTimeOffset FailedAtUtc);
 }

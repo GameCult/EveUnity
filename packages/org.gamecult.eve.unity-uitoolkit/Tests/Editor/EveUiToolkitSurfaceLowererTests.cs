@@ -53,6 +53,69 @@ namespace GameCult.Eve.UnityUIToolkit.Tests
         }
 
         [Test]
+        public void SelectKeepsStableValuesWhenVerseLabelsCollide()
+        {
+            EveSurfaceCommandRequest? emitted = null;
+            var select = Component(
+                "verse",
+                "control.select",
+                new Dictionary<string, string>
+                {
+                    ["label"] = "VERSE",
+                    ["value"] = "verse:a",
+                    ["command"] = "eve.client.verse.select"
+                },
+                new[]
+                {
+                    Component("a", "control.option", new Dictionary<string, string> { ["label"] = "Aetheria", ["value"] = "verse:a" }),
+                    Component("b", "control.option", new Dictionary<string, string> { ["label"] = "Aetheria", ["value"] = "verse:b" })
+                });
+            var root = new EveUiToolkitSurfaceLowerer().Lower(Document(select), request => emitted = request);
+            var field = root.Q<DropdownField>();
+            var window = EditorWindow.CreateInstance<EditorWindow>();
+
+            try
+            {
+                window.rootVisualElement.Add(root);
+                window.Show();
+                Assert.That(field.choices, Is.EqualTo(new[] { "Aetheria [verse:a]", "Aetheria [verse:b]" }));
+                field.index = 1;
+                Assert.That(emitted, Is.Not.Null);
+                Assert.That(emitted!.PayloadFields["value"], Is.EqualTo("verse:b"));
+            }
+            finally
+            {
+                window.Close();
+            }
+        }
+
+        [Test]
+        public void SemanticEnabledStateAndMinMaxFlexLayoutAreLowered()
+        {
+            var button = new EveSurfaceComponent(
+                "launch",
+                "control.button",
+                new Dictionary<string, string> { ["label"] = "LAUNCH", ["disabled"] = "true" },
+                Array.Empty<EveSurfaceComponent>(),
+                Array.Empty<CultMeshStateBindingDescriptor>(),
+                Array.Empty<EveEmbeddedDocumentSlot>(),
+                new Dictionary<string, string>
+                {
+                    ["minWidth"] = "280",
+                    ["maxWidth"] = "360",
+                    ["flexGrow"] = "1"
+                });
+
+            var root = new EveUiToolkitSurfaceLowerer().Lower(Document(button));
+            var lowered = root.Q<Button>();
+
+            Assert.That(lowered.enabledSelf, Is.False);
+            Assert.That(lowered.style.minWidth.value.value, Is.EqualTo(280f));
+            Assert.That(lowered.style.maxWidth.value.value, Is.EqualTo(360f));
+            Assert.That(lowered.style.flexGrow.value, Is.EqualTo(1f));
+        }
+
+        [Test]
         public void DefaultOptionsExposeSaiNornAndTeXProjectionAdapters()
         {
             var options = EveUiToolkitSurfaceOptions.Default;

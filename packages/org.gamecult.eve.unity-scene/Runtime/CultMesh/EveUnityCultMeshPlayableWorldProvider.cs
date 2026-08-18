@@ -141,19 +141,36 @@ namespace GameCult.Eve.UnityScene
             if (string.IsNullOrWhiteSpace(target.SurfaceId))
                 throw new ArgumentException("Eve provider navigation requires a surface identity.", nameof(target));
 
-            ReleaseTransport();
-            var navigationEndpoint = target.RendezvousEndpoints
-                .FirstOrDefault(endpoint => !string.IsNullOrWhiteSpace(endpoint));
-            if (!string.IsNullOrWhiteSpace(navigationEndpoint))
-            {
-                rendezvousEndpoint = navigationEndpoint;
-                _authorityTrust = _navigationAuthorityTrust;
-            }
+            var endpoints = (target.RendezvousEndpoints ?? Array.Empty<string>())
+                .Where(endpoint => !string.IsNullOrWhiteSpace(endpoint))
+                .Select(endpoint => endpoint.Trim())
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+            if (endpoints.Length == 0 && !string.IsNullOrWhiteSpace(rendezvousEndpoint))
+                endpoints = new[] { rendezvousEndpoint };
+            if (endpoints.Length == 0)
+                throw new InvalidOperationException("Eve provider navigation requires at least one Odin rendezvous endpoint.");
+
+            var requiredSurfaceKind = string.IsNullOrWhiteSpace(target.SurfaceKind)
+                ? "interactive-world"
+                : target.SurfaceKind;
+            var prepared = await PrepareCandidateAsync(
+                endpoints,
+                target.ProviderId,
+                target.SurfaceId,
+                requiredSurfaceKind,
+                target.VerseId,
+                _navigationAuthorityTrust,
+                CancellationToken.None).ConfigureAwait(false);
+
+            AdoptPrepared(prepared);
+            rendezvousEndpoint = prepared.Selection.RendezvousEndpoint;
             verseFilter = target.VerseId;
             providerFilter = target.ProviderId;
             surfaceFilter = target.SurfaceId;
-            surfaceKind = string.IsNullOrWhiteSpace(target.SurfaceKind) ? "interactive-world" : target.SurfaceKind;
-            await PrepareAsync();
+            surfaceKind = requiredSurfaceKind;
+            _authorityTrust = _navigationAuthorityTrust;
+            _preparation = Task.CompletedTask;
         }
 
         public void Refresh()
@@ -257,44 +274,97 @@ namespace GameCult.Eve.UnityScene
             if (string.IsNullOrWhiteSpace(rendezvousEndpoint))
                 throw new InvalidOperationException("EveUnity requires a CultMesh rendezvous endpoint.");
 
-            Selection = await new EveUnityCultMeshProviderDiscovery(_authorityTrust).DiscoverAsync(
-                rendezvousEndpoint,
+            var prepared = await PrepareCandidateAsync(
+                new[] { rendezvousEndpoint },
                 providerFilter,
                 surfaceFilter,
                 surfaceKind,
                 verseFilter,
-                cancellationToken);
-            TraceStartup($"discovery {elapsed.Elapsed.TotalMilliseconds:0.###}ms");
-            elapsed.Restart();
-            var resolvedCachePath = string.IsNullOrWhiteSpace(cacheDirectory)
-                ? Path.Combine(Application.temporaryCachePath, $"eve-unity-{GetInstanceID()}")
-                : cacheDirectory;
-            var transport = new EveUnityCultMeshLiveProviderTransport(
-                resolvedCachePath,
-                Selection.RendezvousEndpoint,
-                Selection.VerseId,
-                Selection.AuthorityRuntimeId,
-                Selection.ProviderId,
-                Selection.SurfaceId,
-                runtimeId,
-                authorityTrust: _authorityTrust);
-            try
+                _authorityTrust,
+                cancellationToken).ConfigureAwait(false);
+            TraceStartup($"discovery and transport preparation {elapsed.Elapsed.TotalMilliseconds:0.###}ms");
+            AdoptPrepared(prepared);
+        }
+
+        private async Task<PreparedProvider> PrepareCandidateAsync(
+            IReadOnlyList<string> endpoints,
+            string requiredProviderId,
+            string requiredSurfaceId,
+            string requiredSurfaceKind,
+            string requiredVerseId,
+            CultMeshAuthorityTrustPolicy trust,
+            CancellationToken cancellationToken)
+        {
+            var failures = new List<string>();
+            foreach (var endpoint in endpoints)
             {
-                await transport.PrepareAsync(cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
+                try
+                {
+                    var selection = await new EveUnityCultMeshProviderDiscovery(trust).DiscoverAsync(
+                        endpoint,
+                        requiredProviderId,
+                        requiredSurfaceId,
+                        requiredSurfaceKind,
+                        requiredVerseId,
+                        cancellationToken).ConfigureAwait(false);
+                    var resolvedCachePath = string.IsNullOrWhiteSpace(cacheDirectory)
+                        ? Path.Combine(Application.temporaryCachePath, $"eve-unity-{GetInstanceID()}")
+                        : cacheDirectory;
+                    var transport = new EveUnityCultMeshLiveProviderTransport(
+                        resolvedCachePath,
+                        selection.RendezvousEndpoint,
+                        selection.VerseId,
+                        selection.AuthorityRuntimeId,
+                        selection.ProviderId,
+                        selection.SurfaceId,
+                        runtimeId,
+                        authorityTrust: trust);
+                    try
+                    {
+                        await transport.PrepareAsync(cancellationToken).ConfigureAwait(false);
+                        cancellationToken.ThrowIfCancellationRequested();
+                        return new PreparedProvider(selection, transport, new EveUnitySceneLiveProviderBridge(transport));
+                    }
+                    catch
+                    {
+                        transport.Dispose();
+                        throw;
+                    }
+                }
+                catch (Exception error) when (error is not OperationCanceledException)
+                {
+                    failures.Add($"{endpoint}: {error.Message}");
+                }
             }
-            catch
+
+            throw new InvalidOperationException(
+                $"No configured Odin endpoint prepared Verse '{requiredVerseId}' surface '{requiredSurfaceId}'. " +
+                string.Join(" | ", failures));
+        }
+
+        private void AdoptPrepared(PreparedProvider prepared)
+        {
+            var oldBridge = _bridge;
+            var oldTransport = _transport;
+            if (oldBridge != null)
             {
-                transport.Dispose();
-                throw;
+                oldBridge.DocumentAvailable -= ForwardDocument;
+                oldBridge.ReceiptAvailable -= ForwardReceipt;
             }
-            cancellationToken.ThrowIfCancellationRequested();
-            _transport = transport;
+
+            Selection = prepared.Selection;
+            _transport = prepared.Transport;
+            _bridge = prepared.Bridge;
             _transport.EntityViewAvailable += (view, lease) => _pendingEntityViews.Enqueue(new EntityViewLease(view, lease));
             _transport.FieldsSplatsAvailable += fields => _pendingFields.Enqueue(fields);
-            _bridge = new EveUnitySceneLiveProviderBridge(_transport);
             _bridge.DocumentAvailable += ForwardDocument;
             _bridge.ReceiptAvailable += ForwardReceipt;
-            TraceStartup($"transport-construction {elapsed.Elapsed.TotalMilliseconds:0.###}ms");
+
+            while (_pendingEntityViews.TryDequeue(out var pending)) pending.Lease.Dispose();
+            while (_pendingFields.TryDequeue(out _)) { }
+            oldBridge?.Dispose();
+            oldTransport?.Dispose();
         }
 
         private void ForwardDocument(EveUnitySceneProviderSurfaceDocument document) =>
@@ -327,5 +397,10 @@ namespace GameCult.Eve.UnityScene
             public EveEntitySoaViewDocument Document { get; }
             public ICultMeshBodyReadLease Lease { get; }
         }
+
+        private sealed record PreparedProvider(
+            EveUnityCultMeshProviderSelection Selection,
+            EveUnityCultMeshLiveProviderTransport Transport,
+            EveUnitySceneLiveProviderBridge Bridge);
     }
 }

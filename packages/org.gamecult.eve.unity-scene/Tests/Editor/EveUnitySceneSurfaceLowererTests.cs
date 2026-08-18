@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Text.RegularExpressions;
 using System.Collections;
 using System.Threading.Tasks;
 using GameCult.Caching;
@@ -1192,6 +1193,62 @@ namespace GameCult.Eve.UnityScene.Tests
                 Assert.That(provider.LastNavigation!.VerseId, Is.EqualTo("gamecult.aetheria"));
                 Assert.That(provider.LastNavigation.RendezvousEndpoints, Is.EqualTo(new[] { "cultnet+tcp://odin.example:3076" }));
                 Assert.That(bootstrap.Host!.ConnectionEpoch, Is.EqualTo(2));
+                Assert.That(provider.CommitNavigationCount, Is.EqualTo(1));
+                Assert.That(provider.RollbackNavigationCount, Is.Zero);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(hostObject);
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator PlayableWorldClientBootstrapRollsBackAndRemountsAfterNavigationMountFailure()
+        {
+            var hostObject = new GameObject("generic-eve-navigation-rollback-client");
+            try
+            {
+                var provider = hostObject.AddComponent<FakePlayableWorldProviderComponent>();
+                provider.Set(
+                    new EveUnitySceneProviderSurfaceDocument(
+                        PlayableArpgDocument(),
+                        Advertisement("aetheria.daemon.game"),
+                        "cultmesh://aetheria/eve/surfaces/aetheria.daemon.game",
+                        1),
+                    new EveUnityPlayableWorldAssetManifestDocument(
+                        "cultmesh://aetheria/assets/manifest",
+                        Array.Empty<EveUnityPlayableWorldAssetManifestDocumentEntry>(),
+                        "aetheria"));
+                var bootstrap = hostObject.AddComponent<EveUnityPlayableWorldClientBootstrap>();
+                bootstrap.ConfigureProvider(provider);
+                bootstrap.Mount();
+                provider.FailNextNavigationMount = true;
+                LogAssert.Expect(LogType.Error, new Regex("Eve provider navigation failed; the current surface remains mounted"));
+
+                provider.PublishReceipt(new EveUnitySceneCommandReceipt(
+                    "receipt:launch-failure",
+                    "aetheria.hangar.launch",
+                    "launch",
+                    "accepted",
+                    "Aetheria",
+                    "commander-daemon",
+                    navigation: new EveUnitySceneNavigationTarget(
+                        "gamecult.aetheria",
+                        "broken-provider",
+                        "aetheria.pilot",
+                        "interactive-world",
+                        new[] { "cultnet+tcp://odin.example:3999" })));
+
+                yield return null;
+                yield return null;
+
+                Assert.That(provider.CommitNavigationCount, Is.Zero);
+                Assert.That(provider.RollbackNavigationCount, Is.EqualTo(1));
+                Assert.That(bootstrap.LastNavigationFailure, Is.Not.Null);
+                Assert.That(bootstrap.Host!.Runtime, Is.Not.Null);
+                Assert.That(bootstrap.Host.ActiveWorld, Is.Not.Null);
+                Assert.That(bootstrap.Host.ActiveWorld!.PlayerEntityId, Is.EqualTo("player-vanguard"));
+                Assert.That(bootstrap.Host.ConnectionEpoch, Is.EqualTo(2));
             }
             finally
             {
@@ -3293,6 +3350,14 @@ namespace GameCult.Eve.UnityScene.Tests
 
             public EveUnitySceneNavigationTarget? LastNavigation { get; private set; }
 
+            public int CommitNavigationCount { get; private set; }
+
+            public int RollbackNavigationCount { get; private set; }
+
+            public bool FailNextNavigationMount { get; set; }
+
+            private bool _failSurfaceRead;
+
             public string SinkKind => "fake-provider-command-sink";
 
             public string ManifestRef => CurrentDocument.ManifestRef;
@@ -3314,7 +3379,9 @@ namespace GameCult.Eve.UnityScene.Tests
                 new EveInputCapabilityDocument();
 
             EveUnitySceneProviderSurfaceDocument IEveUnitySceneProviderSurfaceDocumentSource.CurrentDocument =>
-                CurrentSurfaceDocument;
+                _failSurfaceRead
+                    ? throw new InvalidOperationException("Deliberate candidate surface read failure.")
+                    : CurrentSurfaceDocument;
 
             public event Action<EveUnitySceneProviderSurfaceDocument>? DocumentAvailable;
 
@@ -3358,7 +3425,21 @@ namespace GameCult.Eve.UnityScene.Tests
             public Task NavigateAsync(EveUnitySceneNavigationTarget target)
             {
                 LastNavigation = target;
+                _failSurfaceRead = FailNextNavigationMount;
+                FailNextNavigationMount = false;
                 return Task.CompletedTask;
+            }
+
+            public void CommitNavigation()
+            {
+                CommitNavigationCount++;
+                _failSurfaceRead = false;
+            }
+
+            public void RollbackNavigation()
+            {
+                RollbackNavigationCount++;
+                _failSurfaceRead = false;
             }
         }
     }

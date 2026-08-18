@@ -81,16 +81,31 @@ namespace GameCult.Eve.UnityScene
                 yield break;
             _navigationInProgress = true;
             var navigation = navigable.NavigateAsync(target);
+            var mountAttempted = false;
             while (!navigation.IsCompleted)
                 yield return null;
             try
             {
                 navigation.GetAwaiter().GetResult();
-                LastNavigationFailure = null;
+                mountAttempted = true;
                 Mount();
+                navigable.CommitNavigation();
+                LastNavigationFailure = null;
             }
             catch (Exception error)
             {
+                navigable.RollbackNavigation();
+                if (mountAttempted)
+                {
+                    try
+                    {
+                        Mount();
+                    }
+                    catch (Exception restoreError)
+                    {
+                        Debug.LogError($"Eve provider navigation rollback could not remount the previous surface. {restoreError}");
+                    }
+                }
                 var failure = new EveUnitySceneNavigationFailure(target, error.Message, DateTimeOffset.UtcNow);
                 LastNavigationFailure = failure;
                 NavigationFailed?.Invoke(failure);

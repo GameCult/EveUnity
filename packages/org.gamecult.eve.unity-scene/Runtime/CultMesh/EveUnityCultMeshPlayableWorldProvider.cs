@@ -47,6 +47,7 @@ namespace GameCult.Eve.UnityScene
 
         private EveUnityCultMeshLiveProviderTransport? _transport;
         private EveUnitySceneLiveProviderBridge? _bridge;
+        private PreviousProvider? _previousProvider;
         private Task? _preparation;
         private CancellationTokenSource? _preparationLifetime;
         private readonly ConcurrentQueue<EntityViewLease> _pendingEntityViews = new ConcurrentQueue<EntityViewLease>();
@@ -163,13 +164,46 @@ namespace GameCult.Eve.UnityScene
                 _navigationAuthorityTrust,
                 CancellationToken.None).ConfigureAwait(false);
 
-            AdoptPrepared(prepared);
+            StagePrepared(prepared);
             rendezvousEndpoint = prepared.Selection.RendezvousEndpoint;
             verseFilter = target.VerseId;
             providerFilter = target.ProviderId;
             surfaceFilter = target.SurfaceId;
             surfaceKind = requiredSurfaceKind;
             _authorityTrust = _navigationAuthorityTrust;
+            _preparation = Task.CompletedTask;
+        }
+
+        public void CommitNavigation()
+        {
+            var previous = _previousProvider;
+            if (previous == null) return;
+            _previousProvider = null;
+            previous.Bridge?.Dispose();
+            previous.Transport?.Dispose();
+        }
+
+        public void RollbackNavigation()
+        {
+            var previous = _previousProvider;
+            if (previous == null) return;
+            _previousProvider = null;
+            DetachPrepared(_transport, _bridge);
+            _bridge?.Dispose();
+            _transport?.Dispose();
+            while (_pendingEntityViews.TryDequeue(out var pending)) pending.Lease.Dispose();
+            while (_pendingFields.TryDequeue(out _)) { }
+
+            Selection = previous.Selection;
+            _transport = previous.Transport;
+            _bridge = previous.Bridge;
+            rendezvousEndpoint = previous.RendezvousEndpoint;
+            verseFilter = previous.VerseFilter;
+            providerFilter = previous.ProviderFilter;
+            surfaceFilter = previous.SurfaceFilter;
+            surfaceKind = previous.SurfaceKind;
+            _authorityTrust = previous.AuthorityTrust;
+            AttachPrepared(_transport, _bridge);
             _preparation = Task.CompletedTask;
         }
 
@@ -227,6 +261,9 @@ namespace GameCult.Eve.UnityScene
             }
             _bridge?.Dispose();
             _transport?.Dispose();
+            _previousProvider?.Bridge?.Dispose();
+            _previousProvider?.Transport?.Dispose();
+            _previousProvider = null;
             while (_pendingEntityViews.TryDequeue(out var pending)) pending.Lease.Dispose();
             while (_pendingFields.TryDequeue(out _)) { }
             _bridge = null;
@@ -345,27 +382,85 @@ namespace GameCult.Eve.UnityScene
 
         private void AdoptPrepared(PreparedProvider prepared)
         {
+            if (_previousProvider != null)
+                throw new InvalidOperationException("A staged Eve provider navigation must be committed or rolled back first.");
             var oldBridge = _bridge;
             var oldTransport = _transport;
-            if (oldBridge != null)
-            {
-                oldBridge.DocumentAvailable -= ForwardDocument;
-                oldBridge.ReceiptAvailable -= ForwardReceipt;
-            }
+            DetachPrepared(oldTransport, oldBridge);
 
             Selection = prepared.Selection;
             _transport = prepared.Transport;
             _bridge = prepared.Bridge;
-            _transport.EntityViewAvailable += (view, lease) => _pendingEntityViews.Enqueue(new EntityViewLease(view, lease));
-            _transport.FieldsSplatsAvailable += fields => _pendingFields.Enqueue(fields);
-            _bridge.DocumentAvailable += ForwardDocument;
-            _bridge.ReceiptAvailable += ForwardReceipt;
+            AttachPrepared(_transport, _bridge);
 
             while (_pendingEntityViews.TryDequeue(out var pending)) pending.Lease.Dispose();
             while (_pendingFields.TryDequeue(out _)) { }
             oldBridge?.Dispose();
             oldTransport?.Dispose();
         }
+
+        private void StagePrepared(PreparedProvider prepared)
+        {
+            if (_previousProvider != null)
+            {
+                prepared.Bridge.Dispose();
+                prepared.Transport.Dispose();
+                throw new InvalidOperationException("A staged Eve provider navigation must be committed or rolled back first.");
+            }
+
+            _previousProvider = new PreviousProvider(
+                Selection,
+                _transport,
+                _bridge,
+                rendezvousEndpoint,
+                verseFilter,
+                providerFilter,
+                surfaceFilter,
+                surfaceKind,
+                _authorityTrust);
+            DetachPrepared(_transport, _bridge);
+            Selection = prepared.Selection;
+            _transport = prepared.Transport;
+            _bridge = prepared.Bridge;
+            AttachPrepared(_transport, _bridge);
+            while (_pendingEntityViews.TryDequeue(out var pending)) pending.Lease.Dispose();
+            while (_pendingFields.TryDequeue(out _)) { }
+        }
+
+        private void AttachPrepared(
+            EveUnityCultMeshLiveProviderTransport? transport,
+            EveUnitySceneLiveProviderBridge? bridge)
+        {
+            if (transport != null)
+            {
+                transport.EntityViewAvailable += QueueEntityView;
+                transport.FieldsSplatsAvailable += QueueFields;
+            }
+            if (bridge != null)
+            {
+                bridge.DocumentAvailable += ForwardDocument;
+                bridge.ReceiptAvailable += ForwardReceipt;
+            }
+        }
+
+        private void DetachPrepared(
+            EveUnityCultMeshLiveProviderTransport? transport,
+            EveUnitySceneLiveProviderBridge? bridge)
+        {
+            if (transport != null)
+            {
+                transport.EntityViewAvailable -= QueueEntityView;
+                transport.FieldsSplatsAvailable -= QueueFields;
+            }
+            if (bridge == null) return;
+            bridge.DocumentAvailable -= ForwardDocument;
+            bridge.ReceiptAvailable -= ForwardReceipt;
+        }
+
+        private void QueueEntityView(EveEntitySoaViewDocument view, ICultMeshBodyReadLease lease) =>
+            _pendingEntityViews.Enqueue(new EntityViewLease(view, lease));
+
+        private void QueueFields(EveFieldsSplatsDocument fields) => _pendingFields.Enqueue(fields);
 
         private void ForwardDocument(EveUnitySceneProviderSurfaceDocument document) =>
             DocumentAvailable?.Invoke(document);
@@ -402,5 +497,16 @@ namespace GameCult.Eve.UnityScene
             EveUnityCultMeshProviderSelection Selection,
             EveUnityCultMeshLiveProviderTransport Transport,
             EveUnitySceneLiveProviderBridge Bridge);
+
+        private sealed record PreviousProvider(
+            EveUnityCultMeshProviderSelection? Selection,
+            EveUnityCultMeshLiveProviderTransport? Transport,
+            EveUnitySceneLiveProviderBridge? Bridge,
+            string RendezvousEndpoint,
+            string VerseFilter,
+            string ProviderFilter,
+            string SurfaceFilter,
+            string SurfaceKind,
+            CultMeshAuthorityTrustPolicy AuthorityTrust);
     }
 }

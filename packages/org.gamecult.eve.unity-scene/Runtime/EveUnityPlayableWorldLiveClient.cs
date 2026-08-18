@@ -238,6 +238,10 @@ namespace GameCult.Eve.UnityScene
     public interface IEveUnityNavigableProvider
     {
         Task NavigateAsync(EveUnitySceneNavigationTarget target);
+
+        void CommitNavigation();
+
+        void RollbackNavigation();
     }
 
     public sealed class EveUnitySceneNavigationTarget

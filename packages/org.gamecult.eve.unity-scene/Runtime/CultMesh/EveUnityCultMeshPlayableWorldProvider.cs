@@ -181,6 +181,7 @@ namespace GameCult.Eve.UnityScene
             _previousProvider = null;
             if (previous.Bridge != null)
                 previous.Bridge.ReceiptAvailable -= ForwardReceipt;
+            AttachPrepared(_transport, _bridge);
             previous.Bridge?.Dispose();
             previous.Transport?.Dispose();
         }
@@ -284,6 +285,7 @@ namespace GameCult.Eve.UnityScene
 
         private void Update()
         {
+            _previousProvider?.Transport?.PumpLiveEvents();
             _transport?.PumpLiveEvents();
             EveFieldsSplatsDocument? latestFields = null;
             while (_pendingFields.TryDequeue(out var fields))
@@ -432,7 +434,6 @@ namespace GameCult.Eve.UnityScene
             Selection = prepared.Selection;
             _transport = prepared.Transport;
             _bridge = prepared.Bridge;
-            AttachPrepared(_transport, _bridge);
             while (_pendingEntityViews.TryDequeue(out var pending)) pending.Lease.Dispose();
             while (_pendingFields.TryDequeue(out _)) { }
         }

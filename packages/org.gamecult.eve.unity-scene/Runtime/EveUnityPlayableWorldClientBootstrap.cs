@@ -89,14 +89,21 @@ namespace GameCult.Eve.UnityScene
             var navigation = navigable.NavigateAsync(target);
             StagedPresentation? staged = null;
             PresentationSwap? swap = null;
+            Transform? previousRoot = null;
+            var previousRootWasActive = false;
             while (!navigation.IsCompleted)
                 yield return null;
             try
             {
                 navigation.GetAwaiter().GetResult();
                 staged = PrepareStagedPresentation();
+                previousRoot = sceneRoot;
+                previousRootWasActive = previousRoot == null || previousRoot.gameObject.activeSelf;
+                if (previousRoot != null && !ReferenceEquals(previousRoot, transform) &&
+                    !ReferenceEquals(previousRoot, staged.SceneRoot))
+                    previousRoot.gameObject.SetActive(false);
                 navigable.CommitNavigation();
-                swap = ActivateStagedPresentation(staged);
+                swap = ActivateStagedPresentation(staged, previousRootWasActive);
                 navigable.FinalizeNavigation();
                 swap.Complete();
                 swap = null;
@@ -119,7 +126,10 @@ namespace GameCult.Eve.UnityScene
                 {
                     try
                     {
-                        swap?.Rollback();
+                        if (swap != null)
+                            swap.Rollback();
+                        else if (previousRoot != null)
+                            previousRoot.gameObject.SetActive(previousRootWasActive);
                     }
                     catch (Exception rollbackError)
                     {
@@ -193,12 +203,13 @@ namespace GameCult.Eve.UnityScene
             }
         }
 
-        private PresentationSwap ActivateStagedPresentation(StagedPresentation staged)
+        private PresentationSwap ActivateStagedPresentation(
+            StagedPresentation staged,
+            bool previousRootWasActive)
         {
             var previousHost = host;
             var previousRoot = sceneRoot;
             var previousPresentation = LastPresentation;
-            var previousRootWasActive = previousRoot == null || previousRoot.gameObject.activeSelf;
             var input = GetComponent<EveUnityPlayableWorldInputDriver>();
             var previousInputHost = input?.Host;
             var previousInputCamera = input?.CameraTransform;
@@ -217,9 +228,6 @@ namespace GameCult.Eve.UnityScene
                 host = staged.Host;
                 sceneRoot = staged.SceneRoot;
                 LastPresentation = staged.Presentation;
-                if (previousRoot != null && !ReferenceEquals(previousRoot, transform) &&
-                    !ReferenceEquals(previousRoot, staged.SceneRoot))
-                    previousRoot.gameObject.SetActive(false);
                 return new PresentationSwap(
                     this,
                     staged,
@@ -252,8 +260,6 @@ namespace GameCult.Eve.UnityScene
                 host = previousHost;
                 sceneRoot = previousRoot;
                 LastPresentation = previousPresentation;
-                if (previousRoot != null)
-                    previousRoot.gameObject.SetActive(previousRootWasActive);
                 throw;
             }
         }

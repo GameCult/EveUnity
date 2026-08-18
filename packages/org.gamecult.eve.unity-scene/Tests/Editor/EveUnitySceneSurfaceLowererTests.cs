@@ -1172,6 +1172,9 @@ namespace GameCult.Eve.UnityScene.Tests
                 bootstrap.ConfigureProvider(provider);
                 bootstrap.Mount();
                 var originalHost = bootstrap.Host;
+                var deactivationRoutes = new List<string>();
+                var deactivationProbe = bootstrap.SceneRoot!.gameObject.AddComponent<NavigationDeactivationProbe>();
+                deactivationProbe.Deactivated = () => deactivationRoutes.Add(provider.ActiveRoute);
 
                 provider.PublishReceipt(new EveUnitySceneCommandReceipt(
                     "receipt:launch",
@@ -1198,6 +1201,7 @@ namespace GameCult.Eve.UnityScene.Tests
                 Assert.That(provider.CommitNavigationCount, Is.EqualTo(1));
                 Assert.That(provider.FinalizeNavigationCount, Is.EqualTo(1));
                 Assert.That(provider.RollbackNavigationCount, Is.Zero);
+                Assert.That(deactivationRoutes, Is.EqualTo(new[] { "original" }));
 
                 provider.PublishReceipt(new EveUnitySceneCommandReceipt(
                     "receipt:launch-again",
@@ -3557,6 +3561,16 @@ namespace GameCult.Eve.UnityScene.Tests
             private void OnEnable()
             {
                 Reactivated?.Invoke();
+            }
+        }
+
+        private sealed class NavigationDeactivationProbe : MonoBehaviour
+        {
+            public Action? Deactivated { get; set; }
+
+            private void OnDisable()
+            {
+                Deactivated?.Invoke();
             }
         }
     }

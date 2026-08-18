@@ -30,8 +30,8 @@ namespace GameCult.Eve.UnityScene
         private readonly string _providerId;
         private readonly string _surfaceId;
         private readonly string _runtimeId;
+        private readonly CultMeshAuthorityTrustPolicy _authorityTrust;
         private readonly HashSet<string> _pendingCommandIds = new HashSet<string>(StringComparer.Ordinal);
-        private readonly HashSet<string> _publishedReceiptIds = new HashSet<string>(StringComparer.Ordinal);
         private readonly Dictionary<string, Task<ReceiptSubscription>> _receiptSubscriptions =
             new Dictionary<string, Task<ReceiptSubscription>>(StringComparer.Ordinal);
         private readonly Dictionary<string, GameObject> _prefabs = new Dictionary<string, GameObject>(StringComparer.Ordinal);
@@ -95,7 +95,8 @@ namespace GameCult.Eve.UnityScene
             string providerId,
             string surfaceId,
             string runtimeId = "eve-unity",
-            CultMeshBodyPublicationResolver? bodyResolver = null)
+            CultMeshBodyPublicationResolver? bodyResolver = null,
+            CultMeshAuthorityTrustPolicy? authorityTrust = null)
         {
             _cachePath = string.IsNullOrWhiteSpace(cachePath)
                 ? throw new ArgumentException("Cache path must be non-empty.", nameof(cachePath))
@@ -112,6 +113,8 @@ namespace GameCult.Eve.UnityScene
                 : surfaceId.Trim();
             _runtimeId = string.IsNullOrWhiteSpace(runtimeId) ? "eve-unity" : runtimeId.Trim();
             _bodyResolver = bodyResolver;
+            _authorityTrust = authorityTrust ?? new CultMeshAuthorityTrustPolicy(
+                CultMeshAuthorityTrustMode.AuthenticatedRemote);
             CurrentSurfaceDocument = EmptySurfaceDocument();
             CurrentAssetManifestDocument = EmptyAssetManifest();
             CurrentInputCapability = new EveInputCapabilityDocument();
@@ -459,7 +462,6 @@ namespace GameCult.Eve.UnityScene
             lock (_pendingCommandIds)
             {
                 _pendingCommandIds.Clear();
-                _publishedReceiptIds.Clear();
                 foreach (var subscription in _receiptSubscriptions.Values)
                     DisposeReceiptSubscription(subscription);
                 _receiptSubscriptions.Clear();
@@ -511,6 +513,7 @@ namespace GameCult.Eve.UnityScene
             _meshClient = new CultMeshClient(new CultMeshClientOptions
             {
                 RendezvousEndpoints = new[] { _rendezvousEndpoint },
+                Sessions = new CultMeshSessionManagerOptions { Trust = _authorityTrust },
                 RealtimeConnectors = new ICultMeshRealtimeTransportConnector[]
                 {
                     new CultMeshNativeQuicRealtimeTransportConnector()
@@ -1570,7 +1573,7 @@ namespace GameCult.Eve.UnityScene
         {
             lock (_pendingCommandIds)
             {
-                if (!_pendingCommandIds.Contains(receipt.CommandId) || !_publishedReceiptIds.Add(receipt.ReceiptId))
+                if (!_pendingCommandIds.Remove(receipt.CommandId))
                     return;
             }
             _commandOutbox?.Acknowledge(receipt.CommandId);

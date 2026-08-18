@@ -40,6 +40,8 @@ namespace GameCult.Eve.UnityScene
         [FormerlySerializedAs("replicaPath")]
         [SerializeField] private string cacheDirectory = "";
         [SerializeField] private string runtimeId = "eve-unity";
+        private CultMeshAuthorityTrustPolicy _authorityTrust = new CultMeshAuthorityTrustPolicy(
+            CultMeshAuthorityTrustMode.AuthenticatedRemote);
 
         private EveUnityCultMeshLiveProviderTransport? _transport;
         private EveUnitySceneLiveProviderBridge? _bridge;
@@ -87,7 +89,8 @@ namespace GameCult.Eve.UnityScene
             string surfaceId = "",
             string verseId = "",
             string requiredSurfaceKind = "interactive-world",
-            string clientRuntimeId = "eve-unity")
+            string clientRuntimeId = "eve-unity",
+            CultMeshAuthorityTrustPolicy? authorityTrust = null)
         {
             if (_bridge != null || _preparation != null)
                 throw new InvalidOperationException("Disconnect the active provider before changing discovery configuration.");
@@ -99,6 +102,8 @@ namespace GameCult.Eve.UnityScene
             verseFilter = verseId ?? "";
             surfaceKind = string.IsNullOrWhiteSpace(requiredSurfaceKind) ? "interactive-world" : requiredSurfaceKind;
             runtimeId = string.IsNullOrWhiteSpace(clientRuntimeId) ? "eve-unity" : clientRuntimeId;
+            _authorityTrust = authorityTrust ?? new CultMeshAuthorityTrustPolicy(
+                CultMeshAuthorityTrustMode.AuthenticatedRemote);
         }
 
         public void Connect()
@@ -245,7 +250,7 @@ namespace GameCult.Eve.UnityScene
             if (string.IsNullOrWhiteSpace(rendezvousEndpoint))
                 throw new InvalidOperationException("EveUnity requires a CultMesh rendezvous endpoint.");
 
-            Selection = await new EveUnityCultMeshProviderDiscovery().DiscoverAsync(
+            Selection = await new EveUnityCultMeshProviderDiscovery(_authorityTrust).DiscoverAsync(
                 rendezvousEndpoint,
                 providerFilter,
                 surfaceFilter,
@@ -264,7 +269,8 @@ namespace GameCult.Eve.UnityScene
                 Selection.AuthorityRuntimeId,
                 Selection.ProviderId,
                 Selection.SurfaceId,
-                runtimeId);
+                runtimeId,
+                authorityTrust: _authorityTrust);
             try
             {
                 await transport.PrepareAsync(cancellationToken);

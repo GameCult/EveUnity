@@ -39,6 +39,14 @@ namespace GameCult.Eve.UnityScene
 
     public sealed class EveUnityCultMeshProviderDiscovery
     {
+        private readonly CultMeshAuthorityTrustPolicy _authorityTrust;
+
+        public EveUnityCultMeshProviderDiscovery(CultMeshAuthorityTrustPolicy? authorityTrust = null)
+        {
+            _authorityTrust = authorityTrust ?? new CultMeshAuthorityTrustPolicy(
+                CultMeshAuthorityTrustMode.AuthenticatedRemote);
+        }
+
         public async Task<EveUnityCultMeshProviderSelection> DiscoverAsync(
             string rendezvousEndpoint,
             string providerId = "",
@@ -85,7 +93,8 @@ namespace GameCult.Eve.UnityScene
             var observed = new List<string>();
             using var mesh = new CultMeshClient(new CultMeshClientOptions
             {
-                RendezvousEndpoints = new[] { rendezvousEndpoint }
+                RendezvousEndpoints = new[] { rendezvousEndpoint },
+                Sessions = new CultMeshSessionManagerOptions { Trust = _authorityTrust }
             });
             foreach (var candidate in candidates)
             {

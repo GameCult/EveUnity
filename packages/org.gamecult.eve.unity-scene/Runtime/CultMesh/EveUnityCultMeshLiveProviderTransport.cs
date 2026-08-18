@@ -513,7 +513,10 @@ namespace GameCult.Eve.UnityScene
             _meshClient = new CultMeshClient(new CultMeshClientOptions
             {
                 RendezvousEndpoints = new[] { _rendezvousEndpoint },
+                Discovery = EveUnityCultMeshConnectivity.Discovery(),
                 Sessions = new CultMeshSessionManagerOptions { Trust = _authorityTrust },
+                Connectors = EveUnityCultMeshConnectivity.SchemaConnectors(),
+                ContentConnectors = EveUnityCultMeshConnectivity.ContentConnectors(),
                 RealtimeConnectors = new ICultMeshRealtimeTransportConnector[]
                 {
                     new CultMeshNativeQuicRealtimeTransportConnector()

@@ -42,6 +42,8 @@ namespace GameCult.Eve.UnityScene
         [SerializeField] private string runtimeId = "eve-unity";
         private CultMeshAuthorityTrustPolicy _authorityTrust = new CultMeshAuthorityTrustPolicy(
             CultMeshAuthorityTrustMode.AuthenticatedRemote);
+        private CultMeshAuthorityTrustPolicy _navigationAuthorityTrust = new CultMeshAuthorityTrustPolicy(
+            CultMeshAuthorityTrustMode.AuthenticatedRemote);
 
         private EveUnityCultMeshLiveProviderTransport? _transport;
         private EveUnitySceneLiveProviderBridge? _bridge;
@@ -90,7 +92,8 @@ namespace GameCult.Eve.UnityScene
             string verseId = "",
             string requiredSurfaceKind = "interactive-world",
             string clientRuntimeId = "eve-unity",
-            CultMeshAuthorityTrustPolicy? authorityTrust = null)
+            CultMeshAuthorityTrustPolicy? authorityTrust = null,
+            CultMeshAuthorityTrustPolicy? navigationAuthorityTrust = null)
         {
             if (_bridge != null || _preparation != null)
                 throw new InvalidOperationException("Disconnect the active provider before changing discovery configuration.");
@@ -104,6 +107,7 @@ namespace GameCult.Eve.UnityScene
             runtimeId = string.IsNullOrWhiteSpace(clientRuntimeId) ? "eve-unity" : clientRuntimeId;
             _authorityTrust = authorityTrust ?? new CultMeshAuthorityTrustPolicy(
                 CultMeshAuthorityTrustMode.AuthenticatedRemote);
+            _navigationAuthorityTrust = navigationAuthorityTrust ?? _authorityTrust;
         }
 
         public void Connect()
@@ -141,7 +145,10 @@ namespace GameCult.Eve.UnityScene
             var navigationEndpoint = target.RendezvousEndpoints
                 .FirstOrDefault(endpoint => !string.IsNullOrWhiteSpace(endpoint));
             if (!string.IsNullOrWhiteSpace(navigationEndpoint))
+            {
                 rendezvousEndpoint = navigationEndpoint;
+                _authorityTrust = _navigationAuthorityTrust;
+            }
             verseFilter = target.VerseId;
             providerFilter = target.ProviderId;
             surfaceFilter = target.SurfaceId;

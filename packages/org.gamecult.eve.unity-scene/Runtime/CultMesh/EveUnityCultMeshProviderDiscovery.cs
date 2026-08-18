@@ -61,7 +61,7 @@ namespace GameCult.Eve.UnityScene
             CultMeshVerseCatalogResponseMessage response;
             try
             {
-                response = await CultMesh.CreateVerseDiscoveryClient().FetchAsync(
+                response = await CultMesh.CreateVerseDiscoveryClient(EveUnityCultMeshConnectivity.Discovery()).FetchAsync(
                     rendezvousEndpoint,
                     new CultMeshVerseCatalogRequestMessage
                     {
@@ -94,7 +94,10 @@ namespace GameCult.Eve.UnityScene
             using var mesh = new CultMeshClient(new CultMeshClientOptions
             {
                 RendezvousEndpoints = new[] { rendezvousEndpoint },
-                Sessions = new CultMeshSessionManagerOptions { Trust = _authorityTrust }
+                Discovery = EveUnityCultMeshConnectivity.Discovery(),
+                Sessions = new CultMeshSessionManagerOptions { Trust = _authorityTrust },
+                Connectors = EveUnityCultMeshConnectivity.SchemaConnectors(),
+                ContentConnectors = EveUnityCultMeshConnectivity.ContentConnectors()
             });
             foreach (var candidate in candidates)
             {

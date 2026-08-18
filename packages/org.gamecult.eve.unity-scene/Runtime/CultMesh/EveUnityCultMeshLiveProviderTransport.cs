@@ -32,6 +32,8 @@ namespace GameCult.Eve.UnityScene
         private readonly string _runtimeId;
         private readonly HashSet<string> _pendingCommandIds = new HashSet<string>(StringComparer.Ordinal);
         private readonly HashSet<string> _publishedReceiptIds = new HashSet<string>(StringComparer.Ordinal);
+        private readonly Dictionary<string, Task<ReceiptSubscription>> _receiptSubscriptions =
+            new Dictionary<string, Task<ReceiptSubscription>>(StringComparer.Ordinal);
         private readonly Dictionary<string, GameObject> _prefabs = new Dictionary<string, GameObject>(StringComparer.Ordinal);
         private readonly Dictionary<string, UnityEngine.Object> _nativeAssets = new Dictionary<string, UnityEngine.Object>(StringComparer.Ordinal);
         private readonly Dictionary<string, IReadOnlyDictionary<string, string>> _nativeAssetMetadata =
@@ -377,15 +379,24 @@ namespace GameCult.Eve.UnityScene
 
         private Task SendCommandAsync(EveSurfaceCommandRequest request, CancellationToken cancellationToken)
         {
+            return SendCommandWithReceiptLeaseAsync(request, cancellationToken);
+        }
+
+        private async Task SendCommandWithReceiptLeaseAsync(
+            EveSurfaceCommandRequest request,
+            CancellationToken cancellationToken)
+        {
+            await EnsureReceiptSubscriptionAsync(request.CommandId, cancellationToken).ConfigureAwait(false);
             var interaction = RequireWorldInteraction();
             var recordKey = ChildRecordKey(interaction.CommandRecordRef, request.CommandId);
-            return _meshClient!.SubmitDocumentAsync(
-                _target,
-                recordKey,
-                request,
-                _runtimeId,
-                "eve-unity",
-                cancellationToken);
+            await _meshClient!.SubmitDocumentAsync(
+                    _target,
+                    recordKey,
+                    request,
+                    _runtimeId,
+                    "eve-unity",
+                    cancellationToken)
+                .ConfigureAwait(false);
         }
 
         private string? ContinuousCommandKey(EveSurfaceCommandRequest request)
@@ -399,7 +410,14 @@ namespace GameCult.Eve.UnityScene
 
         private void ForgetPendingCommand(string commandId)
         {
-            lock (_pendingCommandIds) _pendingCommandIds.Remove(commandId);
+            Task<ReceiptSubscription>? subscription = null;
+            lock (_pendingCommandIds)
+            {
+                _pendingCommandIds.Remove(commandId);
+                if (_receiptSubscriptions.TryGetValue(commandId, out subscription))
+                    _receiptSubscriptions.Remove(commandId);
+            }
+            if (subscription != null) DisposeReceiptSubscription(subscription);
         }
 
         public void Dispose()
@@ -442,6 +460,9 @@ namespace GameCult.Eve.UnityScene
             {
                 _pendingCommandIds.Clear();
                 _publishedReceiptIds.Clear();
+                foreach (var subscription in _receiptSubscriptions.Values)
+                    DisposeReceiptSubscription(subscription);
+                _receiptSubscriptions.Clear();
             }
             _lifetime.Dispose();
         }
@@ -1040,10 +1061,91 @@ namespace GameCult.Eve.UnityScene
                     cancellationToken,
                     publishInitial: false);
             }
-            await LeaseCollectionAsync<EveCommandReceiptDocument>(
-                receipt => _liveDocuments.Enqueue(receipt),
-                cancellationToken,
-                includeInitialSnapshot: false);
+            var interaction = RequireWorldInteraction();
+            if (!string.Equals(interaction.ReceiptSchema, EveCommandReceiptDocument.SchemaId, StringComparison.Ordinal))
+                throw new InvalidOperationException(
+                    $"The provider advertises receipt schema '{interaction.ReceiptSchema}', expected '{EveCommandReceiptDocument.SchemaId}'.");
+            if (string.IsNullOrWhiteSpace(interaction.ReceiptRecordRef))
+                throw new InvalidOperationException("The provider advertisement does not publish a receipt record reference.");
+        }
+
+        private Task<ReceiptSubscription> EnsureReceiptSubscriptionAsync(
+            string commandId,
+            CancellationToken cancellationToken)
+        {
+            Task<ReceiptSubscription> subscription;
+            lock (_pendingCommandIds)
+            {
+                if (_receiptSubscriptions.TryGetValue(commandId, out subscription!)) return subscription;
+                subscription = OpenReceiptSubscriptionAsync(commandId, cancellationToken);
+                _receiptSubscriptions.Add(commandId, subscription);
+            }
+            return RemoveFailedReceiptSubscriptionAsync(commandId, subscription);
+        }
+
+        private async Task<ReceiptSubscription> RemoveFailedReceiptSubscriptionAsync(
+            string commandId,
+            Task<ReceiptSubscription> subscription)
+        {
+            try { return await subscription.ConfigureAwait(false); }
+            catch
+            {
+                lock (_pendingCommandIds)
+                {
+                    if (_receiptSubscriptions.TryGetValue(commandId, out var current) &&
+                        ReferenceEquals(current, subscription))
+                        _receiptSubscriptions.Remove(commandId);
+                }
+                throw;
+            }
+        }
+
+        private async Task<ReceiptSubscription> OpenReceiptSubscriptionAsync(
+            string commandId,
+            CancellationToken cancellationToken)
+        {
+            var recordKey = ChildRecordKey(RequireWorldInteraction().ReceiptRecordRef, commandId);
+            var lease = await _meshClient!.LeaseDocumentAsync<EveCommandReceiptDocument>(
+                    _target,
+                    recordKey,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            IDisposable? watch = null;
+            try
+            {
+                watch = lease.Handle.Watch(receipt => QueueReceipt(commandId, receipt));
+                try { QueueReceipt(commandId, await lease.Handle.LatestAsync().ConfigureAwait(false)); }
+                catch (KeyNotFoundException) { }
+                return new ReceiptSubscription(lease, watch);
+            }
+            catch
+            {
+                watch?.Dispose();
+                lease.Dispose();
+                throw;
+            }
+        }
+
+        private void QueueReceipt(string expectedCommandId, EveCommandReceiptDocument receipt)
+        {
+            if (receipt == null ||
+                !string.Equals(receipt.CommandId, expectedCommandId, StringComparison.Ordinal) ||
+                !string.Equals(receipt.ProviderId, _providerId, StringComparison.Ordinal) ||
+                !string.Equals(receipt.SurfaceId, _surfaceId, StringComparison.Ordinal))
+                return;
+            _liveDocuments.Enqueue(receipt);
+        }
+
+        private static void DisposeReceiptSubscription(Task<ReceiptSubscription> subscription)
+        {
+            if (subscription.Status == TaskStatus.RanToCompletion)
+                subscription.Result.Dispose();
+            else
+                _ = subscription.ContinueWith(
+                    completed => { if (completed.Status == TaskStatus.RanToCompletion) completed.Result.Dispose(); },
+                    CancellationToken.None,
+                    TaskContinuationOptions.ExecuteSynchronously,
+                    TaskScheduler.Default);
         }
 
         private void DisposeLiveDocuments()
@@ -1470,9 +1572,9 @@ namespace GameCult.Eve.UnityScene
             {
                 if (!_pendingCommandIds.Contains(receipt.CommandId) || !_publishedReceiptIds.Add(receipt.ReceiptId))
                     return;
-                _pendingCommandIds.Remove(receipt.CommandId);
             }
             _commandOutbox?.Acknowledge(receipt.CommandId);
+            ForgetPendingCommand(receipt.CommandId);
             CommandReceiptAvailable?.Invoke(new EveUnitySceneCommandReceipt(
                 receipt.ReceiptId,
                 receipt.Command,
@@ -1494,6 +1596,24 @@ namespace GameCult.Eve.UnityScene
                         receipt.Navigation.SurfaceId,
                         receipt.Navigation.SurfaceKind,
                         receipt.Navigation.RendezvousEndpoints)));
+        }
+
+        private sealed class ReceiptSubscription : IDisposable
+        {
+            private IDisposable? _lease;
+            private IDisposable? _watch;
+
+            public ReceiptSubscription(IDisposable lease, IDisposable watch)
+            {
+                _lease = lease;
+                _watch = watch;
+            }
+
+            public void Dispose()
+            {
+                Interlocked.Exchange(ref _watch, null)?.Dispose();
+                Interlocked.Exchange(ref _lease, null)?.Dispose();
+            }
         }
 
         private EveWorldInteractionAdvertisement RequireWorldInteraction()

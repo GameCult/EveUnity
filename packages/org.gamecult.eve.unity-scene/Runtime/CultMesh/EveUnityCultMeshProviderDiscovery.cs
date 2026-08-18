@@ -14,23 +14,23 @@ namespace GameCult.Eve.UnityScene
     {
         public EveUnityCultMeshProviderSelection(
             string rendezvousEndpoint,
-            string endpointId,
             string verseId,
+            string authorityRuntimeId,
             string providerId,
             string surfaceId,
             string surfaceKind)
         {
             RendezvousEndpoint = rendezvousEndpoint ?? "";
-            EndpointId = endpointId ?? "";
             VerseId = verseId ?? "";
+            AuthorityRuntimeId = authorityRuntimeId ?? "";
             ProviderId = providerId ?? "";
             SurfaceId = surfaceId ?? "";
             SurfaceKind = surfaceKind ?? "";
         }
 
         public string RendezvousEndpoint { get; }
-        public string EndpointId { get; }
         public string VerseId { get; }
+        public string AuthorityRuntimeId { get; }
         public string ProviderId { get; }
         public string SurfaceId { get; }
         public string SurfaceKind { get; }
@@ -95,41 +95,48 @@ namespace GameCult.Eve.UnityScene
             });
             foreach (var candidate in candidates)
             {
-                try
+                foreach (var authorityRuntimeId in (candidate.AuthorityRuntimeIds ?? Array.Empty<string>())
+                    .Where(id => !string.IsNullOrWhiteSpace(id))
+                    .Distinct(StringComparer.Ordinal)
+                    .OrderBy(id => id, StringComparer.Ordinal))
                 {
-                    using var advertisementsLease = await mesh
-                        .LeaseCollectionAsync<EveProviderAdvertisementDocument>(candidate.VerseId)
-                        .ConfigureAwait(false);
-                    var advertisements = await advertisementsLease.Handle.LatestAsync().ConfigureAwait(false);
-                    observed.AddRange(advertisements.Select(document =>
-                        $"{candidate.VerseId}: {document.ProviderId}[{string.Join(",", document.Surfaces.Select(surface => $"{surface.SurfaceId}:{surface.SurfaceKind}"))}]"));
-                    var advertisement = advertisements
-                        .Where(document => string.IsNullOrWhiteSpace(providerId) ||
-                                           string.Equals(document.ProviderId, providerId, StringComparison.Ordinal))
-                        .Select(document => new
-                        {
-                            Document = document,
-                            Surface = document.Surfaces.FirstOrDefault(surface =>
-                                (string.IsNullOrWhiteSpace(surfaceId) ||
-                                 string.Equals(surface.SurfaceId, surfaceId, StringComparison.Ordinal)) &&
-                                (string.IsNullOrWhiteSpace(surfaceKind) ||
-                                 string.Equals(surface.SurfaceKind, surfaceKind, StringComparison.Ordinal)))
-                        })
-                        .FirstOrDefault(match => match.Surface != null);
-                    if (advertisement?.Surface == null)
-                        continue;
+                    try
+                    {
+                        var target = new CultMeshSessionTarget(candidate.VerseId, authorityRuntimeId);
+                        using var advertisementsLease = await mesh
+                            .LeaseCollectionAsync<EveProviderAdvertisementDocument>(target)
+                            .ConfigureAwait(false);
+                        var advertisements = await advertisementsLease.Handle.LatestAsync().ConfigureAwait(false);
+                        observed.AddRange(advertisements.Select(document =>
+                            $"{target}: {document.ProviderId}[{string.Join(",", document.Surfaces.Select(surface => $"{surface.SurfaceId}:{surface.SurfaceKind}"))}]"));
+                        var advertisement = advertisements
+                            .Where(document => string.IsNullOrWhiteSpace(providerId) ||
+                                               string.Equals(document.ProviderId, providerId, StringComparison.Ordinal))
+                            .Select(document => new
+                            {
+                                Document = document,
+                                Surface = document.Surfaces.FirstOrDefault(surface =>
+                                    (string.IsNullOrWhiteSpace(surfaceId) ||
+                                     string.Equals(surface.SurfaceId, surfaceId, StringComparison.Ordinal)) &&
+                                    (string.IsNullOrWhiteSpace(surfaceKind) ||
+                                     string.Equals(surface.SurfaceKind, surfaceKind, StringComparison.Ordinal)))
+                            })
+                            .FirstOrDefault(match => match.Surface != null);
+                        if (advertisement?.Surface == null)
+                            continue;
 
-                    return new EveUnityCultMeshProviderSelection(
-                        rendezvousEndpoint,
-                        candidate.VerseId,
-                        candidate.VerseId,
-                        advertisement.Document.ProviderId,
-                        advertisement.Surface.SurfaceId,
-                        advertisement.Surface.SurfaceKind);
-                }
-                catch (Exception error)
-                {
-                    failures.Add($"{candidate.VerseId}: {error.Message}");
+                        return new EveUnityCultMeshProviderSelection(
+                            rendezvousEndpoint,
+                            candidate.VerseId,
+                            authorityRuntimeId,
+                            advertisement.Document.ProviderId,
+                            advertisement.Surface.SurfaceId,
+                            advertisement.Surface.SurfaceKind);
+                    }
+                    catch (Exception error)
+                    {
+                        failures.Add($"{candidate.VerseId}/{authorityRuntimeId}: {error.Message}");
+                    }
                 }
             }
 

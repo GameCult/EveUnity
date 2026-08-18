@@ -26,7 +26,7 @@ namespace GameCult.Eve.UnityScene
     {
         private readonly string _cachePath;
         private readonly string _rendezvousEndpoint;
-        private readonly string _endpointId;
+        private readonly CultMeshSessionTarget _target;
         private readonly string _providerId;
         private readonly string _surfaceId;
         private readonly string _runtimeId;
@@ -83,7 +83,8 @@ namespace GameCult.Eve.UnityScene
         public EveUnityCultMeshLiveProviderTransport(
             string cachePath,
             string rendezvousEndpoint,
-            string endpointId,
+            string verseId,
+            string authorityRuntimeId,
             string providerId,
             string surfaceId,
             string runtimeId = "eve-unity",
@@ -95,9 +96,7 @@ namespace GameCult.Eve.UnityScene
             _rendezvousEndpoint = string.IsNullOrWhiteSpace(rendezvousEndpoint)
                 ? throw new ArgumentException("CultMesh rendezvous endpoint must be non-empty.", nameof(rendezvousEndpoint))
                 : rendezvousEndpoint.Trim();
-            _endpointId = string.IsNullOrWhiteSpace(endpointId)
-                ? throw new ArgumentException("CultMesh stable endpoint identity must be non-empty.", nameof(endpointId))
-                : endpointId.Trim();
+            _target = new CultMeshSessionTarget(verseId, authorityRuntimeId);
             _providerId = string.IsNullOrWhiteSpace(providerId)
                 ? throw new ArgumentException("Provider id must be non-empty.", nameof(providerId))
                 : providerId.Trim();
@@ -189,7 +188,7 @@ namespace GameCult.Eve.UnityScene
             catch (Exception error) when (error is IOException || error is SocketException || error is TimeoutException)
             {
                 throw new InvalidOperationException(
-                    $"CultMesh provider '{_providerId}' bootstrap through stable endpoint '{_endpointId}' failed.",
+                    $"CultMesh provider '{_providerId}' bootstrap through target '{_target}' failed.",
                     error);
             }
         }
@@ -361,7 +360,7 @@ namespace GameCult.Eve.UnityScene
             {
                 var recordKey = ChildRecordKey(interaction.CommandRecordRef, commandId);
                 _meshClient!.SubmitDocumentAsync(
-                        _endpointId,
+                        _target,
                         recordKey,
                         request,
                         _runtimeId,
@@ -466,7 +465,7 @@ namespace GameCult.Eve.UnityScene
             if (!forceRefresh && _advertisement != null && _advertisedSurface != null)
                 return;
             using var advertisements = _meshClient!
-                .LeaseCollectionAsync<EveProviderAdvertisementDocument>(_endpointId)
+                .LeaseCollectionAsync<EveProviderAdvertisementDocument>(_target)
                 .GetAwaiter()
                 .GetResult();
             _advertisement = advertisements.Handle.LatestAsync().GetAwaiter().GetResult().FirstOrDefault(document =>
@@ -490,7 +489,7 @@ namespace GameCult.Eve.UnityScene
             var mappedRoot = _cachePath;
             var networkBodies = _meshClient!.BodyProvider(
                 _advertisement.ProviderId,
-                _advertisement.ServiceId,
+                _target,
                 new CultMeshSessionBodyProviderOptions { ResponseTimeout = TimeSpan.FromSeconds(2) });
             return new CultMeshBodyPublicationResolver(new CultMeshBodyTransportService(
                 new ICultMeshBodyTransportAdapter[]
@@ -604,19 +603,20 @@ namespace GameCult.Eve.UnityScene
                 throw new InvalidOperationException(
                     $"Eve provider '{_providerId}' does not advertise the Verse identity required for realtime state.");
             _realtimeLifetime = new CancellationTokenSource();
-            _realtimePump = Task.Run(() => PumpRealtimeEntityStateAsync(
-                _advertisement.VerseId,
-                _realtimeLifetime.Token));
+            if (!string.Equals(_advertisement.VerseId, _target.VerseId, StringComparison.Ordinal))
+                throw new InvalidOperationException(
+                    $"Eve provider '{_providerId}' advertisement Verse '{_advertisement.VerseId}' does not match selected Verse '{_target.VerseId}'.");
+            _realtimePump = Task.Run(() => PumpRealtimeEntityStateAsync(_realtimeLifetime.Token));
         }
 
-        private async Task PumpRealtimeEntityStateAsync(string verseId, CancellationToken cancellationToken)
+        private async Task PumpRealtimeEntityStateAsync(CancellationToken cancellationToken)
         {
             try
             {
                 _realtimeSession = await _meshClient!
-                    .ConnectRealtimeAsync(verseId, cancellationToken)
+                    .ConnectRealtimeAsync(_target, cancellationToken)
                     .ConfigureAwait(false);
-                TraceHotState($"realtime state connected transport={_realtimeSession.TransportId} verse={verseId}");
+                TraceHotState($"realtime state connected transport={_realtimeSession.TransportId} target={_target}");
                 while (!cancellationToken.IsCancellationRequested)
                 {
                     var frame = await _realtimeSession.ReceiveAsync(cancellationToken).ConfigureAwait(false);
@@ -823,7 +823,7 @@ namespace GameCult.Eve.UnityScene
         private void RefreshSurface()
         {
             var surface = _meshClient!
-                .ReadAsync<EveSurfaceDocument>(_endpointId, _advertisedSurface!.RecordRef)
+                .ReadAsync<EveSurfaceDocument>(_target, _advertisedSurface!.RecordRef)
                 .GetAwaiter()
                 .GetResult();
             PublishBaseSurface(surface);
@@ -1010,7 +1010,7 @@ namespace GameCult.Eve.UnityScene
             bool publishInitial = true)
             where TDocument : class
         {
-            var lease = _meshClient!.LeaseDocumentAsync<TDocument>(_endpointId, recordKey)
+            var lease = _meshClient!.LeaseDocumentAsync<TDocument>(_target, recordKey)
                 .GetAwaiter().GetResult();
             _documentLeases.Add(lease);
             if (publishInitial) publish(lease.Handle.Latest());
@@ -1022,7 +1022,7 @@ namespace GameCult.Eve.UnityScene
             bool includeInitialSnapshot = true)
             where TDocument : class
         {
-            var lease = _meshClient!.LeaseCollectionAsync<TDocument>(_endpointId, includeInitialSnapshot)
+            var lease = _meshClient!.LeaseCollectionAsync<TDocument>(_target, includeInitialSnapshot)
                 .GetAwaiter().GetResult();
             _documentLeases.Add(lease);
             if (includeInitialSnapshot)
@@ -1068,7 +1068,7 @@ namespace GameCult.Eve.UnityScene
                 return;
 
             var catalog = _meshClient!
-                .ReadAsync<EveAssetCatalogDocument>(_endpointId, interaction.AssetManifestRecordRef)
+                .ReadAsync<EveAssetCatalogDocument>(_target, interaction.AssetManifestRecordRef)
                 .GetAwaiter()
                 .GetResult();
             PublishAssetCatalog(catalog);
@@ -1157,7 +1157,7 @@ namespace GameCult.Eve.UnityScene
                     EnsureBundleLoaded(dependency);
 
                 var groupElapsed = Stopwatch.StartNew();
-                var descriptor = _meshClient!.ReadAsync<CultMeshCdnArtifactManifest>(_endpointId, uri)
+                var descriptor = _meshClient!.ReadAsync<CultMeshCdnArtifactManifest>(_target, uri)
                     .GetAwaiter()
                     .GetResult();
                 TraceStartup("asset-manifest", groupElapsed);
@@ -1280,7 +1280,7 @@ namespace GameCult.Eve.UnityScene
                 {
                     _meshClient!.ContentProvider(
                         _advertisement.ProviderId,
-                        _advertisement.ServiceId)
+                        _target)
                 },
                 new CultMeshContentTransferOptions(cacheRoot),
                 _assetBodyMappings);

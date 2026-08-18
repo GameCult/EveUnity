@@ -32,6 +32,7 @@ namespace GameCult.Eve.UnityScene.Tests
                     "cultnet://127.0.0.1:3075",
                     "aetheria",
                     "aetheria",
+                    "aetheria",
                     "aetheria.pilot");
             });
         }
@@ -65,6 +66,7 @@ namespace GameCult.Eve.UnityScene.Tests
             using var transport = new EveUnityCultMeshLiveProviderTransport(
                 "test-cache",
                 "cultnet://127.0.0.1:3075",
+                "aetheria",
                 "aetheria",
                 "aetheria",
                 "aetheria.pilot");
@@ -102,6 +104,7 @@ namespace GameCult.Eve.UnityScene.Tests
                 "cultnet://127.0.0.1:3075",
                 "aetheria",
                 "aetheria",
+                "aetheria",
                 "aetheria.pilot");
             var view = EntityLeaseDocument();
             var publication = BodyPublication(view, view.Sequence);
@@ -129,6 +132,7 @@ namespace GameCult.Eve.UnityScene.Tests
             using var transport = new EveUnityCultMeshLiveProviderTransport(
                 "test-cache",
                 "cultnet://127.0.0.1:3075",
+                "provider",
                 "provider",
                 "provider",
                 "provider.pilot");
@@ -159,6 +163,7 @@ namespace GameCult.Eve.UnityScene.Tests
             using var transport = new EveUnityCultMeshLiveProviderTransport(
                 "test-cache",
                 "cultnet://127.0.0.1:3075",
+                "provider",
                 "provider",
                 "provider",
                 "provider.pilot");

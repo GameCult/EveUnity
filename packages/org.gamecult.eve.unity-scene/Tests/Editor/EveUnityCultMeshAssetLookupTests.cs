@@ -26,8 +26,8 @@ namespace GameCult.Eve.UnityScene.Tests
                 "interactive-world");
 
             Assert.That(selection.RendezvousEndpoint, Is.EqualTo("cultnet+tcp://odin.example:3075"));
-            Assert.That(selection.EndpointId, Is.EqualTo("aetheria.public"));
             Assert.That(selection.VerseId, Is.EqualTo("aetheria.public"));
+            Assert.That(selection.AuthorityRuntimeId, Is.EqualTo("aetheria.public"));
             Assert.That(typeof(EveUnityCultMeshProviderSelection).GetProperty("Endpoint"), Is.Null);
         }
 
@@ -178,6 +178,7 @@ namespace GameCult.Eve.UnityScene.Tests
             using var transport = new EveUnityCultMeshLiveProviderTransport(
                 Path.Combine(Path.GetTempPath(), $"eve-lazy-assets-{Guid.NewGuid():N}.cc"),
                 "cultnet+tcp://127.0.0.1:1",
+                "provider",
                 "provider",
                 "provider",
                 "surface");

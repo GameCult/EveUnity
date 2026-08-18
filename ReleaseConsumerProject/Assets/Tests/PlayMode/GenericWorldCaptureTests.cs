@@ -310,7 +310,8 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                 Assert.That(provider.Selection.SurfaceId, Is.Not.Empty);
                 var quicProof = ReceiveAdvertisedRealtimeFrameAsync(
                     rendezvousEndpoint,
-                    provider.Selection.VerseId);
+                    provider.Selection.VerseId,
+                    provider.Selection.AuthorityRuntimeId);
                 var quicDeadline = Time.realtimeSinceStartup + 15f;
                 while (!quicProof.IsCompleted && Time.realtimeSinceStartup < quicDeadline)
                     yield return new WaitForSecondsRealtime(0.05f);
@@ -1200,7 +1201,8 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
 
         private static async Task<CultMeshRealtimeFrame> ReceiveAdvertisedRealtimeFrameAsync(
             string rendezvousEndpoint,
-            string verseId)
+            string verseId,
+            string authorityRuntimeId)
         {
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
             using var client = new CultMeshClient(new CultMeshClientOptions
@@ -1211,7 +1213,9 @@ namespace GameCult.EveUnity.GenericClient.PlayModeTests
                     new CultMeshNativeQuicRealtimeTransportConnector()
                 }
             });
-            using var session = await client.ConnectRealtimeAsync(verseId, timeout.Token);
+            using var session = await client.ConnectRealtimeAsync(
+                new CultMeshSessionTarget(verseId, authorityRuntimeId),
+                timeout.Token);
             return await session.ReceiveAsync(timeout.Token);
         }
 

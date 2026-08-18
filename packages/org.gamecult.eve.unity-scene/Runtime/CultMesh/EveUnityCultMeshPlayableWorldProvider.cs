@@ -250,7 +250,8 @@ namespace GameCult.Eve.UnityScene
             _transport = new EveUnityCultMeshLiveProviderTransport(
                 resolvedCachePath,
                 Selection.RendezvousEndpoint,
-                Selection.EndpointId,
+                Selection.VerseId,
+                Selection.AuthorityRuntimeId,
                 Selection.ProviderId,
                 Selection.SurfaceId,
                 runtimeId);

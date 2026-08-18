@@ -15,7 +15,12 @@ $arguments = @(
   "-testResults", $results, "-logFile", $logPath
 )
 
-$process = Start-Process -FilePath $UnityExe -ArgumentList $arguments -WorkingDirectory $repoRoot -Wait -PassThru -WindowStyle Hidden
+$process = Start-Process -FilePath $UnityExe -ArgumentList $arguments -WorkingDirectory $repoRoot -PassThru -WindowStyle Hidden
+if (-not $process.WaitForExit([int][TimeSpan]::FromMinutes(10).TotalMilliseconds)) {
+  Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+  if (Test-Path $logPath) { Get-Content -LiteralPath $logPath -Tail 120 }
+  throw "Released EveUnity package consumer tests timed out after 10 minutes (Unity PID $($process.Id))."
+}
 if ($process.ExitCode -ne 0) {
   if (Test-Path $logPath) { Get-Content -LiteralPath $logPath -Tail 120 }
   throw "Released EveUnity package consumer tests failed with exit code $($process.ExitCode)"

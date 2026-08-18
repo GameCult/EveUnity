@@ -9,3 +9,6 @@ TestProject/UserSettings/
 obj/
 *.csproj
 *.sln
+packages/org.gamecult.eve.surface/bin~/
+packages/org.gamecult.eve.surface/obj~/
+packages/org.gamecult.eve.surface/Directory.Build.props.meta

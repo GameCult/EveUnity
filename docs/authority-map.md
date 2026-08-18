@@ -79,7 +79,10 @@ submissions share the same stable-identity `CultMeshClient` owner.
 Remote bootstrap and asset materialization complete through `PrepareAsync`
 before the scene is mounted. `Connect`, `Mount`, input, refresh, and disposal
 cannot synchronously wait on CultMesh. A bounded command outbox owns delivery;
-only unsent continuous movement/look values may be replaced by a newer value.
+continuous movement/look values may be replaced by a newer value, but transport
+send completion cannot retire any command. Only the provider's canonical
+receipt retires its idempotency key. Unacknowledged work is retried fairly; it
+cannot become client-authored success or starve unrelated commands.
 
 Viewport-sized shader inputs are likewise presentation state. A provider may
 relate a logical vector port to a logical native texture port through

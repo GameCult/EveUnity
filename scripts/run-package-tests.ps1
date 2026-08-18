@@ -3,6 +3,8 @@ param(
   [string] $CultLibRoot = "",
   [string] $EveRoot = "",
   [string] $EvePluginsRoot = "",
+  [string] $NuGetConfig = "",
+  [switch] $SkipCultLibBuild,
   [string] $ProjectRoot = "TestProject",
   [string] $OutputRoot = "artifacts\package-tests"
 )
@@ -33,8 +35,14 @@ foreach ($required in @(
   if (-not (Test-Path -LiteralPath $required)) { throw "Required EveUnity package-test path not found: $required" }
 }
 
-powershell -ExecutionPolicy Bypass -File $cultLibBuilder
-if ($LASTEXITCODE -ne 0) { throw "CultLib Unity package build failed with exit code $LASTEXITCODE" }
+if (-not $SkipCultLibBuild) {
+  $cultLibBuildArguments = @("-ExecutionPolicy", "Bypass", "-File", $cultLibBuilder)
+  if (-not [string]::IsNullOrWhiteSpace($NuGetConfig)) {
+    $cultLibBuildArguments += @("-NuGetConfig", [IO.Path]::GetFullPath($NuGetConfig))
+  }
+  & powershell @cultLibBuildArguments
+  if ($LASTEXITCODE -ne 0) { throw "CultLib Unity package build failed with exit code $LASTEXITCODE" }
+}
 
 $builtCultLibPackage = Join-Path $CultLibRoot "artifacts\unity\org.gamecult.cultlib"
 if (-not (Test-Path -LiteralPath $builtCultLibPackage)) {

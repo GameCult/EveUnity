@@ -36,7 +36,7 @@ namespace GameCult.Eve.UnityScene.Tests
         }
 
         [Test]
-        public async Task CommandOutboxReturnsWhileDeliveryIsBlockedAndDeliversOneShotExactlyOnce()
+        public async Task CommandOutboxCompletesOnlyAfterCanonicalReceipt()
         {
             var entered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             var release = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -48,7 +48,8 @@ namespace GameCult.Eve.UnityScene.Tests
                     entered.TrySetResult(true);
                     await AwaitOrCancel(release.Task, cancellationToken);
                 },
-                _ => null);
+                _ => null,
+                retryDelay: TimeSpan.FromMilliseconds(250));
 
             var elapsed = Stopwatch.StartNew();
             outbox.Enqueue(Request("one-shot", "dock"));
@@ -57,8 +58,13 @@ namespace GameCult.Eve.UnityScene.Tests
             Assert.That(outbox.PendingCount, Is.EqualTo(1));
 
             release.TrySetResult(true);
-            await WaitUntilAsync(() => outbox.PendingCount == 0);
+            await WaitUntilAsync(() => outbox.StateOf("one-shot") ==
+                EveUnityCultMeshCommandOutbox.DeliveryState.AwaitingCanonicalReceipt);
+            Assert.That(outbox.PendingCount, Is.EqualTo(1));
             Assert.That(sends, Is.EqualTo(1));
+            Assert.That(outbox.Acknowledge("one-shot"), Is.True);
+            Assert.That(outbox.Acknowledge("one-shot"), Is.False);
+            await WaitUntilAsync(() => outbox.PendingCount == 0);
         }
 
         [Test]
@@ -74,7 +80,8 @@ namespace GameCult.Eve.UnityScene.Tests
                     entered.TrySetResult(true);
                     await AwaitOrCancel(release.Task, cancellationToken);
                 },
-                request => request.PayloadFields["commandId"] + "\u001f" + request.PayloadFields["entityId"]);
+                request => request.PayloadFields["commandId"] + "\u001f" + request.PayloadFields["entityId"],
+                retryDelay: TimeSpan.FromMilliseconds(250));
 
             outbox.Enqueue(Request("move-0", "move"));
             await RequireCompletion(entered.Task);
@@ -83,11 +90,65 @@ namespace GameCult.Eve.UnityScene.Tests
 
             Assert.That(outbox.PendingCount, Is.LessThanOrEqualTo(2));
             release.TrySetResult(true);
+            await WaitUntilAsync(() => outbox.StateOf("move-1000") ==
+                EveUnityCultMeshCommandOutbox.DeliveryState.AwaitingCanonicalReceipt);
+            Assert.That(outbox.Acknowledge("move-1000"), Is.True);
             await WaitUntilAsync(() => outbox.PendingCount == 0);
             lock (sent)
             {
                 CollectionAssert.AreEqual(new[] { "move-0", "move-1000" }, sent);
             }
+        }
+
+        [Test]
+        public async Task CommandOutboxRetriesSameIdWithoutLettingPoisonCommandStarveLaterWork()
+        {
+            var attempts = new List<string>();
+            using var outbox = new EveUnityCultMeshCommandOutbox(
+                (request, _) =>
+                {
+                    lock (attempts) attempts.Add(request.CommandId);
+                    if (request.CommandId == "poison") throw new IOException("route unavailable");
+                    return Task.CompletedTask;
+                },
+                _ => null,
+                retryDelay: TimeSpan.FromMilliseconds(20),
+                maximumRetryDelay: TimeSpan.FromMilliseconds(40));
+
+            outbox.Enqueue(Request("poison", "dock"));
+            outbox.Enqueue(Request("healthy", "undock"));
+
+            await WaitUntilAsync(() => outbox.StateOf("healthy") ==
+                EveUnityCultMeshCommandOutbox.DeliveryState.AwaitingCanonicalReceipt);
+            Assert.That(outbox.Acknowledge("healthy"), Is.True);
+            lock (attempts)
+            {
+                Assert.That(attempts.IndexOf("healthy"), Is.GreaterThanOrEqualTo(0));
+                Assert.That(attempts.FindAll(value => value == "poison"), Is.Not.Empty);
+            }
+            Assert.That(outbox.PendingCount, Is.EqualTo(1));
+        }
+
+        [Test]
+        public async Task CommandOutboxRetransmitsUnacknowledgedCommandWithOriginalId()
+        {
+            var attempts = 0;
+            using var outbox = new EveUnityCultMeshCommandOutbox(
+                (request, _) =>
+                {
+                    Assert.That(request.CommandId, Is.EqualTo("retry-me"));
+                    Interlocked.Increment(ref attempts);
+                    return Task.CompletedTask;
+                },
+                _ => null,
+                retryDelay: TimeSpan.FromMilliseconds(20),
+                maximumRetryDelay: TimeSpan.FromMilliseconds(20));
+
+            outbox.Enqueue(Request("retry-me", "dock"));
+            await WaitUntilAsync(() => Volatile.Read(ref attempts) >= 2);
+            Assert.That(outbox.PendingCount, Is.EqualTo(1));
+            Assert.That(outbox.Acknowledge("retry-me"), Is.True);
+            await WaitUntilAsync(() => outbox.PendingCount == 0);
         }
 
         [Test]

@@ -1472,6 +1472,7 @@ namespace GameCult.Eve.UnityScene
                     return;
                 _pendingCommandIds.Remove(receipt.CommandId);
             }
+            _commandOutbox?.Acknowledge(receipt.CommandId);
             CommandReceiptAvailable?.Invoke(new EveUnitySceneCommandReceipt(
                 receipt.ReceiptId,
                 receipt.Command,

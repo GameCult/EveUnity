@@ -28,7 +28,11 @@ It owns discovery, initial document reads, content transfer, asynchronous asset
 bundle loading, and live lease installation. Once preparation succeeds,
 `Mount()` and `Connect()` perform no remote work. Input submission only enters a
 bounded asynchronous outbox: one-shot commands retain their idempotency keys,
-while unsent movement and look values coalesce to the latest value per entity.
+while movement and look values coalesce to the latest value per entity. A
+successful send is not completion: the command remains pending and retries with
+the same idempotency key until its canonical provider receipt arrives. Failed
+or unacknowledged commands rotate behind other due work, so one poison command
+cannot starve the outbox.
 Live entity, field, and receipt polling likewise remains non-blocking. Unity's
 main thread applies completed typed documents and assets; it never waits for a
 CultMesh task, keeping Play, Pause, input, inspection, and rendering responsive

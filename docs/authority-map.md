@@ -76,6 +76,10 @@ Unity code may not open provider snapshot sessions, schema clients, write
 forwarders, subscriptions, or replica shards against a discovered physical
 route. Reads, watches, content/body transfer, realtime frames, and command
 submissions share the same stable-identity `CultMeshClient` owner.
+Remote bootstrap and asset materialization complete through `PrepareAsync`
+before the scene is mounted. `Connect`, `Mount`, input, refresh, and disposal
+cannot synchronously wait on CultMesh. A bounded command outbox owns delivery;
+only unsent continuous movement/look values may be replaced by a newer value.
 
 Viewport-sized shader inputs are likewise presentation state. A provider may
 relate a logical vector port to a logical native texture port through
@@ -98,8 +102,10 @@ modes into one camera opinion or infer a product camera from entity kind.
 
 ## Shared Paths
 
-Initial connect asks one rendezvous for Verses, selects a provider surface by
-semantic kind, then leases it through the selected stable provider identity.
+Initial preparation asks one rendezvous for Verses, selects an advertised
+authority runtime and provider surface by semantic kind, then leases it through
+the explicit Verse/authority-runtime target. The Eve provider ID remains a
+separate surface-owner identity.
 Refresh, route rotation, reconnect, and terminal-receipt reconciliation remain
 inside the same identity-owned session. Movement, focus, target, and action
 input all become `gamecult.eve.command_invocation.v1` through the

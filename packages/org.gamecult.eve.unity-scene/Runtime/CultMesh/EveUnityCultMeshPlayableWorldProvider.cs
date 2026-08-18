@@ -3,6 +3,7 @@ using System.IO;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Stopwatch = System.Diagnostics.Stopwatch;
 using GameCult.Eve.Surface;
@@ -43,6 +44,7 @@ namespace GameCult.Eve.UnityScene
         private EveUnityCultMeshLiveProviderTransport? _transport;
         private EveUnitySceneLiveProviderBridge? _bridge;
         private Task? _preparation;
+        private CancellationTokenSource? _preparationLifetime;
         private readonly ConcurrentQueue<EntityViewLease> _pendingEntityViews = new ConcurrentQueue<EntityViewLease>();
         private readonly ConcurrentQueue<EveFieldsSplatsDocument> _pendingFields = new ConcurrentQueue<EveFieldsSplatsDocument>();
 
@@ -109,7 +111,11 @@ namespace GameCult.Eve.UnityScene
             if (_bridge != null)
                 return Task.CompletedTask;
             if (_preparation == null || _preparation.IsCanceled || _preparation.IsFaulted)
-                _preparation = PrepareTransportAsync();
+            {
+                _preparationLifetime?.Dispose();
+                _preparationLifetime = new CancellationTokenSource();
+                _preparation = PrepareTransportAsync(_preparationLifetime.Token);
+            }
             return _preparation;
         }
 
@@ -184,6 +190,7 @@ namespace GameCult.Eve.UnityScene
 
         private void ReleaseTransport()
         {
+            _preparationLifetime?.Cancel();
             if (_bridge != null)
             {
                 _bridge.DocumentAvailable -= ForwardDocument;
@@ -196,6 +203,8 @@ namespace GameCult.Eve.UnityScene
             _bridge = null;
             _transport = null;
             _preparation = null;
+            _preparationLifetime?.Dispose();
+            _preparationLifetime = null;
             Selection = null;
         }
 
@@ -228,7 +237,7 @@ namespace GameCult.Eve.UnityScene
             }
         }
 
-        private async Task PrepareTransportAsync()
+        private async Task PrepareTransportAsync(CancellationToken cancellationToken)
         {
             var elapsed = Stopwatch.StartNew();
             if (_transport != null)
@@ -241,13 +250,14 @@ namespace GameCult.Eve.UnityScene
                 providerFilter,
                 surfaceFilter,
                 surfaceKind,
-                verseFilter);
+                verseFilter,
+                cancellationToken);
             TraceStartup($"discovery {elapsed.Elapsed.TotalMilliseconds:0.###}ms");
             elapsed.Restart();
             var resolvedCachePath = string.IsNullOrWhiteSpace(cacheDirectory)
                 ? Path.Combine(Application.temporaryCachePath, $"eve-unity-{GetInstanceID()}")
                 : cacheDirectory;
-            _transport = new EveUnityCultMeshLiveProviderTransport(
+            var transport = new EveUnityCultMeshLiveProviderTransport(
                 resolvedCachePath,
                 Selection.RendezvousEndpoint,
                 Selection.VerseId,
@@ -255,6 +265,17 @@ namespace GameCult.Eve.UnityScene
                 Selection.ProviderId,
                 Selection.SurfaceId,
                 runtimeId);
+            try
+            {
+                await transport.PrepareAsync(cancellationToken);
+            }
+            catch
+            {
+                transport.Dispose();
+                throw;
+            }
+            cancellationToken.ThrowIfCancellationRequested();
+            _transport = transport;
             _transport.EntityViewAvailable += (view, lease) => _pendingEntityViews.Enqueue(new EntityViewLease(view, lease));
             _transport.FieldsSplatsAvailable += fields => _pendingFields.Enqueue(fields);
             _bridge = new EveUnitySceneLiveProviderBridge(_transport);

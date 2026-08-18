@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using GameCult.Eve.Surface;
 using GameCult.Mesh;
@@ -38,21 +39,13 @@ namespace GameCult.Eve.UnityScene
 
     public sealed class EveUnityCultMeshProviderDiscovery
     {
-        public EveUnityCultMeshProviderSelection Discover(
-            string rendezvousEndpoint,
-            string providerId = "",
-            string surfaceId = "",
-            string surfaceKind = "interactive-world",
-            string verseId = "") =>
-            DiscoverAsync(rendezvousEndpoint, providerId, surfaceId, surfaceKind, verseId)
-                .GetAwaiter().GetResult();
-
         public async Task<EveUnityCultMeshProviderSelection> DiscoverAsync(
             string rendezvousEndpoint,
             string providerId = "",
             string surfaceId = "",
             string surfaceKind = "interactive-world",
-            string verseId = "")
+            string verseId = "",
+            CancellationToken cancellationToken = default)
         {
             if (string.IsNullOrWhiteSpace(rendezvousEndpoint))
                 throw new ArgumentException("Rendezvous endpoint must be non-empty.", nameof(rendezvousEndpoint));
@@ -67,6 +60,7 @@ namespace GameCult.Eve.UnityScene
                         VerseIds = string.IsNullOrWhiteSpace(verseId) ? null : new[] { verseId },
                         TransportVersion = "cultmesh.v0"
                     });
+                cancellationToken.ThrowIfCancellationRequested();
             }
             catch (Exception error)
             {
@@ -104,7 +98,7 @@ namespace GameCult.Eve.UnityScene
                     {
                         var target = new CultMeshSessionTarget(candidate.VerseId, authorityRuntimeId);
                         using var advertisementsLease = await mesh
-                            .LeaseCollectionAsync<EveProviderAdvertisementDocument>(target)
+                            .LeaseCollectionAsync<EveProviderAdvertisementDocument>(target, cancellationToken)
                             .ConfigureAwait(false);
                         var advertisements = await advertisementsLease.Handle.LatestAsync().ConfigureAwait(false);
                         observed.AddRange(advertisements.Select(document =>

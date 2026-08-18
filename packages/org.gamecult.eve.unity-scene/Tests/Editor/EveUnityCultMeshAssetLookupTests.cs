@@ -5,8 +5,11 @@ using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
 using GameCult.Eve.Surface;
 using GameCult.Eve.UnityScene;
+using GameCult.Mesh;
 using NUnit.Framework;
 using UnityEngine;
 
@@ -14,6 +17,79 @@ namespace GameCult.Eve.UnityScene.Tests
 {
     public sealed class EveUnityCultMeshAssetLookupTests
     {
+        [Test]
+        public void ConnectCannotPerformRemoteWorkBeforeAsynchronousPreparation()
+        {
+            using var transport = new EveUnityCultMeshLiveProviderTransport(
+                "test-cache",
+                "cultnet+tcp://127.0.0.1:1",
+                "test.verse",
+                "test.runtime",
+                "test.provider",
+                "test.surface");
+
+            var elapsed = Stopwatch.StartNew();
+            var failure = Assert.Throws<InvalidOperationException>(() => transport.Connect());
+
+            StringAssert.Contains("Await PrepareAsync", failure!.Message);
+            Assert.That(elapsed.Elapsed, Is.LessThan(TimeSpan.FromMilliseconds(100)));
+        }
+
+        [Test]
+        public async Task CommandOutboxReturnsWhileDeliveryIsBlockedAndDeliversOneShotExactlyOnce()
+        {
+            var entered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var release = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var sends = 0;
+            using var outbox = new EveUnityCultMeshCommandOutbox(
+                async (_, cancellationToken) =>
+                {
+                    Interlocked.Increment(ref sends);
+                    entered.TrySetResult(true);
+                    await AwaitOrCancel(release.Task, cancellationToken);
+                },
+                _ => null);
+
+            var elapsed = Stopwatch.StartNew();
+            outbox.Enqueue(Request("one-shot", "dock"));
+            Assert.That(elapsed.Elapsed, Is.LessThan(TimeSpan.FromMilliseconds(100)));
+            await RequireCompletion(entered.Task);
+            Assert.That(outbox.PendingCount, Is.EqualTo(1));
+
+            release.TrySetResult(true);
+            await WaitUntilAsync(() => outbox.PendingCount == 0);
+            Assert.That(sends, Is.EqualTo(1));
+        }
+
+        [Test]
+        public async Task CommandOutboxCoalescesBlockedContinuousInputToTheLatestValue()
+        {
+            var entered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var release = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var sent = new List<string>();
+            using var outbox = new EveUnityCultMeshCommandOutbox(
+                async (request, cancellationToken) =>
+                {
+                    lock (sent) sent.Add(request.CommandId);
+                    entered.TrySetResult(true);
+                    await AwaitOrCancel(release.Task, cancellationToken);
+                },
+                request => request.PayloadFields["commandId"] + "\u001f" + request.PayloadFields["entityId"]);
+
+            outbox.Enqueue(Request("move-0", "move"));
+            await RequireCompletion(entered.Task);
+            for (var index = 1; index <= 1000; index++)
+                outbox.Enqueue(Request("move-" + index, "move"));
+
+            Assert.That(outbox.PendingCount, Is.LessThanOrEqualTo(2));
+            release.TrySetResult(true);
+            await WaitUntilAsync(() => outbox.PendingCount == 0);
+            lock (sent)
+            {
+                CollectionAssert.AreEqual(new[] { "move-0", "move-1000" }, sent);
+            }
+        }
+
         [Test]
         public void ProviderSelectionCarriesStableIdentityWithoutExposingAPhysicalRoute()
         {
@@ -29,6 +105,41 @@ namespace GameCult.Eve.UnityScene.Tests
             Assert.That(selection.VerseId, Is.EqualTo("aetheria.public"));
             Assert.That(selection.AuthorityRuntimeId, Is.EqualTo("aetheria.public"));
             Assert.That(typeof(EveUnityCultMeshProviderSelection).GetProperty("Endpoint"), Is.Null);
+        }
+
+        private static EveSurfaceCommandRequest Request(string id, string command) => new EveSurfaceCommandRequest(
+            "test.provider",
+            "test.surface",
+            CultMesh.OperationInvocation("test.command", idempotencyKey: id),
+            CultMesh.OperationPayload(new Dictionary<string, string>
+            {
+                ["commandId"] = command,
+                ["entityId"] = "ship"
+            }),
+            DateTimeOffset.UtcNow,
+            "test-client");
+
+        private static async Task AwaitOrCancel(Task task, CancellationToken cancellationToken)
+        {
+            var cancelled = Task.Delay(Timeout.Infinite, cancellationToken);
+            if (await Task.WhenAny(task, cancelled) != task)
+                cancellationToken.ThrowIfCancellationRequested();
+            await task;
+        }
+
+        private static async Task RequireCompletion(Task task)
+        {
+            if (await Task.WhenAny(task, Task.Delay(TimeSpan.FromSeconds(2))) != task)
+                Assert.Fail("Timed out waiting for asynchronous command delivery.");
+            await task;
+        }
+
+        private static async Task WaitUntilAsync(Func<bool> predicate)
+        {
+            var deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(2);
+            while (!predicate() && DateTimeOffset.UtcNow < deadline)
+                await Task.Delay(10);
+            Assert.That(predicate(), Is.True, "Timed out waiting for the command outbox to drain.");
         }
 
         [Test]

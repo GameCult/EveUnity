@@ -16,20 +16,23 @@ owned by their native lowerers and are not duplicated into empty UI elements.
 networked client. Give it one Verse rendezvous endpoint and it discovers an
 advertised `interactive-world`, constructs the generic CultMesh transport, and
 provides every bootstrap port. Provider, surface, and Verse IDs are optional
-selection filters; they are not product knowledge required by the client.
-The selected provider ID remains the stable CultMesh endpoint identity while
-the Verse ID names the selected rule/progression world. Physical routes are
-resolved and re-resolved inside `CultMeshClient`; they are never
-published as provider selection state or cached as Unity authority. The optional
-local path is only an ephemeral content/body cache, not a replicated gameplay
-database.
+selection filters; they are not product knowledge required by the client. The
+selected Verse ID and its advertised authority-runtime ID form the stable
+CultMesh session target. The Eve provider ID separately names the UI owner found
+through that target. Physical routes are resolved and re-resolved inside
+`CultMeshClient`; they are never published as provider selection state or
+cached as Unity authority. The optional local path is only an ephemeral
+content/body cache, not a replicated gameplay database.
 Await `PrepareAsync()` before mounting the bootstrap or reading provider ports.
-Discovery and session setup never run synchronously from Unity lifecycle or
-input getters, so an unavailable provider cannot stall the editor main thread.
-Live entity, field, and receipt polling likewise runs as one non-overlapping
-background operation. Unity's main thread only applies completed typed
-documents, keeping Play, Pause, inspection, and rendering responsive while a
-provider is slow or temporarily unreachable.
+It owns discovery, initial document reads, content transfer, asynchronous asset
+bundle loading, and live lease installation. Once preparation succeeds,
+`Mount()` and `Connect()` perform no remote work. Input submission only enters a
+bounded asynchronous outbox: one-shot commands retain their idempotency keys,
+while unsent movement and look values coalesce to the latest value per entity.
+Live entity, field, and receipt polling likewise remains non-blocking. Unity's
+main thread applies completed typed documents and assets; it never waits for a
+CultMesh task, keeping Play, Pause, input, inspection, and rendering responsive
+while a provider is slow or temporarily unreachable.
 
 The package never imports provider product assemblies.
 

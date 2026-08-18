@@ -5,9 +5,16 @@ param(
 
 $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$projectPath = "ReleaseConsumerProject"
+$sourceProjectPath = Join-Path $repoRoot "ReleaseConsumerProject"
 $results = if ([IO.Path]::IsPathRooted($ResultsPath)) { $ResultsPath } else { Join-Path $repoRoot $ResultsPath }
 New-Item -ItemType Directory -Force -Path (Split-Path -Parent $results) | Out-Null
+$runRoot = Join-Path (Split-Path -Parent $results) ("release-consumer-" + (Get-Date -Format "yyyyMMddTHHmmss"))
+$projectPath = Join-Path $runRoot "consumer"
+New-Item -ItemType Directory -Force -Path (Join-Path $projectPath "Packages") | Out-Null
+Copy-Item -LiteralPath (Join-Path $sourceProjectPath "Assets") -Destination (Join-Path $projectPath "Assets") -Recurse
+Copy-Item -LiteralPath (Join-Path $sourceProjectPath "ProjectSettings") -Destination (Join-Path $projectPath "ProjectSettings") -Recurse
+Copy-Item -LiteralPath (Join-Path $sourceProjectPath "Packages\manifest.json") `
+  -Destination (Join-Path $projectPath "Packages\manifest.json")
 $logPath = [IO.Path]::ChangeExtension($results, ".log")
 $arguments = @(
   "-batchmode", "-projectPath", $projectPath,
@@ -31,3 +38,4 @@ if (-not (Test-Path $results)) { throw "Unity did not produce release consumer t
 $result = $report.'test-run'.result
 if ($result -ne "Passed") { throw "Released EveUnity package consumer result was '$result'." }
 Write-Host "Released EveUnity package consumer passed: $results"
+Write-Host "Isolated git consumer: $projectPath"

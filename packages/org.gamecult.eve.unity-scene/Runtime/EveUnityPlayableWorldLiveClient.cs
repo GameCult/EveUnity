@@ -241,6 +241,8 @@ namespace GameCult.Eve.UnityScene
 
         void CommitNavigation();
 
+        void FinalizeNavigation();
+
         void RollbackNavigation();
     }
 

@@ -48,6 +48,7 @@ namespace GameCult.Eve.UnityScene
         private EveUnityCultMeshLiveProviderTransport? _transport;
         private EveUnitySceneLiveProviderBridge? _bridge;
         private PreviousProvider? _previousProvider;
+        private bool _navigationRouteCommitted;
         private Task? _preparation;
         private CancellationTokenSource? _preparationLifetime;
         private readonly ConcurrentQueue<EntityViewLease> _pendingEntityViews = new ConcurrentQueue<EntityViewLease>();
@@ -178,24 +179,32 @@ namespace GameCult.Eve.UnityScene
         {
             var previous = _previousProvider;
             if (previous == null) return;
-            _previousProvider = null;
+            if (_navigationRouteCommitted) return;
             if (previous.Bridge != null)
                 previous.Bridge.ReceiptAvailable -= ForwardReceipt;
             AttachPrepared(_transport, _bridge);
-            previous.Bridge?.Dispose();
-            previous.Transport?.Dispose();
+            _navigationRouteCommitted = true;
+        }
+
+        public void FinalizeNavigation()
+        {
+            var previous = _previousProvider;
+            if (previous == null) return;
+            _previousProvider = null;
+            _navigationRouteCommitted = false;
+            SafeDispose(previous.Bridge);
+            SafeDispose(previous.Transport);
         }
 
         public void RollbackNavigation()
         {
             var previous = _previousProvider;
             if (previous == null) return;
-            _previousProvider = null;
             if (previous.Bridge != null)
                 previous.Bridge.ReceiptAvailable -= ForwardReceipt;
             DetachPrepared(_transport, _bridge);
-            _bridge?.Dispose();
-            _transport?.Dispose();
+            var rejectedBridge = _bridge;
+            var rejectedTransport = _transport;
             while (_pendingEntityViews.TryDequeue(out var pending)) pending.Lease.Dispose();
             while (_pendingFields.TryDequeue(out _)) { }
 
@@ -209,12 +218,18 @@ namespace GameCult.Eve.UnityScene
             surfaceKind = previous.SurfaceKind;
             _authorityTrust = previous.AuthorityTrust;
             AttachPrepared(_transport, _bridge);
+            _previousProvider = null;
+            _navigationRouteCommitted = false;
             _preparation = Task.CompletedTask;
+            SafeDispose(rejectedBridge);
+            SafeDispose(rejectedTransport);
         }
 
         public void Refresh()
         {
-            var activeBridge = _previousProvider?.Bridge ?? Bridge;
+            var activeBridge = _navigationRouteCommitted
+                ? Bridge
+                : _previousProvider?.Bridge ?? Bridge;
             if (activeBridge.IsConnected)
                 activeBridge.Refresh();
             else
@@ -226,7 +241,7 @@ namespace GameCult.Eve.UnityScene
             // Navigation preparation is not a command-routing commit.  The mounted
             // presentation continues to target its old provider until the visual
             // candidate has been lowered and accepted by the bootstrap.
-            (_previousProvider?.Bridge ?? Bridge).Submit(request);
+            (_navigationRouteCommitted ? Bridge : _previousProvider?.Bridge ?? Bridge).Submit(request);
         }
 
         public GameObject? ResolvePrefab(EveUnityPlayableWorldAssetBinding asset)
@@ -273,6 +288,7 @@ namespace GameCult.Eve.UnityScene
             _previousProvider?.Bridge?.Dispose();
             _previousProvider?.Transport?.Dispose();
             _previousProvider = null;
+            _navigationRouteCommitted = false;
             while (_pendingEntityViews.TryDequeue(out var pending)) pending.Lease.Dispose();
             while (_pendingFields.TryDequeue(out _)) { }
             _bridge = null;
@@ -428,6 +444,7 @@ namespace GameCult.Eve.UnityScene
                 surfaceFilter,
                 surfaceKind,
                 _authorityTrust);
+            _navigationRouteCommitted = false;
             DetachPrepared(_transport, _bridge);
             if (_previousProvider.Bridge != null)
                 _previousProvider.Bridge.ReceiptAvailable += ForwardReceipt;
@@ -478,6 +495,18 @@ namespace GameCult.Eve.UnityScene
 
         private void ForwardReceipt(EveUnitySceneCommandReceipt receipt) =>
             ReceiptAvailable?.Invoke(receipt);
+
+        private static void SafeDispose(IDisposable? disposable)
+        {
+            try
+            {
+                disposable?.Dispose();
+            }
+            catch (Exception error)
+            {
+                Debug.LogWarning($"Eve provider cleanup failed after navigation ownership changed: {error}");
+            }
+        }
 
         private static void TraceStartup(string message)
         {

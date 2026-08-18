@@ -36,6 +36,7 @@ namespace GameCult.Eve.UnityScene
 
         private IEveUnitySceneCommandReceiptSource? _navigationReceiptSource;
         private bool _navigationInProgress;
+        private StagedPresentation? _ownedPresentation;
 
         public void ConfigureProvider(MonoBehaviour providerComponent)
         {
@@ -48,7 +49,12 @@ namespace GameCult.Eve.UnityScene
             BindNavigation();
         }
 
-        private void OnDestroy() => UnbindNavigation();
+        private void OnDestroy()
+        {
+            UnbindNavigation();
+            _ownedPresentation?.Dispose();
+            _ownedPresentation = null;
+        }
 
         private void BindNavigation()
         {
@@ -89,8 +95,9 @@ namespace GameCult.Eve.UnityScene
             {
                 navigation.GetAwaiter().GetResult();
                 staged = PrepareStagedPresentation();
-                swap = ActivateStagedPresentation(staged);
                 navigable.CommitNavigation();
+                swap = ActivateStagedPresentation(staged);
+                navigable.FinalizeNavigation();
                 swap.Complete();
                 swap = null;
                 staged = null;
@@ -190,6 +197,7 @@ namespace GameCult.Eve.UnityScene
                 return new PresentationSwap(
                     this,
                     staged,
+                    _ownedPresentation,
                     previousHost,
                     previousRoot,
                     previousPresentation,
@@ -253,8 +261,18 @@ namespace GameCult.Eve.UnityScene
 
             public void Dispose()
             {
-                Host.Disconnect();
-                DestroyObject(GameObject);
+                try
+                {
+                    Host.Disconnect();
+                }
+                catch (Exception error)
+                {
+                    Debug.LogWarning($"Eve presentation disconnect failed during cleanup: {error}");
+                }
+                finally
+                {
+                    DestroyObject(GameObject);
+                }
             }
         }
 
@@ -262,6 +280,7 @@ namespace GameCult.Eve.UnityScene
         {
             private readonly EveUnityPlayableWorldClientBootstrap _owner;
             private readonly StagedPresentation _candidate;
+            private readonly StagedPresentation? _previousOwnedPresentation;
             private readonly EveUnityPlayableWorldClientHost? _previousHost;
             private readonly Transform? _previousRoot;
             private readonly EveUnityPlayableWorldPresentation? _previousPresentation;
@@ -278,6 +297,7 @@ namespace GameCult.Eve.UnityScene
             public PresentationSwap(
                 EveUnityPlayableWorldClientBootstrap owner,
                 StagedPresentation candidate,
+                StagedPresentation? previousOwnedPresentation,
                 EveUnityPlayableWorldClientHost? previousHost,
                 Transform? previousRoot,
                 EveUnityPlayableWorldPresentation? previousPresentation,
@@ -292,6 +312,7 @@ namespace GameCult.Eve.UnityScene
             {
                 _owner = owner;
                 _candidate = candidate;
+                _previousOwnedPresentation = previousOwnedPresentation;
                 _previousHost = previousHost;
                 _previousRoot = previousRoot;
                 _previousPresentation = previousPresentation;
@@ -308,9 +329,23 @@ namespace GameCult.Eve.UnityScene
             public void Complete()
             {
                 if (_settled) return;
-                if (_previousHost != null && !ReferenceEquals(_previousHost, _candidate.Host))
-                    _previousHost.Disconnect();
                 _settled = true;
+                _owner._ownedPresentation = _candidate;
+                if (_previousOwnedPresentation != null &&
+                    !ReferenceEquals(_previousOwnedPresentation, _candidate))
+                {
+                    _previousOwnedPresentation.Dispose();
+                    return;
+                }
+                if (_previousHost == null || ReferenceEquals(_previousHost, _candidate.Host)) return;
+                try
+                {
+                    _previousHost.Disconnect();
+                }
+                catch (Exception error)
+                {
+                    Debug.LogWarning($"Eve previous presentation disconnect failed after navigation commit: {error}");
+                }
             }
 
             public void Rollback()

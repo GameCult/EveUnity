@@ -1196,7 +1196,30 @@ namespace GameCult.Eve.UnityScene.Tests
                 Assert.That(bootstrap.Host, Is.Not.SameAs(originalHost));
                 Assert.That(bootstrap.Host!.ConnectionEpoch, Is.EqualTo(1));
                 Assert.That(provider.CommitNavigationCount, Is.EqualTo(1));
+                Assert.That(provider.FinalizeNavigationCount, Is.EqualTo(1));
                 Assert.That(provider.RollbackNavigationCount, Is.Zero);
+
+                provider.PublishReceipt(new EveUnitySceneCommandReceipt(
+                    "receipt:launch-again",
+                    "aetheria.hangar.launch",
+                    "launch",
+                    "accepted",
+                    "Aetheria",
+                    "commander-daemon",
+                    navigation: new EveUnitySceneNavigationTarget(
+                        "gamecult.aetheria",
+                        "aetheria.daemon",
+                        "aetheria.pilot",
+                        "interactive-world",
+                        new[] { "cultnet+tcp://odin.example:3076" })));
+
+                yield return null;
+                yield return null;
+
+                Assert.That(provider.CommitNavigationCount, Is.EqualTo(2));
+                Assert.That(provider.FinalizeNavigationCount, Is.EqualTo(2));
+                Assert.That(hostObject.transform.Cast<Transform>()
+                    .Count(child => child.name == "Eve Unity Candidate Presentation"), Is.EqualTo(1));
             }
             finally
             {
@@ -3362,6 +3385,8 @@ namespace GameCult.Eve.UnityScene.Tests
 
             public int CommitNavigationCount { get; private set; }
 
+            public int FinalizeNavigationCount { get; private set; }
+
             public int RollbackNavigationCount { get; private set; }
 
             public bool FailNextNavigationMount { get; set; }
@@ -3444,6 +3469,11 @@ namespace GameCult.Eve.UnityScene.Tests
             {
                 CommitNavigationCount++;
                 _failSurfaceRead = false;
+            }
+
+            public void FinalizeNavigation()
+            {
+                FinalizeNavigationCount++;
             }
 
             public void RollbackNavigation()

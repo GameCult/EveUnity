@@ -81,31 +81,26 @@ namespace GameCult.Eve.UnityScene
                 yield break;
             _navigationInProgress = true;
             var navigation = navigable.NavigateAsync(target);
-            var mountAttempted = false;
+            StagedPresentation? staged = null;
+            PresentationSwap? swap = null;
             while (!navigation.IsCompleted)
                 yield return null;
             try
             {
                 navigation.GetAwaiter().GetResult();
-                mountAttempted = true;
-                Mount();
+                staged = PrepareStagedPresentation();
+                swap = ActivateStagedPresentation(staged);
                 navigable.CommitNavigation();
+                swap.Complete();
+                swap = null;
+                staged = null;
                 LastNavigationFailure = null;
             }
             catch (Exception error)
             {
+                swap?.Rollback();
+                staged?.Dispose();
                 navigable.RollbackNavigation();
-                if (mountAttempted)
-                {
-                    try
-                    {
-                        Mount();
-                    }
-                    catch (Exception restoreError)
-                    {
-                        Debug.LogError($"Eve provider navigation rollback could not remount the previous surface. {restoreError}");
-                    }
-                }
                 var failure = new EveUnitySceneNavigationFailure(target, error.Message, DateTimeOffset.UtcNow);
                 LastNavigationFailure = failure;
                 NavigationFailed?.Invoke(failure);
@@ -114,6 +109,231 @@ namespace GameCult.Eve.UnityScene
             finally
             {
                 _navigationInProgress = false;
+            }
+        }
+
+        private StagedPresentation PrepareStagedPresentation()
+        {
+            var resolvedProvider = provider;
+            var surfaceDocuments = ResolveBehaviour<IEveUnitySceneProviderSurfaceDocumentSource>(
+                providerSurfaceDocuments,
+                resolvedProvider,
+                nameof(providerSurfaceDocuments));
+            var resolvedCommandSink = ResolveBehaviour<IEveUnitySceneCommandSink>(
+                commandSink,
+                resolvedProvider,
+                nameof(commandSink));
+            var resolvedAssetDocuments = ResolveOptionalBehaviour<IEveUnityPlayableWorldAssetManifestDocumentSource>(
+                assetManifestDocuments,
+                resolvedProvider);
+            var resolvedReceiptSource = ResolveOptionalBehaviour<IEveUnitySceneCommandReceiptSource>(
+                receiptSource,
+                resolvedProvider);
+            var resolvedFallbackAssetProvider = ResolveOptionalBehaviour<IEveUnityGameObjectAssetProvider>(
+                fallbackAssetProvider,
+                resolvedProvider);
+
+            var stagingObject = new GameObject("Eve Unity Candidate Presentation");
+            stagingObject.SetActive(false);
+            stagingObject.transform.SetParent(transform, false);
+            var stagingRootObject = new GameObject("Eve Unity Candidate Scene Root");
+            stagingRootObject.transform.SetParent(stagingObject.transform, false);
+            var stagingHost = stagingObject.AddComponent<EveUnityPlayableWorldClientHost>();
+            stagingHost.ConnectOnEnable = false;
+            try
+            {
+                stagingHost.Configure(
+                    stagingRootObject.transform,
+                    surfaceDocuments,
+                    resolvedCommandSink,
+                    resolvedAssetDocuments,
+                    resolvedReceiptSource,
+                    resolvedFallbackAssetProvider);
+                var presentation = stagingHost.Connect();
+                return new StagedPresentation(stagingObject, stagingRootObject.transform, stagingHost, presentation);
+            }
+            catch
+            {
+                stagingHost.Disconnect();
+                DestroyObject(stagingObject);
+                throw;
+            }
+        }
+
+        private PresentationSwap ActivateStagedPresentation(StagedPresentation staged)
+        {
+            var previousHost = host;
+            var previousRoot = sceneRoot;
+            var previousPresentation = LastPresentation;
+            var previousRootWasActive = previousRoot == null || previousRoot.gameObject.activeSelf;
+            var input = GetComponent<EveUnityPlayableWorldInputDriver>();
+            var previousInputHost = input?.Host;
+            var previousInputCamera = input?.CameraTransform;
+            var rig = GetComponent<EveUnityPlayableWorldCameraRig>();
+            var previousRigHost = rig?.Host;
+            var previousRigCamera = rig?.CameraTransform;
+            var previousRigPolicy = rig?.RenderPolicySource;
+
+            try
+            {
+                staged.GameObject.SetActive(true);
+                if (attachInputDriver)
+                    ConfigureInputDriver(staged.Host);
+                if (attachCameraRig)
+                    ConfigureCameraRig(staged.Host);
+                host = staged.Host;
+                sceneRoot = staged.SceneRoot;
+                LastPresentation = staged.Presentation;
+                if (previousRoot != null && !ReferenceEquals(previousRoot, transform) &&
+                    !ReferenceEquals(previousRoot, staged.SceneRoot))
+                    previousRoot.gameObject.SetActive(false);
+                return new PresentationSwap(
+                    this,
+                    staged,
+                    previousHost,
+                    previousRoot,
+                    previousPresentation,
+                    previousRootWasActive,
+                    input,
+                    previousInputHost,
+                    previousInputCamera,
+                    rig,
+                    previousRigHost,
+                    previousRigCamera,
+                    previousRigPolicy);
+            }
+            catch
+            {
+                if (input != null)
+                {
+                    input.Host = previousInputHost;
+                    input.CameraTransform = previousInputCamera;
+                }
+                if (rig != null)
+                {
+                    rig.Host = previousRigHost;
+                    rig.CameraTransform = previousRigCamera;
+                    rig.RenderPolicySource = previousRigPolicy;
+                }
+                host = previousHost;
+                sceneRoot = previousRoot;
+                LastPresentation = previousPresentation;
+                if (previousRoot != null)
+                    previousRoot.gameObject.SetActive(previousRootWasActive);
+                throw;
+            }
+        }
+
+        private static void DestroyObject(UnityEngine.Object value)
+        {
+            if (Application.isPlaying)
+                Destroy(value);
+            else
+                DestroyImmediate(value);
+        }
+
+        private sealed class StagedPresentation : IDisposable
+        {
+            public StagedPresentation(
+                GameObject gameObject,
+                Transform sceneRoot,
+                EveUnityPlayableWorldClientHost host,
+                EveUnityPlayableWorldPresentation presentation)
+            {
+                GameObject = gameObject;
+                SceneRoot = sceneRoot;
+                Host = host;
+                Presentation = presentation;
+            }
+
+            public GameObject GameObject { get; }
+            public Transform SceneRoot { get; }
+            public EveUnityPlayableWorldClientHost Host { get; }
+            public EveUnityPlayableWorldPresentation Presentation { get; }
+
+            public void Dispose()
+            {
+                Host.Disconnect();
+                DestroyObject(GameObject);
+            }
+        }
+
+        private sealed class PresentationSwap
+        {
+            private readonly EveUnityPlayableWorldClientBootstrap _owner;
+            private readonly StagedPresentation _candidate;
+            private readonly EveUnityPlayableWorldClientHost? _previousHost;
+            private readonly Transform? _previousRoot;
+            private readonly EveUnityPlayableWorldPresentation? _previousPresentation;
+            private readonly bool _previousRootWasActive;
+            private readonly EveUnityPlayableWorldInputDriver? _input;
+            private readonly EveUnityPlayableWorldClientHost? _previousInputHost;
+            private readonly Transform? _previousInputCamera;
+            private readonly EveUnityPlayableWorldCameraRig? _rig;
+            private readonly EveUnityPlayableWorldClientHost? _previousRigHost;
+            private readonly Transform? _previousRigCamera;
+            private readonly IEveUnityCameraRenderPolicySource? _previousRigPolicy;
+            private bool _settled;
+
+            public PresentationSwap(
+                EveUnityPlayableWorldClientBootstrap owner,
+                StagedPresentation candidate,
+                EveUnityPlayableWorldClientHost? previousHost,
+                Transform? previousRoot,
+                EveUnityPlayableWorldPresentation? previousPresentation,
+                bool previousRootWasActive,
+                EveUnityPlayableWorldInputDriver? input,
+                EveUnityPlayableWorldClientHost? previousInputHost,
+                Transform? previousInputCamera,
+                EveUnityPlayableWorldCameraRig? rig,
+                EveUnityPlayableWorldClientHost? previousRigHost,
+                Transform? previousRigCamera,
+                IEveUnityCameraRenderPolicySource? previousRigPolicy)
+            {
+                _owner = owner;
+                _candidate = candidate;
+                _previousHost = previousHost;
+                _previousRoot = previousRoot;
+                _previousPresentation = previousPresentation;
+                _previousRootWasActive = previousRootWasActive;
+                _input = input;
+                _previousInputHost = previousInputHost;
+                _previousInputCamera = previousInputCamera;
+                _rig = rig;
+                _previousRigHost = previousRigHost;
+                _previousRigCamera = previousRigCamera;
+                _previousRigPolicy = previousRigPolicy;
+            }
+
+            public void Complete()
+            {
+                if (_settled) return;
+                if (_previousHost != null && !ReferenceEquals(_previousHost, _candidate.Host))
+                    _previousHost.Disconnect();
+                _settled = true;
+            }
+
+            public void Rollback()
+            {
+                if (_settled) return;
+                _settled = true;
+                _owner.host = _previousHost;
+                _owner.sceneRoot = _previousRoot;
+                _owner.LastPresentation = _previousPresentation;
+                if (_input != null)
+                {
+                    _input.Host = _previousInputHost;
+                    _input.CameraTransform = _previousInputCamera;
+                }
+                if (_rig != null)
+                {
+                    _rig.Host = _previousRigHost;
+                    _rig.CameraTransform = _previousRigCamera;
+                    _rig.RenderPolicySource = _previousRigPolicy;
+                }
+                if (_previousRoot != null)
+                    _previousRoot.gameObject.SetActive(_previousRootWasActive);
+                _candidate.GameObject.SetActive(false);
             }
         }
 

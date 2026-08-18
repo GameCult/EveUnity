@@ -179,6 +179,8 @@ namespace GameCult.Eve.UnityScene
             var previous = _previousProvider;
             if (previous == null) return;
             _previousProvider = null;
+            if (previous.Bridge != null)
+                previous.Bridge.ReceiptAvailable -= ForwardReceipt;
             previous.Bridge?.Dispose();
             previous.Transport?.Dispose();
         }
@@ -188,6 +190,8 @@ namespace GameCult.Eve.UnityScene
             var previous = _previousProvider;
             if (previous == null) return;
             _previousProvider = null;
+            if (previous.Bridge != null)
+                previous.Bridge.ReceiptAvailable -= ForwardReceipt;
             DetachPrepared(_transport, _bridge);
             _bridge?.Dispose();
             _transport?.Dispose();
@@ -209,15 +213,19 @@ namespace GameCult.Eve.UnityScene
 
         public void Refresh()
         {
-            if (Bridge.IsConnected)
-                Bridge.Refresh();
+            var activeBridge = _previousProvider?.Bridge ?? Bridge;
+            if (activeBridge.IsConnected)
+                activeBridge.Refresh();
             else
-                Bridge.Connect();
+                activeBridge.Connect();
         }
 
         public void Submit(EveSurfaceCommandRequest request)
         {
-            Bridge.Submit(request);
+            // Navigation preparation is not a command-routing commit.  The mounted
+            // presentation continues to target its old provider until the visual
+            // candidate has been lowered and accepted by the bootstrap.
+            (_previousProvider?.Bridge ?? Bridge).Submit(request);
         }
 
         public GameObject? ResolvePrefab(EveUnityPlayableWorldAssetBinding asset)
@@ -419,6 +427,8 @@ namespace GameCult.Eve.UnityScene
                 surfaceKind,
                 _authorityTrust);
             DetachPrepared(_transport, _bridge);
+            if (_previousProvider.Bridge != null)
+                _previousProvider.Bridge.ReceiptAvailable += ForwardReceipt;
             Selection = prepared.Selection;
             _transport = prepared.Transport;
             _bridge = prepared.Bridge;

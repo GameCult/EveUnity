@@ -1171,6 +1171,7 @@ namespace GameCult.Eve.UnityScene.Tests
                 var bootstrap = hostObject.AddComponent<EveUnityPlayableWorldClientBootstrap>();
                 bootstrap.ConfigureProvider(provider);
                 bootstrap.Mount();
+                var originalHost = bootstrap.Host;
 
                 provider.PublishReceipt(new EveUnitySceneCommandReceipt(
                     "receipt:launch",
@@ -1192,7 +1193,8 @@ namespace GameCult.Eve.UnityScene.Tests
                 Assert.That(provider.LastNavigation, Is.Not.Null);
                 Assert.That(provider.LastNavigation!.VerseId, Is.EqualTo("gamecult.aetheria"));
                 Assert.That(provider.LastNavigation.RendezvousEndpoints, Is.EqualTo(new[] { "cultnet+tcp://odin.example:3076" }));
-                Assert.That(bootstrap.Host!.ConnectionEpoch, Is.EqualTo(2));
+                Assert.That(bootstrap.Host, Is.Not.SameAs(originalHost));
+                Assert.That(bootstrap.Host!.ConnectionEpoch, Is.EqualTo(1));
                 Assert.That(provider.CommitNavigationCount, Is.EqualTo(1));
                 Assert.That(provider.RollbackNavigationCount, Is.Zero);
             }
@@ -1203,7 +1205,7 @@ namespace GameCult.Eve.UnityScene.Tests
         }
 
         [UnityTest]
-        public IEnumerator PlayableWorldClientBootstrapRollsBackAndRemountsAfterNavigationMountFailure()
+        public IEnumerator PlayableWorldClientBootstrapKeepsMountedPresentationAfterNavigationMountFailure()
         {
             var hostObject = new GameObject("generic-eve-navigation-rollback-client");
             try
@@ -1222,6 +1224,10 @@ namespace GameCult.Eve.UnityScene.Tests
                 var bootstrap = hostObject.AddComponent<EveUnityPlayableWorldClientBootstrap>();
                 bootstrap.ConfigureProvider(provider);
                 bootstrap.Mount();
+                var originalHost = bootstrap.Host;
+                var originalRuntime = originalHost!.Runtime;
+                var originalRoot = bootstrap.SceneRoot;
+                var originalPresentation = bootstrap.LastPresentation;
                 provider.FailNextNavigationMount = true;
                 LogAssert.Expect(LogType.Error, new Regex("Eve provider navigation failed; the current surface remains mounted"));
 
@@ -1245,10 +1251,14 @@ namespace GameCult.Eve.UnityScene.Tests
                 Assert.That(provider.CommitNavigationCount, Is.Zero);
                 Assert.That(provider.RollbackNavigationCount, Is.EqualTo(1));
                 Assert.That(bootstrap.LastNavigationFailure, Is.Not.Null);
+                Assert.That(bootstrap.Host, Is.SameAs(originalHost));
+                Assert.That(bootstrap.Host!.Runtime, Is.SameAs(originalRuntime));
+                Assert.That(bootstrap.SceneRoot, Is.SameAs(originalRoot));
+                Assert.That(bootstrap.LastPresentation, Is.SameAs(originalPresentation));
                 Assert.That(bootstrap.Host!.Runtime, Is.Not.Null);
                 Assert.That(bootstrap.Host.ActiveWorld, Is.Not.Null);
                 Assert.That(bootstrap.Host.ActiveWorld!.PlayerEntityId, Is.EqualTo("player-vanguard"));
-                Assert.That(bootstrap.Host.ConnectionEpoch, Is.EqualTo(2));
+                Assert.That(bootstrap.Host.ConnectionEpoch, Is.EqualTo(1));
             }
             finally
             {

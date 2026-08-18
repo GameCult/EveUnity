@@ -105,9 +105,35 @@ namespace GameCult.Eve.UnityScene
             }
             catch (Exception error)
             {
-                swap?.Rollback();
-                staged?.Dispose();
-                navigable.RollbackNavigation();
+                var providerRestored = false;
+                try
+                {
+                    navigable.RollbackNavigation();
+                    providerRestored = true;
+                }
+                catch (Exception rollbackError)
+                {
+                    Debug.LogError($"Eve provider route rollback failed; the previous presentation will remain inactive. {rollbackError}");
+                }
+                if (providerRestored)
+                {
+                    try
+                    {
+                        swap?.Rollback();
+                    }
+                    catch (Exception rollbackError)
+                    {
+                        Debug.LogError($"Eve previous presentation rollback failed after provider restoration. {rollbackError}");
+                    }
+                }
+                try
+                {
+                    staged?.Dispose();
+                }
+                catch (Exception cleanupError)
+                {
+                    Debug.LogWarning($"Eve rejected presentation cleanup failed. {cleanupError}");
+                }
                 var failure = new EveUnitySceneNavigationFailure(target, error.Message, DateTimeOffset.UtcNow);
                 LastNavigationFailure = failure;
                 NavigationFailed?.Invoke(failure);

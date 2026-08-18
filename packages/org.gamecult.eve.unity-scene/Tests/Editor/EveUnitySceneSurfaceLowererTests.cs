@@ -1289,6 +1289,60 @@ namespace GameCult.Eve.UnityScene.Tests
             }
         }
 
+        [UnityTest]
+        public IEnumerator PlayableWorldClientBootstrapRestoresProviderRouteBeforeReactivatingPreviousView()
+        {
+            var hostObject = new GameObject("generic-eve-navigation-order-client");
+            try
+            {
+                var provider = hostObject.AddComponent<FakePlayableWorldProviderComponent>();
+                provider.Set(
+                    new EveUnitySceneProviderSurfaceDocument(
+                        PlayableArpgDocument(),
+                        Advertisement("aetheria.daemon.game"),
+                        "cultmesh://aetheria/eve/surfaces/aetheria.daemon.game",
+                        1),
+                    new EveUnityPlayableWorldAssetManifestDocument(
+                        "cultmesh://aetheria/assets/manifest",
+                        Array.Empty<EveUnityPlayableWorldAssetManifestDocumentEntry>(),
+                        "aetheria"));
+                var bootstrap = hostObject.AddComponent<EveUnityPlayableWorldClientBootstrap>();
+                bootstrap.ConfigureProvider(provider);
+                bootstrap.Mount();
+                var probe = bootstrap.SceneRoot!.gameObject.AddComponent<NavigationReactivationProbe>();
+                probe.Reactivated = () => provider.RoutesObservedDuringReactivation.Add(provider.ActiveRoute);
+                provider.FailNextNavigationFinalize = true;
+                LogAssert.Expect(LogType.Error, new Regex("Eve provider navigation failed; the current surface remains mounted"));
+
+                provider.PublishReceipt(new EveUnitySceneCommandReceipt(
+                    "receipt:launch-finalize-failure",
+                    "aetheria.hangar.launch",
+                    "launch",
+                    "accepted",
+                    "Aetheria",
+                    "commander-daemon",
+                    navigation: new EveUnitySceneNavigationTarget(
+                        "gamecult.aetheria",
+                        "candidate-provider",
+                        "aetheria.pilot",
+                        "interactive-world",
+                        new[] { "cultnet+tcp://odin.example:3999" })));
+
+                yield return null;
+                yield return null;
+
+                Assert.That(provider.CommitNavigationCount, Is.EqualTo(1));
+                Assert.That(provider.RollbackNavigationCount, Is.EqualTo(1));
+                Assert.That(provider.ActiveRoute, Is.EqualTo("original"));
+                Assert.That(provider.RoutesObservedDuringReactivation, Is.EqualTo(new[] { "original" }));
+                Assert.That(bootstrap.Host!.Runtime, Is.Not.Null);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(hostObject);
+            }
+        }
+
         [Test]
         public void PlayableWorldClientHostSubmitsProviderOwnedMoveVector()
         {
@@ -3391,6 +3445,12 @@ namespace GameCult.Eve.UnityScene.Tests
 
             public bool FailNextNavigationMount { get; set; }
 
+            public bool FailNextNavigationFinalize { get; set; }
+
+            public string ActiveRoute { get; private set; } = "original";
+
+            public List<string> RoutesObservedDuringReactivation { get; } = new List<string>();
+
             private bool _failSurfaceRead;
 
             public string SinkKind => "fake-provider-command-sink";
@@ -3468,18 +3528,35 @@ namespace GameCult.Eve.UnityScene.Tests
             public void CommitNavigation()
             {
                 CommitNavigationCount++;
+                ActiveRoute = "candidate";
                 _failSurfaceRead = false;
             }
 
             public void FinalizeNavigation()
             {
                 FinalizeNavigationCount++;
+                if (FailNextNavigationFinalize)
+                {
+                    FailNextNavigationFinalize = false;
+                    throw new InvalidOperationException("Deliberate provider finalization failure.");
+                }
             }
 
             public void RollbackNavigation()
             {
                 RollbackNavigationCount++;
+                ActiveRoute = "original";
                 _failSurfaceRead = false;
+            }
+        }
+
+        private sealed class NavigationReactivationProbe : MonoBehaviour
+        {
+            public Action? Reactivated { get; set; }
+
+            private void OnEnable()
+            {
+                Reactivated?.Invoke();
             }
         }
     }

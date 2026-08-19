@@ -188,6 +188,48 @@ namespace GameCult.Eve.UnityScene.Tests
         }
 
         [Test]
+        public void TerminalReceiptWaitsForItsPresentationGenerationAndFreezesTheOldSurface()
+        {
+            using var transport = new EveUnityCultMeshLiveProviderTransport(
+                "test-cache",
+                "cultnet+tcp://127.0.0.1:1",
+                "test.verse",
+                "test.runtime",
+                "test.provider",
+                "test.surface");
+            var request = Request("select-verse-1", "selectVerse");
+            var type = typeof(EveUnityCultMeshLiveProviderTransport);
+            var pending = (IDictionary<string, EveSurfaceCommandRequest>)type.GetField(
+                "_pendingCommands",
+                BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(transport)!;
+            var publish = type.GetMethod("PublishReceipt", BindingFlags.NonPublic | BindingFlags.Instance)!;
+            var complete = type.GetMethod(
+                "CompletePresentationTransition",
+                BindingFlags.NonPublic | BindingFlags.Instance)!;
+            type.GetField("_bootstrapped", BindingFlags.NonPublic | BindingFlags.Instance)!
+                .SetValue(transport, true);
+            pending.Add(request.CommandId, request);
+            var observed = new List<EveUnitySceneCommandReceipt>();
+            transport.CommandReceiptAvailable += observed.Add;
+
+            publish.Invoke(transport, new object[]
+            {
+                Receipt(request, "accepted", "receipt-accepted", sourceVersion: 7)
+            });
+
+            Assert.That(pending.ContainsKey(request.CommandId), Is.True);
+            Assert.That(observed, Is.Empty);
+            var blocked = Assert.Throws<InvalidOperationException>(() =>
+                transport.SubmitCommand(Request("stale-launch", "launch")));
+            StringAssert.Contains("read-only", blocked!.Message);
+
+            complete.Invoke(transport, new object[] { 7L });
+
+            Assert.That(pending.ContainsKey(request.CommandId), Is.False);
+            Assert.That(observed.Select(value => value.State), Is.EqualTo(new[] { "accepted" }));
+        }
+
+        [Test]
         public void ReceiptForAnotherInvocationCannotRetireTheCommand()
         {
             using var transport = new EveUnityCultMeshLiveProviderTransport(
@@ -278,7 +320,8 @@ namespace GameCult.Eve.UnityScene.Tests
         private static EveCommandReceiptDocument Receipt(
             EveSurfaceCommandRequest request,
             string state,
-            string receiptId) => new EveCommandReceiptDocument(
+            string receiptId,
+            long sourceVersion = 0) => new EveCommandReceiptDocument(
                 receiptId,
                 request.CommandId,
                 request.Command,
@@ -289,7 +332,7 @@ namespace GameCult.Eve.UnityScene.Tests
                 request.SurfaceId,
                 "",
                 DateTimeOffset.UtcNow.ToString("O"),
-                1,
+                sourceVersion,
                 invocationHash: EveCommandInvocationHash.Compute(request));
 
         private static async Task AwaitOrCancel(Task task, CancellationToken cancellationToken)

@@ -176,3 +176,11 @@ authority.
 Native volume programs may advertise a `cameraToWorld` matrix port when their
 procedural passes require an explicit camera transform instead of relying on
 render-pipeline globals.
+
+Command finality is presentation-causal. When a terminal receipt names a
+`sourceVersion` newer than the mounted surface, EveUnity keeps the command and
+its exact receipt lease alive, makes the obsolete surface read-only, and emits
+the terminal receipt only after that surface generation and its qualified asset
+catalog have committed together. Asset preparation failure therefore cannot
+leave an accepted Verse switch paired with actionable controls from the prior
+Verse.

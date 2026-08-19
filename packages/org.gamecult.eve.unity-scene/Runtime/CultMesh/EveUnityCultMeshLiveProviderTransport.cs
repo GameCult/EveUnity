@@ -36,6 +36,9 @@ namespace GameCult.Eve.UnityScene
             new Dictionary<string, EveSurfaceCommandRequest>(StringComparer.Ordinal);
         private readonly Dictionary<string, Task<ReceiptSubscription>> _receiptSubscriptions =
             new Dictionary<string, Task<ReceiptSubscription>>(StringComparer.Ordinal);
+        private readonly object _presentationFinalityGate = new object();
+        private readonly Dictionary<string, EveCommandReceiptDocument> _deferredTerminalReceipts =
+            new Dictionary<string, EveCommandReceiptDocument>(StringComparer.Ordinal);
         private readonly HashSet<string> _continuousCommandIds = new HashSet<string>(StringComparer.Ordinal);
         private readonly ConcurrentQueue<object> _liveDocuments = new ConcurrentQueue<object>();
         private readonly object _realtimeFrameGate = new object();
@@ -68,6 +71,7 @@ namespace GameCult.Eve.UnityScene
         private PendingAssetCatalogUpdate? _pendingAssetCatalog;
         private bool _assetCatalogUpdateRunning;
         private long _surfaceAssetGeneration;
+        private long _presentationBarrierVersion = -1;
         private long _lastQueuedEntityViewEpoch = -1;
         private long _lastQueuedEntityViewSequence = -1;
         private long _lastPresentedEntityViewEpoch = -1;
@@ -351,6 +355,7 @@ namespace GameCult.Eve.UnityScene
         {
             if (request == null) throw new ArgumentNullException(nameof(request));
             EnsurePrepared();
+            EnsurePresentationWritable();
             var interaction = RequireWorldInteraction();
             if (string.IsNullOrWhiteSpace(interaction.CommandRecordRef))
                 throw new InvalidOperationException("The provider advertisement does not publish a command record reference.");
@@ -450,6 +455,11 @@ namespace GameCult.Eve.UnityScene
                 foreach (var subscription in _receiptSubscriptions.Values)
                     DisposeReceiptSubscription(subscription);
                 _receiptSubscriptions.Clear();
+            }
+            lock (_presentationFinalityGate)
+            {
+                _deferredTerminalReceipts.Clear();
+                _presentationBarrierVersion = -1;
             }
             _lifetime.Dispose();
         }
@@ -915,6 +925,7 @@ namespace GameCult.Eve.UnityScene
             // candidate. Keep the previous surface mounted until the candidate assets
             // have resolved and preloaded; never lower a remote Verse surface against
             // the previous Verse's catalog merely because the surface record arrived first.
+            BeginPresentationTransition(surface.Version);
             _ = RefreshAssetsForSurfaceAsync(surface, source, generation, _lifetime.Token);
         }
 
@@ -965,6 +976,7 @@ namespace GameCult.Eve.UnityScene
             foreach (var command in prepared.ContinuousCommands)
                 _continuousCommandIds.Add(command);
             SurfaceDocumentAvailable?.Invoke(CurrentSurfaceDocument);
+            CompletePresentationTransition(CurrentSurfaceDocument.Version);
         }
 
         internal static EveSurfaceDocument ComposeSurface(
@@ -1978,10 +1990,72 @@ namespace GameCult.Eve.UnityScene
                 if (!_pendingCommands.TryGetValue(receipt.CommandId, out var request) ||
                     !ReceiptMatches(request, receipt))
                     return;
-                if (terminal) _pendingCommands.Remove(receipt.CommandId);
             }
+            if (terminal && DeferTerminalReceiptUntilPresentation(receipt))
+                return;
+            FinalizeReceipt(receipt, terminal);
+        }
+
+        private void EnsurePresentationWritable()
+        {
+            lock (_presentationFinalityGate)
+            {
+                if (_presentationBarrierVersion > CurrentSurfaceDocument.Version)
+                    throw new InvalidOperationException(
+                        $"The Eve presentation is awaiting provider surface version {_presentationBarrierVersion}; " +
+                        $"mounted version {CurrentSurfaceDocument.Version} is read-only until that generation commits.");
+            }
+        }
+
+        private void BeginPresentationTransition(long sourceVersion)
+        {
+            if (sourceVersion <= CurrentSurfaceDocument.Version)
+                return;
+            lock (_presentationFinalityGate)
+                _presentationBarrierVersion = Math.Max(_presentationBarrierVersion, sourceVersion);
+        }
+
+        private bool DeferTerminalReceiptUntilPresentation(EveCommandReceiptDocument receipt)
+        {
+            lock (_presentationFinalityGate)
+            {
+                if (receipt.SourceVersion > CurrentSurfaceDocument.Version)
+                    _presentationBarrierVersion = Math.Max(_presentationBarrierVersion, receipt.SourceVersion);
+                if (_presentationBarrierVersion <= CurrentSurfaceDocument.Version)
+                    return false;
+                _deferredTerminalReceipts[receipt.CommandId] = receipt;
+                return true;
+            }
+        }
+
+        private void CompletePresentationTransition(long committedVersion)
+        {
+            EveCommandReceiptDocument[] ready;
+            lock (_presentationFinalityGate)
+            {
+                if (_presentationBarrierVersion > committedVersion)
+                    return;
+                _presentationBarrierVersion = -1;
+                ready = _deferredTerminalReceipts.Values
+                    .Where(receipt => receipt.SourceVersion <= committedVersion)
+                    .ToArray();
+                foreach (var receipt in ready)
+                    _deferredTerminalReceipts.Remove(receipt.CommandId);
+            }
+            foreach (var receipt in ready)
+                FinalizeReceipt(receipt, terminal: true);
+        }
+
+        private void FinalizeReceipt(EveCommandReceiptDocument receipt, bool terminal)
+        {
             if (terminal)
             {
+                lock (_pendingCommands)
+                {
+                    if (!_pendingCommands.ContainsKey(receipt.CommandId))
+                        return;
+                    _pendingCommands.Remove(receipt.CommandId);
+                }
                 _commandOutbox?.Acknowledge(receipt.CommandId);
                 ForgetPendingCommand(receipt.CommandId);
             }

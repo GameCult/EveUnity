@@ -181,7 +181,10 @@ namespace GameCult.Eve.UnityScene.Tests
             Assert.That(pending.ContainsKey(request.CommandId), Is.True);
             Assert.That(observed.Select(value => value.State), Is.EqualTo(new[] { "pending" }));
 
-            publish.Invoke(transport, new object[] { Receipt(request, "accepted", "receipt-accepted") });
+            publish.Invoke(transport, new object[]
+            {
+                Receipt(request, "accepted", "receipt-accepted", sourceVersion: 1000)
+            });
 
             Assert.That(pending.ContainsKey(request.CommandId), Is.False);
             Assert.That(observed.Select(value => value.State), Is.EqualTo(new[] { "pending", "accepted" }));
@@ -212,13 +215,27 @@ namespace GameCult.Eve.UnityScene.Tests
             pending.Add(request.CommandId, request);
             var observed = new List<EveUnitySceneCommandReceipt>();
             transport.CommandReceiptAvailable += observed.Add;
+            using var outbox = new EveUnityCultMeshCommandOutbox(
+                (_, _) => Task.CompletedTask,
+                _ => null,
+                retryDelay: TimeSpan.FromSeconds(30),
+                maximumRetryDelay: TimeSpan.FromSeconds(30));
+            type.GetField("_commandOutbox", BindingFlags.NonPublic | BindingFlags.Instance)!
+                .SetValue(transport, outbox);
+            outbox.Enqueue(request);
 
             publish.Invoke(transport, new object[]
             {
-                Receipt(request, "accepted", "receipt-accepted", sourceVersion: 7)
+                Receipt(
+                    request,
+                    "accepted",
+                    "receipt-accepted",
+                    sourceVersion: 1000,
+                    presentationSurfaceVersion: 7)
             });
 
             Assert.That(pending.ContainsKey(request.CommandId), Is.True);
+            Assert.That(outbox.PendingCount, Is.Zero);
             Assert.That(observed, Is.Empty);
             type.GetProperty("CurrentSurfaceDocument")!.SetValue(transport, SceneSurface(100));
             var blocked = Assert.Throws<InvalidOperationException>(() =>
@@ -323,7 +340,8 @@ namespace GameCult.Eve.UnityScene.Tests
             EveSurfaceCommandRequest request,
             string state,
             string receiptId,
-            long sourceVersion = 0) => new EveCommandReceiptDocument(
+            long sourceVersion = 0,
+            long presentationSurfaceVersion = 0) => new EveCommandReceiptDocument(
                 receiptId,
                 request.CommandId,
                 request.Command,
@@ -335,7 +353,28 @@ namespace GameCult.Eve.UnityScene.Tests
                 "",
                 DateTimeOffset.UtcNow.ToString("O"),
                 sourceVersion,
-                invocationHash: EveCommandInvocationHash.Compute(request));
+                invocationHash: EveCommandInvocationHash.Compute(request),
+                presentationSurfaceVersion: presentationSurfaceVersion);
+
+        [Test]
+        public void OlderObservedBaseVersionCannotSupersedeANewerCandidate()
+        {
+            using var transport = new EveUnityCultMeshLiveProviderTransport(
+                "test-cache",
+                "cultnet+tcp://127.0.0.1:1",
+                "test.verse",
+                "test.runtime",
+                "test.provider",
+                "test.surface");
+            var observe = typeof(EveUnityCultMeshLiveProviderTransport).GetMethod(
+                "TryObserveBaseSurfaceVersion",
+                BindingFlags.NonPublic | BindingFlags.Instance)!;
+
+            Assert.That(observe.Invoke(transport, new object[] { 10L }), Is.True);
+            Assert.That(observe.Invoke(transport, new object[] { 7L }), Is.False);
+            Assert.That(observe.Invoke(transport, new object[] { 10L }), Is.False);
+            Assert.That(observe.Invoke(transport, new object[] { 11L }), Is.True);
+        }
 
         private static EveUnitySceneProviderSurfaceDocument SceneSurface(long version)
         {

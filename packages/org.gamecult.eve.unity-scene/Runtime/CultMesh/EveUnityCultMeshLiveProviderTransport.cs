@@ -65,12 +65,14 @@ namespace GameCult.Eve.UnityScene
         private CultMeshMappedFrameBodyCursor? _mappedEntityFrameCursor;
         private CultMeshBodyDescriptor? _mappedEntityFrameContract;
         private CancellationTokenSource? _realtimeLifetime;
+        private CancellationTokenSource? _surfaceAssetCandidateLifetime;
         private Task? _realtimePump;
         private CultMeshRealtimeSession? _realtimeSession;
         private EveUnityCultMeshCommandOutbox? _commandOutbox;
         private PendingAssetCatalogUpdate? _pendingAssetCatalog;
         private bool _assetCatalogUpdateRunning;
         private long _surfaceAssetGeneration;
+        private long _highestObservedBaseSurfaceVersion = -1;
         private long _mountedBaseSurfaceVersion;
         private long _presentationBarrierVersion = -1;
         private long _lastQueuedEntityViewEpoch = -1;
@@ -438,6 +440,9 @@ namespace GameCult.Eve.UnityScene
             _mappedEntityFrameCursor = null;
             _mappedEntityFrameContract = null;
             _realtimeLifetime?.Cancel();
+            _surfaceAssetCandidateLifetime?.Cancel();
+            _surfaceAssetCandidateLifetime?.Dispose();
+            _surfaceAssetCandidateLifetime = null;
             _realtimeSession?.Dispose();
             _realtimeSession = null;
             _realtimePump = null;
@@ -906,8 +911,16 @@ namespace GameCult.Eve.UnityScene
         private void PublishBaseSurface(EveSurfaceDocument surface)
         {
             if (surface == null) throw new ArgumentNullException(nameof(surface));
-            if (_baseSurface != null && surface.Version <= MountedBaseSurfaceVersion)
+            if (!TryObserveBaseSurfaceVersion(surface.Version))
                 return;
+            CancellationToken candidateToken;
+            lock (_presentationFinalityGate)
+            {
+                _surfaceAssetCandidateLifetime?.Cancel();
+                _surfaceAssetCandidateLifetime?.Dispose();
+                _surfaceAssetCandidateLifetime = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
+                candidateToken = _surfaceAssetCandidateLifetime.Token;
+            }
             var generation = Interlocked.Increment(ref _surfaceAssetGeneration);
             if (!_bootstrapped)
             {
@@ -917,7 +930,8 @@ namespace GameCult.Eve.UnityScene
             }
 
             var source = ResolveAssetSource(surface);
-            if (string.Equals(source.Identity, CurrentAssetSourceIdentity, StringComparison.Ordinal))
+            if (string.Equals(source.Identity, CurrentAssetSourceIdentity, StringComparison.Ordinal) &&
+                (source.RequiredCatalogVersion <= 0 || source.RequiredCatalogVersion == CurrentAssetCatalogVersion))
             {
                 _baseSurface = surface;
                 PublishComposedSurface(surface.Version);
@@ -929,7 +943,18 @@ namespace GameCult.Eve.UnityScene
             // have resolved and preloaded; never lower a remote Verse surface against
             // the previous Verse's catalog merely because the surface record arrived first.
             BeginPresentationTransition(surface.Version);
-            _ = RefreshAssetsForSurfaceAsync(surface, source, generation, _lifetime.Token);
+            _ = RefreshAssetsForSurfaceAsync(surface, source, generation, candidateToken);
+        }
+
+        private bool TryObserveBaseSurfaceVersion(long version)
+        {
+            lock (_presentationFinalityGate)
+            {
+                if (version <= _highestObservedBaseSurfaceVersion)
+                    return false;
+                _highestObservedBaseSurfaceVersion = version;
+                return true;
+            }
         }
 
         private void PublishEmbeddedSurface(string recordKey, EveSurfaceDocument surface)
@@ -1337,12 +1362,22 @@ namespace GameCult.Eve.UnityScene
             var providerId = world?.GetProp("assetProviderId") ?? "";
             var verseId = world?.GetProp("assetVerseId") ?? "";
             var authorityRuntimeId = world?.GetProp("assetAuthorityRuntimeId") ?? "";
+            var requiredCatalogVersion = long.TryParse(
+                    world?.GetProp("assetCatalogVersion"),
+                    out var parsedCatalogVersion)
+                ? Math.Max(0, parsedCatalogVersion)
+                : 0;
             var rendezvousEndpoints = ParseEndpointList(world?.GetProp("assetRendezvousEndpoints") ?? "");
             var hasQualifiedSource = !string.IsNullOrWhiteSpace(providerId) ||
                 !string.IsNullOrWhiteSpace(verseId) ||
                 !string.IsNullOrWhiteSpace(authorityRuntimeId);
             if (!hasQualifiedSource)
-                return new AssetSource(_target, _providerId, manifestRecordRef, Array.Empty<string>());
+                return new AssetSource(
+                    _target,
+                    _providerId,
+                    manifestRecordRef,
+                    Array.Empty<string>(),
+                    requiredCatalogVersion);
             if (string.IsNullOrWhiteSpace(providerId) || string.IsNullOrWhiteSpace(verseId) ||
                 string.IsNullOrWhiteSpace(authorityRuntimeId))
                 throw new InvalidOperationException(
@@ -1351,7 +1386,8 @@ namespace GameCult.Eve.UnityScene
                 new CultMeshSessionTarget(verseId, authorityRuntimeId),
                 providerId,
                 manifestRecordRef,
-                rendezvousEndpoints);
+                rendezvousEndpoints,
+                requiredCatalogVersion);
         }
 
         private async Task<AssetGeneration> BuildAssetGenerationAsync(
@@ -1374,7 +1410,10 @@ namespace GameCult.Eve.UnityScene
                         : null);
                 try
                 {
-                    var catalog = await AttachAssetCatalogSubscriptionAsync(candidate, cancellationToken);
+                    var catalog = await AttachAssetCatalogSubscriptionAsync(
+                        candidate,
+                        source.RequiredCatalogVersion,
+                        cancellationToken);
                     ConfigureAssetCatalog(candidate, catalog);
                     ReuseCompatibleBundles(_assetGeneration, candidate);
                     await PreloadAssetsAsync(candidate, cancellationToken);
@@ -1415,8 +1454,10 @@ namespace GameCult.Eve.UnityScene
 
         private async Task<EveAssetCatalogDocument> AttachAssetCatalogSubscriptionAsync(
             AssetGeneration candidate,
+            long requiredCatalogVersion,
             CancellationToken cancellationToken)
         {
+            var requiredCatalog = new TaskCompletionSource<EveAssetCatalogDocument>();
             var lease = await AssetMeshClient(candidate)
                 .LeaseDocumentAsync<EveAssetCatalogDocument>(
                     candidate.Source.Target,
@@ -1428,6 +1469,8 @@ namespace GameCult.Eve.UnityScene
                 watch = lease.Handle.Watch(catalog =>
                 {
                     var pending = candidate.ObserveCatalog(catalog);
+                    if (requiredCatalogVersion > 0 && catalog.Version == requiredCatalogVersion)
+                        requiredCatalog.TrySetResult(catalog);
                     if (pending != null)
                         QueueAssetCatalogUpdate(candidate.SourceIdentity, pending);
                 });
@@ -1435,7 +1478,10 @@ namespace GameCult.Eve.UnityScene
                 candidate.CatalogLease = lease;
                 var catalog = await lease.Handle.LatestAsync();
                 candidate.ObserveCatalog(catalog);
-                return catalog;
+                if (requiredCatalogVersion <= 0 || catalog.Version == requiredCatalogVersion)
+                    return catalog;
+                using (cancellationToken.Register(() => requiredCatalog.TrySetCanceled()))
+                    return await requiredCatalog.Task;
             }
             catch
             {
@@ -1605,7 +1651,13 @@ namespace GameCult.Eve.UnityScene
                         if (!string.Equals(update.SourceIdentity, CurrentAssetSourceIdentity, StringComparison.Ordinal) ||
                             update.Catalog.Version == CurrentAssetCatalogVersion)
                             continue;
-                        var source = _assetGeneration.Source;
+                        var currentSource = _assetGeneration.Source;
+                        var source = new AssetSource(
+                            currentSource.Target,
+                            currentSource.ProviderId,
+                            currentSource.ManifestRecordRef,
+                            currentSource.RendezvousEndpoints,
+                            update.Catalog.Version);
                         var candidate = await BuildAssetGenerationAsync(source, _lifetime.Token);
                         if (!string.Equals(update.SourceIdentity, CurrentAssetSourceIdentity, StringComparison.Ordinal))
                         {
@@ -1996,8 +2048,12 @@ namespace GameCult.Eve.UnityScene
                     !ReceiptMatches(request, receipt))
                     return;
             }
-            if (terminal && DeferTerminalReceiptUntilPresentation(receipt))
-                return;
+            if (terminal)
+            {
+                _commandOutbox?.Acknowledge(receipt.CommandId);
+                if (DeferTerminalReceiptUntilPresentation(receipt))
+                    return;
+            }
             FinalizeReceipt(receipt, terminal);
         }
 
@@ -2024,12 +2080,15 @@ namespace GameCult.Eve.UnityScene
 
         private bool DeferTerminalReceiptUntilPresentation(EveCommandReceiptDocument receipt)
         {
+            if (receipt.PresentationSurfaceVersion <= 0)
+                return false;
             lock (_presentationFinalityGate)
             {
-                if (receipt.SourceVersion > _mountedBaseSurfaceVersion)
-                    _presentationBarrierVersion = Math.Max(_presentationBarrierVersion, receipt.SourceVersion);
-                if (_presentationBarrierVersion <= _mountedBaseSurfaceVersion)
+                if (receipt.PresentationSurfaceVersion <= _mountedBaseSurfaceVersion)
                     return false;
+                _presentationBarrierVersion = Math.Max(
+                    _presentationBarrierVersion,
+                    receipt.PresentationSurfaceVersion);
                 _deferredTerminalReceipts[receipt.CommandId] = receipt;
                 return true;
             }
@@ -2041,14 +2100,13 @@ namespace GameCult.Eve.UnityScene
             lock (_presentationFinalityGate)
             {
                 _mountedBaseSurfaceVersion = Math.Max(_mountedBaseSurfaceVersion, committedVersion);
-                if (_presentationBarrierVersion > committedVersion)
-                    return;
-                _presentationBarrierVersion = -1;
                 ready = _deferredTerminalReceipts.Values
-                    .Where(receipt => receipt.SourceVersion <= committedVersion)
+                    .Where(receipt => receipt.PresentationSurfaceVersion <= _mountedBaseSurfaceVersion)
                     .ToArray();
                 foreach (var receipt in ready)
                     _deferredTerminalReceipts.Remove(receipt.CommandId);
+                if (_presentationBarrierVersion <= _mountedBaseSurfaceVersion)
+                    _presentationBarrierVersion = -1;
             }
             foreach (var receipt in ready)
                 FinalizeReceipt(receipt, terminal: true);
@@ -2073,7 +2131,6 @@ namespace GameCult.Eve.UnityScene
                         return;
                     _pendingCommands.Remove(receipt.CommandId);
                 }
-                _commandOutbox?.Acknowledge(receipt.CommandId);
                 ForgetPendingCommand(receipt.CommandId);
             }
             CommandReceiptAvailable?.Invoke(new EveUnitySceneCommandReceipt(
@@ -2107,11 +2164,22 @@ namespace GameCult.Eve.UnityScene
                 string providerId,
                 string manifestRecordRef,
                 IReadOnlyList<string> rendezvousEndpoints)
+                : this(target, providerId, manifestRecordRef, rendezvousEndpoints, 0)
+            {
+            }
+
+            public AssetSource(
+                CultMeshSessionTarget target,
+                string providerId,
+                string manifestRecordRef,
+                IReadOnlyList<string> rendezvousEndpoints,
+                long requiredCatalogVersion)
             {
                 Target = target;
                 ProviderId = providerId ?? "";
                 ManifestRecordRef = manifestRecordRef ?? "";
                 RendezvousEndpoints = rendezvousEndpoints ?? Array.Empty<string>();
+                RequiredCatalogVersion = Math.Max(0, requiredCatalogVersion);
                 Identity = Target.VerseId + "\u001f" + Target.AuthorityRuntimeId + "\u001f" +
                     ProviderId + "\u001f" + ManifestRecordRef + "\u001f" +
                     string.Join("\u001e", RendezvousEndpoints);
@@ -2121,6 +2189,7 @@ namespace GameCult.Eve.UnityScene
             public string ProviderId { get; }
             public string ManifestRecordRef { get; }
             public IReadOnlyList<string> RendezvousEndpoints { get; }
+            public long RequiredCatalogVersion { get; }
             public string Identity { get; }
         }
 

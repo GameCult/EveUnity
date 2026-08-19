@@ -53,7 +53,8 @@ namespace GameCult.Eve.UnityScene
             string surfaceId = "",
             string surfaceKind = "interactive-world",
             string verseId = "",
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default,
+            string requiredAuthorityRuntimeId = "")
         {
             if (string.IsNullOrWhiteSpace(rendezvousEndpoint))
                 throw new ArgumentException("Rendezvous endpoint must be non-empty.", nameof(rendezvousEndpoint));
@@ -101,10 +102,9 @@ namespace GameCult.Eve.UnityScene
             });
             foreach (var candidate in candidates)
             {
-                foreach (var authorityRuntimeId in (candidate.AuthorityRuntimeIds ?? Array.Empty<string>())
-                    .Where(id => !string.IsNullOrWhiteSpace(id))
-                    .Distinct(StringComparer.Ordinal)
-                    .OrderBy(id => id, StringComparer.Ordinal))
+                foreach (var authorityRuntimeId in EligibleAuthorityRuntimeIds(
+                    candidate.AuthorityRuntimeIds,
+                    requiredAuthorityRuntimeId))
                 {
                     try
                     {
@@ -146,11 +146,22 @@ namespace GameCult.Eve.UnityScene
                 }
             }
 
-            var filter = $"provider='{providerId}', surface='{surfaceId}', kind='{surfaceKind}'";
+            var filter = $"provider='{providerId}', surface='{surfaceId}', kind='{surfaceKind}', authority='{requiredAuthorityRuntimeId}'";
             var detail = failures.Count == 0 ? "" : $" Endpoint failures: {string.Join(" | ", failures)}";
             var observedDetail = observed.Count == 0 ? "" : $" Observed: {string.Join(" | ", observed)}";
             throw new InvalidOperationException($"No advertised Eve surface matched {filter}.{detail}{observedDetail}");
         }
+
+        internal static IReadOnlyList<string> EligibleAuthorityRuntimeIds(
+            IEnumerable<string>? authorityRuntimeIds,
+            string requiredAuthorityRuntimeId) =>
+            (authorityRuntimeIds ?? Array.Empty<string>())
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Where(id => string.IsNullOrWhiteSpace(requiredAuthorityRuntimeId) ||
+                             string.Equals(id, requiredAuthorityRuntimeId, StringComparison.Ordinal))
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(id => id, StringComparer.Ordinal)
+                .ToArray();
 
     }
 }

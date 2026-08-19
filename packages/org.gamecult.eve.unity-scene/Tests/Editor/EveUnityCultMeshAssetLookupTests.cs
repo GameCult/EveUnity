@@ -168,6 +168,24 @@ namespace GameCult.Eve.UnityScene.Tests
             Assert.That(typeof(EveUnityCultMeshProviderSelection).GetProperty("Endpoint"), Is.Null);
         }
 
+        [Test]
+        public void NavigationAuthorityCannotBeReplacedByAlphabeticallyEarlierPeer()
+        {
+            var target = new EveUnitySceneNavigationTarget(
+                "gamecult.aetheria",
+                "aetheria.daemon",
+                "aetheria.pilot",
+                "interactive-world",
+                new[] { "cultnet+tcp://odin.example:3075" },
+                "z-owner");
+            var eligible = EveUnityCultMeshProviderDiscovery.EligibleAuthorityRuntimeIds(
+                new[] { "a-decoy", "z-owner" },
+                target.AuthorityRuntimeId);
+
+            Assert.That(target.AuthorityRuntimeId, Is.EqualTo("z-owner"));
+            CollectionAssert.AreEqual(new[] { "z-owner" }, eligible);
+        }
+
         private static EveSurfaceCommandRequest Request(string id, string command) => new EveSurfaceCommandRequest(
             "test.provider",
             "test.surface",

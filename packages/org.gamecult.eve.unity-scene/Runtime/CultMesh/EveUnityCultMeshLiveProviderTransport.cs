@@ -1601,7 +1601,8 @@ namespace GameCult.Eve.UnityScene
                         receipt.Navigation.ProviderId,
                         receipt.Navigation.SurfaceId,
                         receipt.Navigation.SurfaceKind,
-                        receipt.Navigation.RendezvousEndpoints)));
+                        receipt.Navigation.RendezvousEndpoints,
+                        receipt.Navigation.AuthorityRuntimeId)));
         }
 
         private sealed class ReceiptSubscription : IDisposable

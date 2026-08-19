@@ -253,9 +253,11 @@ namespace GameCult.Eve.UnityScene
             string providerId,
             string surfaceId,
             string surfaceKind,
-            IReadOnlyList<string>? rendezvousEndpoints = null)
+            IReadOnlyList<string>? rendezvousEndpoints = null,
+            string authorityRuntimeId = "")
         {
             VerseId = verseId ?? "";
+            AuthorityRuntimeId = authorityRuntimeId ?? "";
             ProviderId = providerId ?? "";
             SurfaceId = surfaceId ?? "";
             SurfaceKind = surfaceKind ?? "";
@@ -263,6 +265,7 @@ namespace GameCult.Eve.UnityScene
         }
 
         public string VerseId { get; }
+        public string AuthorityRuntimeId { get; }
         public string ProviderId { get; }
         public string SurfaceId { get; }
         public string SurfaceKind { get; }

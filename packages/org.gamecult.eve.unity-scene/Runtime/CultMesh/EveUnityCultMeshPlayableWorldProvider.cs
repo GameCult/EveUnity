@@ -170,6 +170,7 @@ namespace GameCult.Eve.UnityScene
                 target.SurfaceId,
                 requiredSurfaceKind,
                 target.VerseId,
+                target.AuthorityRuntimeId,
                 _navigationAuthorityTrust,
                 CancellationToken.None).ConfigureAwait(false);
 
@@ -352,6 +353,7 @@ namespace GameCult.Eve.UnityScene
                 surfaceFilter,
                 surfaceKind,
                 verseFilter,
+                "",
                 _authorityTrust,
                 cancellationToken).ConfigureAwait(false);
             TraceStartup($"discovery and transport preparation {elapsed.Elapsed.TotalMilliseconds:0.###}ms");
@@ -364,6 +366,7 @@ namespace GameCult.Eve.UnityScene
             string requiredSurfaceId,
             string requiredSurfaceKind,
             string requiredVerseId,
+            string requiredAuthorityRuntimeId,
             CultMeshAuthorityTrustPolicy trust,
             CancellationToken cancellationToken)
         {
@@ -379,7 +382,8 @@ namespace GameCult.Eve.UnityScene
                         requiredSurfaceId,
                         requiredSurfaceKind,
                         requiredVerseId,
-                        cancellationToken).ConfigureAwait(false);
+                        cancellationToken,
+                        requiredAuthorityRuntimeId).ConfigureAwait(false);
                     var resolvedCachePath = string.IsNullOrWhiteSpace(cacheDirectory)
                         ? Path.Combine(Application.temporaryCachePath, $"eve-unity-{GetInstanceID()}")
                         : cacheDirectory;

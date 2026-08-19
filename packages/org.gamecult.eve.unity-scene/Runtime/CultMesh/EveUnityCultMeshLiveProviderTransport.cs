@@ -24,6 +24,8 @@ namespace GameCult.Eve.UnityScene
         IEveUnityGameObjectAssetProvider,
         IDisposable
     {
+        private const int AssetPresentationAttemptLimit = 3;
+
         private readonly string _cachePath;
         private readonly string _rendezvousEndpoint;
         private readonly CultMeshSessionTarget _target;
@@ -75,6 +77,7 @@ namespace GameCult.Eve.UnityScene
         private long _highestObservedBaseSurfaceVersion = -1;
         private long _activeBaseSurfaceCandidateVersion = -1;
         private long _activeBaseSurfaceCandidateGeneration = -1;
+        private int _lastAssetPresentationAttemptCount;
         private long _mountedBaseSurfaceVersion;
         private long _presentationBarrierVersion = -1;
         private long _lastQueuedEntityViewEpoch = -1;
@@ -1342,36 +1345,59 @@ namespace GameCult.Eve.UnityScene
             long generation,
             CancellationToken cancellationToken)
         {
-            try
+            Exception? finalError = null;
+            Interlocked.Exchange(ref _lastAssetPresentationAttemptCount, 0);
+            for (var attempt = 1; attempt <= AssetPresentationAttemptLimit; attempt++)
             {
-                if (generation != Interlocked.Read(ref _surfaceAssetGeneration))
-                    return;
-                await _assetGenerationGate.WaitAsync(cancellationToken);
+                Interlocked.Exchange(ref _lastAssetPresentationAttemptCount, attempt);
                 try
                 {
                     if (generation != Interlocked.Read(ref _surfaceAssetGeneration))
                         return;
-                    var candidate = await BuildAssetGenerationAsync(source, cancellationToken);
-                    if (generation != Interlocked.Read(ref _surfaceAssetGeneration))
+                    await _assetGenerationGate.WaitAsync(cancellationToken);
+                    try
                     {
-                        candidate.Dispose();
+                        if (generation != Interlocked.Read(ref _surfaceAssetGeneration))
+                            return;
+                        var candidate = await BuildAssetGenerationAsync(source, cancellationToken);
+                        if (generation != Interlocked.Read(ref _surfaceAssetGeneration))
+                        {
+                            candidate.Dispose();
+                            return;
+                        }
+                        CommitAssetGeneration(candidate, surface);
                         return;
                     }
-                    CommitAssetGeneration(candidate, surface);
+                    finally
+                    {
+                        _assetGenerationGate.Release();
+                    }
                 }
-                finally
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
-                    _assetGenerationGate.Release();
+                    return;
+                }
+                catch (Exception error)
+                {
+                    finalError = error;
+                    if (generation != Interlocked.Read(ref _surfaceAssetGeneration))
+                        return;
+                    if (attempt < AssetPresentationAttemptLimit)
+                    {
+                        try
+                        {
+                            await Task.Delay(TimeSpan.FromMilliseconds(100 * attempt), cancellationToken);
+                        }
+                        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                        {
+                            return;
+                        }
+                    }
                 }
             }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-            }
-            catch (Exception error)
-            {
-                RetireFailedBaseSurfaceCandidate(surface.Version, generation);
-                _liveDocuments.Enqueue(error);
-            }
+            RetireFailedBaseSurfaceCandidate(surface.Version, generation);
+            _liveDocuments.Enqueue(finalError ?? new InvalidOperationException(
+                $"Eve surface {surface.Version} asset preparation exhausted its retry policy."));
         }
 
         private AssetSource ResolveAssetSource(EveSurfaceDocument surface)

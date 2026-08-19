@@ -386,6 +386,42 @@ namespace GameCult.Eve.UnityScene.Tests
             Assert.That(begin.Invoke(transport, new object[] { 9L, -1L }), Is.False);
         }
 
+        [Test]
+        public async Task FailedAssetPreparationRunsBoundedRetryPolicyAndRetiresCandidate()
+        {
+            using var transport = new EveUnityCultMeshLiveProviderTransport(
+                "test-cache",
+                "cultnet+tcp://127.0.0.1:1",
+                "test.verse",
+                "test.runtime",
+                "test.provider",
+                "test.surface");
+            var type = typeof(EveUnityCultMeshLiveProviderTransport);
+            var begin = type.GetMethod(
+                "TryBeginBaseSurfaceCandidate",
+                BindingFlags.NonPublic | BindingFlags.Instance)!;
+            var refresh = type.GetMethod(
+                "RefreshAssetsForSurfaceAsync",
+                BindingFlags.NonPublic | BindingFlags.Instance)!;
+            var attempts = type.GetField(
+                "_lastAssetPresentationAttemptCount",
+                BindingFlags.NonPublic | BindingFlags.Instance)!;
+            var first = new object[] { 10L, -1L };
+            Assert.That(begin.Invoke(transport, first), Is.True);
+            var task = (Task)refresh.Invoke(transport, new object[]
+            {
+                SceneSurface(10).SurfaceDocument,
+                CreateAssetSource("test.verse", "test.runtime", "test.provider", "catalog", 41),
+                (long)first[1],
+                CancellationToken.None
+            })!;
+
+            await task;
+
+            Assert.That(attempts.GetValue(transport), Is.EqualTo(3));
+            Assert.That(begin.Invoke(transport, new object[] { 10L, -1L }), Is.True);
+        }
+
         private static EveUnitySceneProviderSurfaceDocument SceneSurface(long version)
         {
             var surface = new EveSurfaceDocument(

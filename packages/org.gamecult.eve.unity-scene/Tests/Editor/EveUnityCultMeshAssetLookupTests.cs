@@ -657,6 +657,46 @@ namespace GameCult.Eve.UnityScene.Tests
         }
 
         [Test]
+        public void PinnedSurfaceCatalogDoesNotAutoAdvanceWithoutANewerBaseSurface()
+        {
+            var transportType = typeof(EveUnityCultMeshLiveProviderTransport);
+            var generationField = transportType.GetField(
+                "_assetGeneration",
+                BindingFlags.Instance | BindingFlags.NonPublic)!;
+            var pendingField = transportType.GetField(
+                "_pendingAssetCatalog",
+                BindingFlags.Instance | BindingFlags.NonPublic)!;
+            var queue = transportType.GetMethod(
+                "QueueAssetCatalogUpdate",
+                BindingFlags.Instance | BindingFlags.NonPublic)!;
+            using var transport = new EveUnityCultMeshLiveProviderTransport(
+                Path.Combine(Path.GetTempPath(), $"eve-pinned-catalog-{Guid.NewGuid():N}.cc"),
+                "cultnet+tcp://127.0.0.1:1",
+                "verse-a",
+                "authority-a",
+                "provider-a",
+                "surface-a");
+            var initial = (IDisposable)generationField.GetValue(transport)!;
+            var committed = CreateAssetGeneration(
+                "verse-a", "authority-a", "provider-a", "catalog-a", "source-a", 41, 41);
+            initial.Dispose();
+            generationField.SetValue(transport, committed);
+            var catalog42 = new EveAssetCatalogDocument(
+                "provider-a",
+                "catalog-a",
+                42,
+                DateTimeOffset.UtcNow.ToString("O"),
+                Array.Empty<EveAssetCatalogEntry>());
+
+            queue.Invoke(transport, new object[] { "source-a", catalog42 });
+
+            Assert.That(GenerationProperty<long>(generationField.GetValue(transport)!, "CatalogVersion"), Is.EqualTo(41));
+            var committedSource = GenerationProperty<object>(generationField.GetValue(transport)!, "Source");
+            Assert.That(GenerationProperty<long>(committedSource, "RequiredCatalogVersion"), Is.EqualTo(41));
+            Assert.That(pendingField.GetValue(transport), Is.Null);
+        }
+
+        [Test]
         public void CrossTargetAssetsUseConfiguredRemoteTrust()
         {
             var localTrust = new CultMeshAuthorityTrustPolicy(CultMeshAuthorityTrustMode.LocalDevelopment);
@@ -685,7 +725,8 @@ namespace GameCult.Eve.UnityScene.Tests
             string verseId,
             string authorityRuntimeId,
             string providerId,
-            string manifestRecordRef)
+            string manifestRecordRef,
+            long requiredCatalogVersion = 0)
         {
             var type = typeof(EveUnityCultMeshLiveProviderTransport).GetNestedType(
                 "AssetSource",
@@ -699,7 +740,8 @@ namespace GameCult.Eve.UnityScene.Tests
                     new CultMeshSessionTarget(verseId, authorityRuntimeId),
                     providerId,
                     manifestRecordRef,
-                    Array.Empty<string>()
+                    Array.Empty<string>(),
+                    requiredCatalogVersion
                 },
                 null)!;
         }
@@ -710,7 +752,8 @@ namespace GameCult.Eve.UnityScene.Tests
             string providerId,
             string manifestRecordRef,
             string sourceIdentity,
-            long catalogVersion)
+            long catalogVersion,
+            long requiredCatalogVersion = 0)
         {
             var type = typeof(EveUnityCultMeshLiveProviderTransport).GetNestedType(
                 "AssetGeneration",
@@ -721,7 +764,7 @@ namespace GameCult.Eve.UnityScene.Tests
                 null,
                 new[]
                 {
-                    CreateAssetSource(verseId, authorityRuntimeId, providerId, manifestRecordRef),
+                    CreateAssetSource(verseId, authorityRuntimeId, providerId, manifestRecordRef, requiredCatalogVersion),
                     sourceIdentity,
                     catalogVersion,
                     null

@@ -1471,7 +1471,7 @@ namespace GameCult.Eve.UnityScene
                     var pending = candidate.ObserveCatalog(catalog);
                     if (requiredCatalogVersion > 0 && catalog.Version == requiredCatalogVersion)
                         requiredCatalog.TrySetResult(catalog);
-                    if (pending != null)
+                    if (pending != null && requiredCatalogVersion <= 0)
                         QueueAssetCatalogUpdate(candidate.SourceIdentity, pending);
                 });
                 candidate.CatalogWatch = watch;
@@ -1508,7 +1508,7 @@ namespace GameCult.Eve.UnityScene
             previous.TransferSharedBundlesTo(candidate);
             _assetGeneration = candidate;
             var pendingCatalog = candidate.ActivateCatalogObservation();
-            if (pendingCatalog != null)
+            if (pendingCatalog != null && candidate.Source.RequiredCatalogVersion <= 0)
                 QueueAssetCatalogUpdate(candidate.SourceIdentity, pendingCatalog);
             if (surface != null)
                 _baseSurface = surface;
@@ -1624,9 +1624,15 @@ namespace GameCult.Eve.UnityScene
 
         private void QueueAssetCatalogUpdate(string sourceIdentity, EveAssetCatalogDocument catalog)
         {
+            if (catalog == null) throw new ArgumentNullException(nameof(catalog));
+            if (_assetGeneration.Source.RequiredCatalogVersion > 0)
+            {
+                _pendingAssetCatalog = null;
+                return;
+            }
             _pendingAssetCatalog = new PendingAssetCatalogUpdate(
                 sourceIdentity,
-                catalog ?? throw new ArgumentNullException(nameof(catalog)));
+                catalog);
             if (_assetCatalogUpdateRunning) return;
             _assetCatalogUpdateRunning = true;
             _ = DrainAssetCatalogUpdatesAsync();
@@ -1641,6 +1647,8 @@ namespace GameCult.Eve.UnityScene
                     var update = _pendingAssetCatalog;
                     _pendingAssetCatalog = null;
                     if (update == null) break;
+                    if (_assetGeneration.Source.RequiredCatalogVersion > 0)
+                        continue;
                     if (!string.Equals(update.SourceIdentity, CurrentAssetSourceIdentity, StringComparison.Ordinal))
                         continue;
                     if (update.Catalog.Version == CurrentAssetCatalogVersion)
@@ -1649,7 +1657,8 @@ namespace GameCult.Eve.UnityScene
                     try
                     {
                         if (!string.Equals(update.SourceIdentity, CurrentAssetSourceIdentity, StringComparison.Ordinal) ||
-                            update.Catalog.Version == CurrentAssetCatalogVersion)
+                            update.Catalog.Version == CurrentAssetCatalogVersion ||
+                            _assetGeneration.Source.RequiredCatalogVersion > 0)
                             continue;
                         var currentSource = _assetGeneration.Source;
                         var source = new AssetSource(
@@ -1657,9 +1666,10 @@ namespace GameCult.Eve.UnityScene
                             currentSource.ProviderId,
                             currentSource.ManifestRecordRef,
                             currentSource.RendezvousEndpoints,
-                            update.Catalog.Version);
+                            0);
                         var candidate = await BuildAssetGenerationAsync(source, _lifetime.Token);
-                        if (!string.Equals(update.SourceIdentity, CurrentAssetSourceIdentity, StringComparison.Ordinal))
+                        if (!string.Equals(update.SourceIdentity, CurrentAssetSourceIdentity, StringComparison.Ordinal) ||
+                            _assetGeneration.Source.RequiredCatalogVersion > 0)
                         {
                             candidate.Dispose();
                             continue;

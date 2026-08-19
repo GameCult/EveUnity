@@ -1222,6 +1222,8 @@ namespace GameCult.Eve.UnityScene.Tests
 
                 Assert.That(provider.CommitNavigationCount, Is.EqualTo(2));
                 Assert.That(provider.FinalizeNavigationCount, Is.EqualTo(2));
+                Assert.That(provider.ActiveConnectionLeases, Is.EqualTo(1),
+                    "disposing superseded presentations must leave the committed Verse connected");
                 Assert.That(hostObject.transform.Cast<Transform>()
                     .Count(child => child.name == "Eve Unity Candidate Presentation"), Is.EqualTo(1));
             }
@@ -3433,6 +3435,7 @@ namespace GameCult.Eve.UnityScene.Tests
             IEveUnitySceneCommandReceiptSource,
             IEveUnityProviderRefreshSource,
             IEveUnityInputCapabilitySource,
+            IEveUnitySceneProviderSurfaceDocumentConnection,
             IEveUnityNavigableProvider
         {
             public List<EveSurfaceCommandRequest> Submitted { get; } = new List<EveSurfaceCommandRequest>();
@@ -3450,6 +3453,8 @@ namespace GameCult.Eve.UnityScene.Tests
             public bool FailNextNavigationMount { get; set; }
 
             public bool FailNextNavigationFinalize { get; set; }
+
+            public int ActiveConnectionLeases { get; private set; }
 
             public string ActiveRoute { get; private set; } = "original";
 
@@ -3527,6 +3532,17 @@ namespace GameCult.Eve.UnityScene.Tests
                 _failSurfaceRead = FailNextNavigationMount;
                 FailNextNavigationMount = false;
                 return Task.CompletedTask;
+            }
+
+            public void Connect()
+            {
+                ActiveConnectionLeases++;
+            }
+
+            public void Disconnect()
+            {
+                if (ActiveConnectionLeases > 0)
+                    ActiveConnectionLeases--;
             }
 
             public void CommitNavigation()

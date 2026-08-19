@@ -38,6 +38,11 @@ main thread applies completed typed documents and assets; it never waits for a
 CultMesh task, keeping Play, Pause, input, inspection, and rendering responsive
 while a provider is slow or temporarily unreachable.
 
+Navigation keeps the outgoing presentation quiesced until the candidate route
+is ready, then commits the provider route before activating the candidate.
+Presentation connections are provider-owned leases: disposing the outgoing
+host releases only its lease and cannot disconnect the newly committed Verse.
+
 The package never imports provider product assemblies.
 
 Add `EveUnityRendererFeature` to the Universal Renderer used by Eve cameras.

@@ -49,6 +49,7 @@ namespace GameCult.Eve.UnityScene
         private EveUnitySceneLiveProviderBridge? _bridge;
         private PreviousProvider? _previousProvider;
         private bool _navigationRouteCommitted;
+        private int _connectionLeaseCount;
         private Task? _preparation;
         private CancellationTokenSource? _preparationLifetime;
         private readonly ConcurrentQueue<EntityViewLease> _pendingEntityViews = new ConcurrentQueue<EntityViewLease>();
@@ -114,7 +115,10 @@ namespace GameCult.Eve.UnityScene
 
         public void Connect()
         {
+            // During navigation the candidate presentation connects before the route
+            // becomes canonical, so every new lease must connect its selected bridge.
             Bridge.Connect();
+            checked { _connectionLeaseCount++; }
         }
 
         public Task PrepareAsync()
@@ -132,7 +136,11 @@ namespace GameCult.Eve.UnityScene
 
         public void Disconnect()
         {
-            _bridge?.Disconnect();
+            if (_connectionLeaseCount <= 0)
+                return;
+            _connectionLeaseCount--;
+            if (_connectionLeaseCount == 0)
+                _bridge?.Disconnect();
         }
 
         public async Task NavigateAsync(EveUnitySceneNavigationTarget target)
@@ -289,6 +297,7 @@ namespace GameCult.Eve.UnityScene
             _previousProvider?.Transport?.Dispose();
             _previousProvider = null;
             _navigationRouteCommitted = false;
+            _connectionLeaseCount = 0;
             while (_pendingEntityViews.TryDequeue(out var pending)) pending.Lease.Dispose();
             while (_pendingFields.TryDequeue(out _)) { }
             _bridge = null;

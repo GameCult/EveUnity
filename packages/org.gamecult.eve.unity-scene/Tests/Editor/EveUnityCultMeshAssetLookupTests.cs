@@ -743,6 +743,27 @@ namespace GameCult.Eve.UnityScene.Tests
         }
 
         [Test]
+        public void PinnedSurfaceRejectsWrongImmutableCatalogRecordImmediately()
+        {
+            var require = typeof(EveUnityCultMeshLiveProviderTransport).GetMethod(
+                "RequireCatalogVersion",
+                BindingFlags.Static | BindingFlags.NonPublic)!;
+            var catalog42 = new EveAssetCatalogDocument(
+                "provider-a",
+                "eve:assets:aetheria.daemon:version:42",
+                42,
+                DateTimeOffset.UtcNow.ToString("O"),
+                Array.Empty<EveAssetCatalogEntry>());
+
+            var error = Assert.Throws<TargetInvocationException>(() => require.Invoke(
+                null,
+                new object[] { catalog42, 41L, "eve:assets:aetheria.daemon:version:41" }));
+
+            Assert.That(error!.InnerException, Is.TypeOf<InvalidDataException>());
+            Assert.That(error.InnerException!.Message, Does.Contain("requires immutable version 41"));
+        }
+
+        [Test]
         public void CrossTargetAssetsUseConfiguredRemoteTrust()
         {
             var localTrust = new CultMeshAuthorityTrustPolicy(CultMeshAuthorityTrustMode.LocalDevelopment);

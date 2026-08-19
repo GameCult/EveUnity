@@ -1464,6 +1464,8 @@ namespace GameCult.Eve.UnityScene
                     ConfigureAssetCatalog(candidate, catalog);
                     ReuseCompatibleBundles(_assetGeneration, candidate);
                     await PreloadAssetsAsync(candidate, cancellationToken);
+                    if (source.RequiredCatalogVersion > 0)
+                        return candidate;
                     var latest = await candidate.CatalogLease!.Handle.LatestAsync();
                     candidate.ObserveCatalog(latest);
                     if (latest.Version != candidate.CatalogVersion)
@@ -1504,7 +1506,6 @@ namespace GameCult.Eve.UnityScene
             long requiredCatalogVersion,
             CancellationToken cancellationToken)
         {
-            var requiredCatalog = new TaskCompletionSource<EveAssetCatalogDocument>();
             var lease = await AssetMeshClient(candidate)
                 .LeaseDocumentAsync<EveAssetCatalogDocument>(
                     candidate.Source.Target,
@@ -1513,22 +1514,24 @@ namespace GameCult.Eve.UnityScene
             IDisposable? watch = null;
             try
             {
-                watch = lease.Handle.Watch(catalog =>
+                var catalog = await lease.Handle.LatestAsync();
+                candidate.ObserveCatalog(catalog);
+                if (requiredCatalogVersion > 0)
                 {
-                    var pending = candidate.ObserveCatalog(catalog);
-                    if (requiredCatalogVersion > 0 && catalog.Version == requiredCatalogVersion)
-                        requiredCatalog.TrySetResult(catalog);
-                    if (pending != null && requiredCatalogVersion <= 0)
+                    RequireCatalogVersion(catalog, requiredCatalogVersion, candidate.Source.ManifestRecordRef);
+                    candidate.CatalogLease = lease;
+                    return catalog;
+                }
+
+                watch = lease.Handle.Watch(observedCatalog =>
+                {
+                    var pending = candidate.ObserveCatalog(observedCatalog);
+                    if (pending != null)
                         QueueAssetCatalogUpdate(candidate.SourceIdentity, pending);
                 });
                 candidate.CatalogWatch = watch;
                 candidate.CatalogLease = lease;
-                var catalog = await lease.Handle.LatestAsync();
-                candidate.ObserveCatalog(catalog);
-                if (requiredCatalogVersion <= 0 || catalog.Version == requiredCatalogVersion)
-                    return catalog;
-                using (cancellationToken.Register(() => requiredCatalog.TrySetCanceled()))
-                    return await requiredCatalog.Task;
+                return catalog;
             }
             catch
             {
@@ -1536,6 +1539,19 @@ namespace GameCult.Eve.UnityScene
                 lease.Dispose();
                 throw;
             }
+        }
+
+        private static void RequireCatalogVersion(
+            EveAssetCatalogDocument catalog,
+            long requiredCatalogVersion,
+            string manifestRecordRef)
+        {
+            if (catalog == null) throw new ArgumentNullException(nameof(catalog));
+            if (requiredCatalogVersion <= 0 || catalog.Version == requiredCatalogVersion)
+                return;
+            throw new InvalidDataException(
+                $"Asset catalog record '{manifestRecordRef}' contains version {catalog.Version}, " +
+                $"but the Eve surface requires immutable version {requiredCatalogVersion}.");
         }
 
         private void CommitAssetGeneration(AssetGeneration candidate, EveSurfaceDocument? surface = null)

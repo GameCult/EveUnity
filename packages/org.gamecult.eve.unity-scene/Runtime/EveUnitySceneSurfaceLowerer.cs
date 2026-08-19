@@ -172,7 +172,11 @@ namespace GameCult.Eve.UnityScene
                 worldRoot.GetProp("exposureAdaptation", "progressive"),
                 ParseFloat(worldRoot.GetProp("exposureSpeedUp"), 2f),
                 ParseFloat(worldRoot.GetProp("exposureSpeedDown"), 1f),
-                worldRoot.GetProp("colorGradingSpace"));
+                worldRoot.GetProp("colorGradingSpace"),
+                worldRoot.GetProp("assetProviderId"),
+                worldRoot.GetProp("assetVerseId"),
+                worldRoot.GetProp("assetAuthorityRuntimeId"),
+                ParseStringList(worldRoot.GetProp("assetRendezvousEndpoints")));
         }
 
         private static EveUnityFieldVolumeProjection BuildFieldVolume(EveSurfaceComponent component) =>
@@ -443,7 +447,11 @@ namespace GameCult.Eve.UnityScene
             string exposureAdaptation = "progressive",
             float exposureSpeedUp = 2f,
             float exposureSpeedDown = 1f,
-            string colorGradingSpace = "")
+            string colorGradingSpace = "",
+            string assetProviderId = "",
+            string assetVerseId = "",
+            string assetAuthorityRuntimeId = "",
+            IReadOnlyList<string>? assetRendezvousEndpoints = null)
         {
             WorldRootId = worldRootId ?? "";
             StatePointerId = statePointerId ?? "";
@@ -507,6 +515,10 @@ namespace GameCult.Eve.UnityScene
             ExposureSpeedUp = exposureSpeedUp;
             ExposureSpeedDown = exposureSpeedDown;
             ColorGradingSpace = colorGradingSpace ?? "";
+            AssetProviderId = assetProviderId ?? "";
+            AssetVerseId = assetVerseId ?? "";
+            AssetAuthorityRuntimeId = assetAuthorityRuntimeId ?? "";
+            AssetRendezvousEndpoints = assetRendezvousEndpoints ?? Array.Empty<string>();
         }
 
         public string WorldRootId { get; }
@@ -524,6 +536,14 @@ namespace GameCult.Eve.UnityScene
         public string ZoneRenderSchema { get; }
 
         public string AssetManifest { get; }
+
+        public string AssetProviderId { get; }
+
+        public string AssetVerseId { get; }
+
+        public string AssetAuthorityRuntimeId { get; }
+
+        public IReadOnlyList<string> AssetRendezvousEndpoints { get; }
 
         public string InputProfile { get; }
 

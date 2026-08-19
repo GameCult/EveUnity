@@ -582,6 +582,10 @@ namespace GameCult.Eve.UnityScene.Tests
             Assert.That(projection.PlayableWorld.EntityBodyId, Is.EqualTo("eve:entity-soa:aetheria.daemon:pilot"));
             Assert.That(projection.PlayableWorld.ZoneRenderPointerId, Is.EqualTo("cultmesh://aetheria/world/zone-render"));
             Assert.That(projection.PlayableWorld.AssetManifest, Is.EqualTo("cultmesh://aetheria/assets/manifest"));
+            Assert.That(projection.PlayableWorld.AssetProviderId, Is.EqualTo("aetheria.assets"));
+            Assert.That(projection.PlayableWorld.AssetVerseId, Is.EqualTo("aetheria.mods"));
+            Assert.That(projection.PlayableWorld.AssetAuthorityRuntimeId, Is.EqualTo("mod-authority"));
+            Assert.That(projection.PlayableWorld.AssetRendezvousEndpoints, Is.EqualTo(new[] { "wss://odin-a/cultmesh", "wss://odin-b/cultmesh" }));
             Assert.That(projection.PlayableWorld.InputProfile, Is.EqualTo("arpg-third-person"));
             Assert.That(projection.PlayableWorld.CameraRig, Is.EqualTo("planar.top-down-follow.v1"));
             Assert.That(projection.PlayableWorld.CameraLookAt, Is.Empty);
@@ -2730,6 +2734,10 @@ namespace GameCult.Eve.UnityScene.Tests
                                     ["zoneRenderPointerId"] = "cultmesh://aetheria/world/zone-render",
                                     ["zoneRenderSchema"] = "gamecult.aetheria.zone_render.v1",
                                     ["assetManifest"] = "cultmesh://aetheria/assets/manifest",
+                                    ["assetProviderId"] = "aetheria.assets",
+                                    ["assetVerseId"] = "aetheria.mods",
+                                    ["assetAuthorityRuntimeId"] = "mod-authority",
+                                    ["assetRendezvousEndpoints"] = "wss://odin-a/cultmesh;wss://odin-b/cultmesh",
                                     ["inputProfile"] = "arpg-third-person",
                                     ["cameraRig"] = cameraRig,
                                     ["cameraLookAt"] = cameraLookAt,

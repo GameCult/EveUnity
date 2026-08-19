@@ -63,10 +63,15 @@ namespace GameCult.Eve.UnityScene
         private readonly List<IDisposable> _documentWatches = new List<IDisposable>();
         private readonly CancellationTokenSource _lifetime = new CancellationTokenSource();
         private CultMeshClient? _meshClient;
+        private CultMeshClient? _assetMeshClient;
+        private IDisposable? _assetCatalogLease;
+        private IDisposable? _assetCatalogWatch;
         private bool _liveDocumentsReady;
         private CultCache? _contentState;
         private CultMeshContentTransferService? _contentTransfer;
         private CultMeshVerifiedBodyMappingBroker? _assetBodyMappings;
+        private CultMeshSessionTarget _assetTarget;
+        private string _assetProviderId;
         private EveProviderAdvertisementDocument? _advertisement;
         private EveAdvertisedSurface? _advertisedSurface;
         private EveSurfaceDocument? _baseSurface;
@@ -79,8 +84,9 @@ namespace GameCult.Eve.UnityScene
         private Task? _realtimePump;
         private CultMeshRealtimeSession? _realtimeSession;
         private EveUnityCultMeshCommandOutbox? _commandOutbox;
-        private EveAssetCatalogDocument? _pendingAssetCatalog;
+        private PendingAssetCatalogUpdate? _pendingAssetCatalog;
         private bool _assetCatalogUpdateRunning;
+        private long _surfaceAssetGeneration;
         private long _lastQueuedEntityViewEpoch = -1;
         private long _lastQueuedEntityViewSequence = -1;
         private long _lastPresentedEntityViewEpoch = -1;
@@ -109,6 +115,8 @@ namespace GameCult.Eve.UnityScene
             _providerId = string.IsNullOrWhiteSpace(providerId)
                 ? throw new ArgumentException("Provider id must be non-empty.", nameof(providerId))
                 : providerId.Trim();
+            _assetTarget = _target;
+            _assetProviderId = _providerId;
             _surfaceId = string.IsNullOrWhiteSpace(surfaceId)
                 ? throw new ArgumentException("Surface id must be non-empty.", nameof(surfaceId))
                 : surfaceId.Trim();
@@ -252,7 +260,7 @@ namespace GameCult.Eve.UnityScene
                 else if (document is EveInputCapabilityDocument inputCapability)
                     CurrentInputCapability = inputCapability;
                 else if (document is EveAssetCatalogDocument assetCatalog)
-                    QueueAssetCatalogUpdate(assetCatalog);
+                    QueueAssetCatalogUpdate(CurrentAssetSourceIdentity, assetCatalog);
                 else if (document is EveCommandReceiptDocument receipt)
                     PublishReceipt(receipt);
                 else if (document is Exception error)
@@ -457,10 +465,16 @@ namespace GameCult.Eve.UnityScene
             _realtimeLifetime?.Dispose();
             _realtimeLifetime = null;
             DisposeLiveDocuments();
+            _assetCatalogWatch?.Dispose();
+            _assetCatalogWatch = null;
+            _assetCatalogLease?.Dispose();
+            _assetCatalogLease = null;
             _contentState?.Dispose();
             _contentState = null;
             _meshClient?.Dispose();
             _meshClient = null;
+            _assetMeshClient?.Dispose();
+            _assetMeshClient = null;
             _contentTransfer = null;
             _assetBodyMappings = null;
             _baseSurface = null;
@@ -516,9 +530,14 @@ namespace GameCult.Eve.UnityScene
         {
             if (_meshClient != null)
                 return;
-            _meshClient = new CultMeshClient(new CultMeshClientOptions
+            _meshClient = CreateMeshClient(new[] { _rendezvousEndpoint });
+        }
+
+        private CultMeshClient CreateMeshClient(IReadOnlyList<string> rendezvousEndpoints)
+        {
+            return new CultMeshClient(new CultMeshClientOptions
             {
-                RendezvousEndpoints = new[] { _rendezvousEndpoint },
+                RendezvousEndpoints = rendezvousEndpoints,
                 Discovery = EveUnityCultMeshConnectivity.Discovery(),
                 Sessions = new CultMeshSessionManagerOptions { Trust = _authorityTrust },
                 Connectors = EveUnityCultMeshConnectivity.SchemaConnectors(),
@@ -529,6 +548,9 @@ namespace GameCult.Eve.UnityScene
                 }
             });
         }
+
+        private CultMeshClient AssetMeshClient() => _assetMeshClient ??
+            _meshClient ?? throw new InvalidOperationException("The CultMesh client is not open.");
 
         private async Task ResolveAdvertisementAsync(
             bool forceRefresh = false,
@@ -900,8 +922,28 @@ namespace GameCult.Eve.UnityScene
 
         private void PublishBaseSurface(EveSurfaceDocument surface)
         {
-            _baseSurface = surface ?? throw new ArgumentNullException(nameof(surface));
-            PublishComposedSurface();
+            if (surface == null) throw new ArgumentNullException(nameof(surface));
+            var generation = Interlocked.Increment(ref _surfaceAssetGeneration);
+            if (!_bootstrapped)
+            {
+                _baseSurface = surface;
+                PublishComposedSurface();
+                return;
+            }
+
+            var source = ResolveAssetSource(surface);
+            if (string.Equals(source.Identity, CurrentAssetSourceIdentity, StringComparison.Ordinal))
+            {
+                _baseSurface = surface;
+                PublishComposedSurface();
+                return;
+            }
+
+            // A surface and its provider-qualified asset catalog are one presentation
+            // candidate. Keep the previous surface mounted until the candidate assets
+            // have resolved and preloaded; never lower a remote Verse surface against
+            // the previous Verse's catalog merely because the surface record arrived first.
+            _ = RefreshAssetsForSurfaceAsync(surface, source, generation, _lifetime.Token);
         }
 
         private void PublishEmbeddedSurface(string recordKey, EveSurfaceDocument surface)
@@ -1064,15 +1106,6 @@ namespace GameCult.Eve.UnityScene
                     document => _liveDocuments.Enqueue(document),
                     cancellationToken);
             }
-            var assetCatalogRef = RequireWorldInteraction().AssetManifestRecordRef;
-            if (!string.IsNullOrWhiteSpace(assetCatalogRef))
-            {
-                await LeaseDocumentAsync<EveAssetCatalogDocument>(
-                    assetCatalogRef,
-                    document => _liveDocuments.Enqueue(document),
-                    cancellationToken,
-                    publishInitial: false);
-            }
             var interaction = RequireWorldInteraction();
             if (!string.Equals(interaction.ReceiptSchema, EveCommandReceiptDocument.SchemaId, StringComparison.Ordinal))
                 throw new InvalidOperationException(
@@ -1233,21 +1266,155 @@ namespace GameCult.Eve.UnityScene
 
         private async Task RefreshAssetCatalogAsync(CancellationToken cancellationToken)
         {
-            var interaction = RequireWorldInteraction();
-            if (string.IsNullOrWhiteSpace(interaction.AssetManifestRecordRef))
+            var source = ResolveAssetSource(
+                _baseSurface ?? throw new InvalidOperationException("The provider surface must be available before its assets are resolved."));
+            if (string.IsNullOrWhiteSpace(source.ManifestRecordRef))
                 return;
 
-            var catalog = await _meshClient!
-                .ReadAsync<EveAssetCatalogDocument>(
-                    _target,
-                    interaction.AssetManifestRecordRef,
-                    cancellationToken);
-            PublishAssetCatalog(catalog);
+            var catalog = await ReadAssetCatalogAsync(source, cancellationToken);
+            ApplyAssetSource(source);
+            PublishAssetCatalog(source.Identity, catalog);
+            await ReplaceAssetCatalogSubscriptionAsync(source, cancellationToken);
         }
 
-        private void PublishAssetCatalog(EveAssetCatalogDocument catalog)
+        private async Task RefreshAssetsForSurfaceAsync(
+            EveSurfaceDocument surface,
+            AssetSource source,
+            long generation,
+            CancellationToken cancellationToken)
         {
-            if (catalog.Version == CurrentAssetCatalogVersion)
+            try
+            {
+                var catalog = await ReadAssetCatalogAsync(source, cancellationToken);
+                if (generation != Interlocked.Read(ref _surfaceAssetGeneration))
+                    return;
+                ApplyAssetSource(source);
+                PublishAssetCatalog(source.Identity, catalog);
+                await ReplaceAssetCatalogSubscriptionAsync(source, cancellationToken);
+                await PreloadAssetsAsync(cancellationToken);
+                if (generation != Interlocked.Read(ref _surfaceAssetGeneration))
+                    return;
+                _baseSurface = surface;
+                PublishComposedSurface();
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+            }
+            catch (Exception error)
+            {
+                _liveDocuments.Enqueue(error);
+            }
+        }
+
+        private AssetSource ResolveAssetSource(EveSurfaceDocument surface)
+        {
+            var world = FindWorldScene(surface.Surface.Root);
+            var manifestRecordRef = world?.GetProp("assetManifest") ?? "";
+            if (string.IsNullOrWhiteSpace(manifestRecordRef))
+                manifestRecordRef = RequireWorldInteraction().AssetManifestRecordRef;
+            var providerId = world?.GetProp("assetProviderId") ?? "";
+            var verseId = world?.GetProp("assetVerseId") ?? "";
+            var authorityRuntimeId = world?.GetProp("assetAuthorityRuntimeId") ?? "";
+            var rendezvousEndpoints = ParseEndpointList(world?.GetProp("assetRendezvousEndpoints") ?? "");
+            var hasQualifiedSource = !string.IsNullOrWhiteSpace(providerId) ||
+                !string.IsNullOrWhiteSpace(verseId) ||
+                !string.IsNullOrWhiteSpace(authorityRuntimeId);
+            if (!hasQualifiedSource)
+                return new AssetSource(_target, _providerId, manifestRecordRef, Array.Empty<string>());
+            if (string.IsNullOrWhiteSpace(providerId) || string.IsNullOrWhiteSpace(verseId) ||
+                string.IsNullOrWhiteSpace(authorityRuntimeId))
+                throw new InvalidOperationException(
+                    "A provider-qualified Eve asset source requires assetProviderId, assetVerseId, and assetAuthorityRuntimeId.");
+            return new AssetSource(
+                new CultMeshSessionTarget(verseId, authorityRuntimeId),
+                providerId,
+                manifestRecordRef,
+                rendezvousEndpoints);
+        }
+
+        private async Task<EveAssetCatalogDocument> ReadAssetCatalogAsync(
+            AssetSource source,
+            CancellationToken cancellationToken)
+        {
+            if (string.Equals(source.Identity, CurrentAssetSourceIdentity, StringComparison.Ordinal))
+                return await AssetMeshClient()
+                    .ReadAsync<EveAssetCatalogDocument>(source.Target, source.ManifestRecordRef, cancellationToken);
+            using var candidateClient = source.RendezvousEndpoints.Count == 0
+                ? null
+                : CreateMeshClient(source.RendezvousEndpoints);
+            return await (candidateClient ?? _meshClient ??
+                    throw new InvalidOperationException("The CultMesh client is not open."))
+                .ReadAsync<EveAssetCatalogDocument>(source.Target, source.ManifestRecordRef, cancellationToken);
+        }
+
+        private void ApplyAssetSource(AssetSource source)
+        {
+            if (string.Equals(source.Identity, CurrentAssetSourceIdentity, StringComparison.Ordinal))
+                return;
+            _assetTarget = source.Target;
+            _assetProviderId = source.ProviderId;
+            _assetCatalogWatch?.Dispose();
+            _assetCatalogWatch = null;
+            _assetCatalogLease?.Dispose();
+            _assetCatalogLease = null;
+            _assetMeshClient?.Dispose();
+            _assetMeshClient = null;
+            if (source.RendezvousEndpoints.Count > 0)
+                _assetMeshClient = CreateMeshClient(source.RendezvousEndpoints);
+            _contentTransfer = null;
+            _assetBodyMappings = null;
+        }
+
+        private async Task ReplaceAssetCatalogSubscriptionAsync(
+            AssetSource source,
+            CancellationToken cancellationToken)
+        {
+            var lease = await AssetMeshClient()
+                .LeaseDocumentAsync<EveAssetCatalogDocument>(source.Target, source.ManifestRecordRef, cancellationToken);
+            IDisposable? watch = null;
+            try
+            {
+                watch = lease.Handle.Watch(catalog => QueueAssetCatalogUpdate(source.Identity, catalog));
+                var oldWatch = _assetCatalogWatch;
+                var oldLease = _assetCatalogLease;
+                _assetCatalogWatch = watch;
+                _assetCatalogLease = lease;
+                oldWatch?.Dispose();
+                oldLease?.Dispose();
+            }
+            catch
+            {
+                watch?.Dispose();
+                lease.Dispose();
+                throw;
+            }
+        }
+
+        private static EveSurfaceComponent? FindWorldScene(EveSurfaceComponent component)
+        {
+            if (string.Equals(component.Kind, "world.scene3d", StringComparison.Ordinal) ||
+                string.Equals(component.Kind, "world", StringComparison.Ordinal))
+                return component;
+            foreach (var child in component.Children ?? Array.Empty<EveSurfaceComponent>())
+            {
+                var found = FindWorldScene(child);
+                if (found != null) return found;
+            }
+            return null;
+        }
+
+        private static IReadOnlyList<string> ParseEndpointList(string value) =>
+            (value ?? "")
+                .Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries)
+                .Select(endpoint => endpoint.Trim())
+                .Where(endpoint => endpoint.Length > 0)
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+
+        private void PublishAssetCatalog(string sourceIdentity, EveAssetCatalogDocument catalog)
+        {
+            if (string.Equals(sourceIdentity, CurrentAssetSourceIdentity, StringComparison.Ordinal) &&
+                catalog.Version == CurrentAssetCatalogVersion)
                 return;
 
             foreach (var bundle in _assetBundles) bundle.Unload(unloadAllLoadedObjects: false);
@@ -1305,11 +1472,14 @@ namespace GameCult.Eve.UnityScene
             }
 
             CurrentAssetCatalogVersion = catalog.Version;
+            CurrentAssetSourceIdentity = sourceIdentity;
         }
 
-        private void QueueAssetCatalogUpdate(EveAssetCatalogDocument catalog)
+        private void QueueAssetCatalogUpdate(string sourceIdentity, EveAssetCatalogDocument catalog)
         {
-            _pendingAssetCatalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
+            _pendingAssetCatalog = new PendingAssetCatalogUpdate(
+                sourceIdentity,
+                catalog ?? throw new ArgumentNullException(nameof(catalog)));
             if (_assetCatalogUpdateRunning) return;
             _assetCatalogUpdateRunning = true;
             _ = DrainAssetCatalogUpdatesAsync();
@@ -1321,11 +1491,14 @@ namespace GameCult.Eve.UnityScene
             {
                 while (!_lifetime.IsCancellationRequested)
                 {
-                    var catalog = _pendingAssetCatalog;
+                    var update = _pendingAssetCatalog;
                     _pendingAssetCatalog = null;
-                    if (catalog == null) break;
-                    PublishAssetCatalog(catalog);
+                    if (update == null) break;
+                    if (!string.Equals(update.SourceIdentity, CurrentAssetSourceIdentity, StringComparison.Ordinal))
+                        continue;
+                    PublishAssetCatalog(update.SourceIdentity, update.Catalog);
                     await PreloadAssetsAsync(_lifetime.Token);
+                    PublishComposedSurface();
                 }
             }
             catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
@@ -1339,7 +1512,7 @@ namespace GameCult.Eve.UnityScene
             {
                 _assetCatalogUpdateRunning = false;
                 if (_pendingAssetCatalog != null && !_lifetime.IsCancellationRequested)
-                    QueueAssetCatalogUpdate(_pendingAssetCatalog);
+                    QueueAssetCatalogUpdate(_pendingAssetCatalog.SourceIdentity, _pendingAssetCatalog.Catalog);
             }
         }
 
@@ -1363,8 +1536,8 @@ namespace GameCult.Eve.UnityScene
                     await EnsureBundleLoadedAsync(dependency, cancellationToken);
 
                 var groupElapsed = Stopwatch.StartNew();
-                var descriptor = await _meshClient!
-                    .ReadAsync<CultMeshCdnArtifactManifest>(_target, uri, cancellationToken);
+                var descriptor = await AssetMeshClient()
+                    .ReadAsync<CultMeshCdnArtifactManifest>(_assetTarget, uri, cancellationToken);
                 TraceStartup("asset-manifest", groupElapsed);
                 var bundle = await LoadVerifiedBundleAsync(descriptor, variant, cancellationToken);
                 TraceStartup("asset-transfer-and-bundle-load", groupElapsed);
@@ -1464,6 +1637,8 @@ namespace GameCult.Eve.UnityScene
 
         private long CurrentAssetCatalogVersion { get; set; } = -1;
 
+        private string CurrentAssetSourceIdentity { get; set; } = "";
+
         private static string CurrentBundlePlatform()
         {
             return Application.platform == RuntimePlatform.WindowsEditor ||
@@ -1490,9 +1665,9 @@ namespace GameCult.Eve.UnityScene
                 _contentState,
                 new[]
                 {
-                    _meshClient!.ContentProvider(
-                        _advertisement.ProviderId,
-                        _target)
+                    AssetMeshClient().ContentProvider(
+                        _assetProviderId,
+                        _assetTarget)
                 },
                 new CultMeshContentTransferOptions(cacheRoot),
                 _assetBodyMappings);
@@ -1617,6 +1792,42 @@ namespace GameCult.Eve.UnityScene
                         receipt.Navigation.SurfaceKind,
                         receipt.Navigation.RendezvousEndpoints,
                         receipt.Navigation.AuthorityRuntimeId)));
+        }
+
+        private sealed class AssetSource
+        {
+            public AssetSource(
+                CultMeshSessionTarget target,
+                string providerId,
+                string manifestRecordRef,
+                IReadOnlyList<string> rendezvousEndpoints)
+            {
+                Target = target;
+                ProviderId = providerId ?? "";
+                ManifestRecordRef = manifestRecordRef ?? "";
+                RendezvousEndpoints = rendezvousEndpoints ?? Array.Empty<string>();
+                Identity = Target.VerseId + "\u001f" + Target.AuthorityRuntimeId + "\u001f" +
+                    ProviderId + "\u001f" + ManifestRecordRef + "\u001f" +
+                    string.Join("\u001e", RendezvousEndpoints);
+            }
+
+            public CultMeshSessionTarget Target { get; }
+            public string ProviderId { get; }
+            public string ManifestRecordRef { get; }
+            public IReadOnlyList<string> RendezvousEndpoints { get; }
+            public string Identity { get; }
+        }
+
+        private sealed class PendingAssetCatalogUpdate
+        {
+            public PendingAssetCatalogUpdate(string sourceIdentity, EveAssetCatalogDocument catalog)
+            {
+                SourceIdentity = sourceIdentity ?? "";
+                Catalog = catalog;
+            }
+
+            public string SourceIdentity { get; }
+            public EveAssetCatalogDocument Catalog { get; }
         }
 
         private bool ReceiptMatches(EveSurfaceCommandRequest request, EveCommandReceiptDocument receipt) =>

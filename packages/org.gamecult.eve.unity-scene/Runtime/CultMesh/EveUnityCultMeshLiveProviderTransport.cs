@@ -31,7 +31,8 @@ namespace GameCult.Eve.UnityScene
         private readonly string _surfaceId;
         private readonly string _runtimeId;
         private readonly CultMeshAuthorityTrustPolicy _authorityTrust;
-        private readonly HashSet<string> _pendingCommandIds = new HashSet<string>(StringComparer.Ordinal);
+        private readonly Dictionary<string, EveSurfaceCommandRequest> _pendingCommands =
+            new Dictionary<string, EveSurfaceCommandRequest>(StringComparer.Ordinal);
         private readonly Dictionary<string, Task<ReceiptSubscription>> _receiptSubscriptions =
             new Dictionary<string, Task<ReceiptSubscription>>(StringComparer.Ordinal);
         private readonly Dictionary<string, GameObject> _prefabs = new Dictionary<string, GameObject>(StringComparer.Ordinal);
@@ -371,7 +372,12 @@ namespace GameCult.Eve.UnityScene
             if (string.IsNullOrWhiteSpace(commandId))
                 throw new InvalidOperationException("Eve command invocations require an idempotency key.");
 
-            lock (_pendingCommandIds) _pendingCommandIds.Add(commandId);
+            lock (_pendingCommands)
+            {
+                if (_pendingCommands.ContainsKey(commandId))
+                    throw new InvalidOperationException($"Eve command '{commandId}' is already pending.");
+                _pendingCommands.Add(commandId, request);
+            }
             try { _commandOutbox!.Enqueue(request); }
             catch
             {
@@ -414,9 +420,9 @@ namespace GameCult.Eve.UnityScene
         private void ForgetPendingCommand(string commandId)
         {
             Task<ReceiptSubscription>? subscription = null;
-            lock (_pendingCommandIds)
+            lock (_pendingCommands)
             {
-                _pendingCommandIds.Remove(commandId);
+                _pendingCommands.Remove(commandId);
                 if (_receiptSubscriptions.TryGetValue(commandId, out subscription))
                     _receiptSubscriptions.Remove(commandId);
             }
@@ -459,9 +465,9 @@ namespace GameCult.Eve.UnityScene
             _assetBodyMappings = null;
             _baseSurface = null;
             _embeddedSurfaces.Clear();
-            lock (_pendingCommandIds)
+            lock (_pendingCommands)
             {
-                _pendingCommandIds.Clear();
+                _pendingCommands.Clear();
                 foreach (var subscription in _receiptSubscriptions.Values)
                     DisposeReceiptSubscription(subscription);
                 _receiptSubscriptions.Clear();
@@ -1080,7 +1086,7 @@ namespace GameCult.Eve.UnityScene
             CancellationToken cancellationToken)
         {
             Task<ReceiptSubscription> subscription;
-            lock (_pendingCommandIds)
+            lock (_pendingCommands)
             {
                 if (_receiptSubscriptions.TryGetValue(commandId, out subscription!)) return subscription;
                 subscription = OpenReceiptSubscriptionAsync(commandId, cancellationToken);
@@ -1096,7 +1102,7 @@ namespace GameCult.Eve.UnityScene
             try { return await subscription.ConfigureAwait(false); }
             catch
             {
-                lock (_pendingCommandIds)
+                lock (_pendingCommands)
                 {
                     if (_receiptSubscriptions.TryGetValue(commandId, out var current) &&
                         ReferenceEquals(current, subscription))
@@ -1134,11 +1140,13 @@ namespace GameCult.Eve.UnityScene
 
         private void QueueReceipt(string expectedCommandId, EveCommandReceiptDocument receipt)
         {
-            if (receipt == null ||
-                !string.Equals(receipt.CommandId, expectedCommandId, StringComparison.Ordinal) ||
-                !string.Equals(receipt.ProviderId, _providerId, StringComparison.Ordinal) ||
-                !string.Equals(receipt.SurfaceId, _surfaceId, StringComparison.Ordinal))
-                return;
+            if (receipt == null) return;
+            lock (_pendingCommands)
+            {
+                if (!_pendingCommands.TryGetValue(expectedCommandId, out var request) ||
+                    !ReceiptMatches(request, receipt))
+                    return;
+            }
             _liveDocuments.Enqueue(receipt);
         }
 
@@ -1574,13 +1582,19 @@ namespace GameCult.Eve.UnityScene
 
         private void PublishReceipt(EveCommandReceiptDocument receipt)
         {
-            lock (_pendingCommandIds)
+            var terminal = IsTerminalReceiptState(receipt.State);
+            lock (_pendingCommands)
             {
-                if (!_pendingCommandIds.Remove(receipt.CommandId))
+                if (!_pendingCommands.TryGetValue(receipt.CommandId, out var request) ||
+                    !ReceiptMatches(request, receipt))
                     return;
+                if (terminal) _pendingCommands.Remove(receipt.CommandId);
             }
-            _commandOutbox?.Acknowledge(receipt.CommandId);
-            ForgetPendingCommand(receipt.CommandId);
+            if (terminal)
+            {
+                _commandOutbox?.Acknowledge(receipt.CommandId);
+                ForgetPendingCommand(receipt.CommandId);
+            }
             CommandReceiptAvailable?.Invoke(new EveUnitySceneCommandReceipt(
                 receipt.ReceiptId,
                 receipt.Command,
@@ -1604,6 +1618,24 @@ namespace GameCult.Eve.UnityScene
                         receipt.Navigation.RendezvousEndpoints,
                         receipt.Navigation.AuthorityRuntimeId)));
         }
+
+        private bool ReceiptMatches(EveSurfaceCommandRequest request, EveCommandReceiptDocument receipt) =>
+            string.Equals(receipt.Schema, EveCommandReceiptDocument.SchemaId, StringComparison.Ordinal) &&
+            string.Equals(receipt.CommandId, request.CommandId, StringComparison.Ordinal) &&
+            string.Equals(receipt.Command, request.Command, StringComparison.Ordinal) &&
+            string.Equals(receipt.ProviderId, request.ProviderId, StringComparison.Ordinal) &&
+            string.Equals(receipt.SurfaceId, request.SurfaceId, StringComparison.Ordinal) &&
+            string.Equals(receipt.Authority, _target.AuthorityRuntimeId, StringComparison.Ordinal) &&
+            IsKnownReceiptState(receipt.State);
+
+        private static bool IsKnownReceiptState(string state) =>
+            string.Equals(state, "pending", StringComparison.OrdinalIgnoreCase) ||
+            IsTerminalReceiptState(state);
+
+        private static bool IsTerminalReceiptState(string state) =>
+            string.Equals(state, "accepted", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(state, "denied", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(state, "reconciled", StringComparison.OrdinalIgnoreCase);
 
         private sealed class ReceiptSubscription : IDisposable
         {

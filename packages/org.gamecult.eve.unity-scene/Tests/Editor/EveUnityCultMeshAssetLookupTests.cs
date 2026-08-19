@@ -2,6 +2,7 @@ using System;
 using System.Reflection;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.IO;
@@ -152,6 +153,41 @@ namespace GameCult.Eve.UnityScene.Tests
         }
 
         [Test]
+        public void PendingReceiptIsObservedWithoutRetiringTheCommand()
+        {
+            using var transport = new EveUnityCultMeshLiveProviderTransport(
+                "test-cache",
+                "cultnet+tcp://127.0.0.1:1",
+                "test.verse",
+                "test.runtime",
+                "test.provider",
+                "test.surface");
+            var request = Request("launch-1", "launch");
+            var pendingField = typeof(EveUnityCultMeshLiveProviderTransport).GetField(
+                "_pendingCommands",
+                BindingFlags.NonPublic | BindingFlags.Instance);
+            var publish = typeof(EveUnityCultMeshLiveProviderTransport).GetMethod(
+                "PublishReceipt",
+                BindingFlags.NonPublic | BindingFlags.Instance);
+            Assert.That(pendingField, Is.Not.Null);
+            Assert.That(publish, Is.Not.Null);
+            var pending = (IDictionary<string, EveSurfaceCommandRequest>)pendingField!.GetValue(transport)!;
+            pending.Add(request.CommandId, request);
+            var observed = new List<EveUnitySceneCommandReceipt>();
+            transport.CommandReceiptAvailable += observed.Add;
+
+            publish!.Invoke(transport, new object[] { Receipt(request, "pending", "receipt-pending") });
+
+            Assert.That(pending.ContainsKey(request.CommandId), Is.True);
+            Assert.That(observed.Select(value => value.State), Is.EqualTo(new[] { "pending" }));
+
+            publish.Invoke(transport, new object[] { Receipt(request, "accepted", "receipt-accepted") });
+
+            Assert.That(pending.ContainsKey(request.CommandId), Is.False);
+            Assert.That(observed.Select(value => value.State), Is.EqualTo(new[] { "pending", "accepted" }));
+        }
+
+        [Test]
         public void ProviderSelectionCarriesStableIdentityWithoutExposingAPhysicalRoute()
         {
             var selection = new EveUnityCultMeshProviderSelection(
@@ -197,6 +233,22 @@ namespace GameCult.Eve.UnityScene.Tests
             }),
             DateTimeOffset.UtcNow,
             "test-client");
+
+        private static EveCommandReceiptDocument Receipt(
+            EveSurfaceCommandRequest request,
+            string state,
+            string receiptId) => new EveCommandReceiptDocument(
+                receiptId,
+                request.CommandId,
+                request.Command,
+                state,
+                "AetheriaEve",
+                "test.runtime",
+                request.ProviderId,
+                request.SurfaceId,
+                "",
+                DateTimeOffset.UtcNow.ToString("O"),
+                1);
 
         private static async Task AwaitOrCancel(Task task, CancellationToken cancellationToken)
         {

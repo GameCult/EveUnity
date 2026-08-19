@@ -414,9 +414,6 @@ namespace GameCult.Eve.UnityUIToolkit
                 Math.Max(0f, ParseNumber(target.GetProp("cellGap"), 4f)));
             var x = Math.Max(0, (int)Math.Floor(local.x / pitch));
             var y = Math.Max(0, (int)Math.Floor(local.y / pitch));
-            if (!EveInventoryInteraction.TryCreatePlacementPreview(source, target, x, y, out var preview) ||
-                preview == null || !preview.IsValid)
-                return false;
             if (!EveInventoryInteraction.TryCreateDropRequest(
                     document, source, target, x, y, "unity-uitoolkit", out var request) || request == null)
                 return false;

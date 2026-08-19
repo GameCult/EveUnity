@@ -369,6 +369,54 @@ namespace GameCult.Eve.UnityUIToolkit.Tests
         }
 
         [Test]
+        public void InvalidLocalPreviewStillEmitsProviderOwnedDrop()
+        {
+            EveSurfaceCommandRequest? emitted = null;
+            var source = Component("moving", EveInventoryInteraction.ItemKind, new Dictionary<string, string>
+            {
+                ["sourceKind"] = "equipment",
+                ["sourceIndex"] = "0",
+                ["itemKey"] = "reactor",
+                ["shapeCells"] = "0,0"
+            });
+            var occupied = Component("stored", EveInventoryInteraction.ItemKind, new Dictionary<string, string>
+            {
+                ["x"] = "0",
+                ["y"] = "0",
+                ["shapeCells"] = "0,0"
+            });
+            var target = new EveSurfaceComponent(
+                "hangar.inventory",
+                EveInventoryInteraction.GridKind,
+                new Dictionary<string, string>
+                {
+                    ["columns"] = "8",
+                    ["rows"] = "2",
+                    ["targetKind"] = "hangar",
+                    ["dropCommand.equipment"] = "aetheria.hangar.remove_item"
+                },
+                new[] { occupied });
+            var method = typeof(EveUiToolkitSurfaceLowerer).GetMethod(
+                "TryEmitInventoryDrop",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+
+            Assert.That(method, Is.Not.Null);
+            var emittedDrop = (bool)method!.Invoke(null, new object[]
+            {
+                Document(target),
+                source,
+                target,
+                new VisualElement(),
+                UnityEngine.Vector2.zero,
+                new Action<EveSurfaceCommandRequest>(request => emitted = request)
+            })!;
+
+            Assert.That(emittedDrop, Is.True);
+            Assert.That(emitted, Is.Not.Null);
+            Assert.That(emitted!.Command, Is.EqualTo("aetheria.hangar.remove_item"));
+        }
+
+        [Test]
         public void InventoryGridAndItemsLowerToNativeSpatialElements()
         {
             var item = Component("ore", EveInventoryInteraction.ItemKind, new Dictionary<string, string>

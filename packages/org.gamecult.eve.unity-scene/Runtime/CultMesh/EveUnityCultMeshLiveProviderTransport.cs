@@ -31,6 +31,7 @@ namespace GameCult.Eve.UnityScene
         private readonly string _surfaceId;
         private readonly string _runtimeId;
         private readonly CultMeshAuthorityTrustPolicy _authorityTrust;
+        private readonly CultMeshAuthorityTrustPolicy _crossTargetAuthorityTrust;
         private readonly Dictionary<string, EveSurfaceCommandRequest> _pendingCommands =
             new Dictionary<string, EveSurfaceCommandRequest>(StringComparer.Ordinal);
         private readonly Dictionary<string, Task<ReceiptSubscription>> _receiptSubscriptions =
@@ -83,7 +84,8 @@ namespace GameCult.Eve.UnityScene
             string surfaceId,
             string runtimeId = "eve-unity",
             CultMeshBodyPublicationResolver? bodyResolver = null,
-            CultMeshAuthorityTrustPolicy? authorityTrust = null)
+            CultMeshAuthorityTrustPolicy? authorityTrust = null,
+            CultMeshAuthorityTrustPolicy? crossTargetAuthorityTrust = null)
         {
             _cachePath = string.IsNullOrWhiteSpace(cachePath)
                 ? throw new ArgumentException("Cache path must be non-empty.", nameof(cachePath))
@@ -107,6 +109,7 @@ namespace GameCult.Eve.UnityScene
             _bodyResolver = bodyResolver;
             _authorityTrust = authorityTrust ?? new CultMeshAuthorityTrustPolicy(
                 CultMeshAuthorityTrustMode.AuthenticatedRemote);
+            _crossTargetAuthorityTrust = crossTargetAuthorityTrust ?? _authorityTrust;
             CurrentSurfaceDocument = EmptySurfaceDocument();
             CurrentAssetManifestDocument = EmptyAssetManifest();
             CurrentInputCapability = new EveInputCapabilityDocument();
@@ -493,16 +496,21 @@ namespace GameCult.Eve.UnityScene
         {
             if (_meshClient != null)
                 return;
-            _meshClient = CreateMeshClient(new[] { _rendezvousEndpoint });
+            _meshClient = CreateMeshClient(new[] { _rendezvousEndpoint }, _authorityTrust);
         }
 
-        private CultMeshClient CreateMeshClient(IReadOnlyList<string> rendezvousEndpoints)
+        private CultMeshClient CreateMeshClient(
+            IReadOnlyList<string> rendezvousEndpoints,
+            CultMeshAuthorityTrustPolicy authorityTrust)
         {
             return new CultMeshClient(new CultMeshClientOptions
             {
                 RendezvousEndpoints = rendezvousEndpoints,
                 Discovery = EveUnityCultMeshConnectivity.Discovery(),
-                Sessions = new CultMeshSessionManagerOptions { Trust = _authorityTrust },
+                Sessions = new CultMeshSessionManagerOptions
+                {
+                    Trust = authorityTrust ?? throw new ArgumentNullException(nameof(authorityTrust))
+                },
                 Connectors = EveUnityCultMeshConnectivity.SchemaConnectors(),
                 ContentConnectors = EveUnityCultMeshConnectivity.ContentConnectors(),
                 RealtimeConnectors = new ICultMeshRealtimeTransportConnector[]
@@ -1338,9 +1346,13 @@ namespace GameCult.Eve.UnityScene
             if (string.Equals(source.Identity, CurrentAssetSourceIdentity, StringComparison.Ordinal))
                 return await AssetMeshClient()
                     .ReadAsync<EveAssetCatalogDocument>(source.Target, source.ManifestRecordRef, cancellationToken);
-            using var candidateClient = source.RendezvousEndpoints.Count == 0
-                ? null
-                : CreateMeshClient(source.RendezvousEndpoints);
+            var crossTarget = IsCrossTarget(source);
+            var endpoints = AssetRendezvousEndpoints(source, crossTarget);
+            using var candidateClient = crossTarget || source.RendezvousEndpoints.Count > 0
+                ? CreateMeshClient(
+                    endpoints,
+                    AssetAuthorityTrust(source))
+                : null;
             return await (candidateClient ?? _meshClient ??
                     throw new InvalidOperationException("The CultMesh client is not open."))
                 .ReadAsync<EveAssetCatalogDocument>(source.Target, source.ManifestRecordRef, cancellationToken);
@@ -1351,11 +1363,17 @@ namespace GameCult.Eve.UnityScene
             EveAssetCatalogDocument catalog,
             CancellationToken cancellationToken)
         {
+            var crossTarget = IsCrossTarget(source);
+            var endpoints = AssetRendezvousEndpoints(source, crossTarget);
             var candidate = new AssetGeneration(
                 source,
                 source.Identity,
                 catalog.Version,
-                source.RendezvousEndpoints.Count > 0 ? CreateMeshClient(source.RendezvousEndpoints) : null);
+                crossTarget || source.RendezvousEndpoints.Count > 0
+                    ? CreateMeshClient(
+                        endpoints,
+                        AssetAuthorityTrust(source))
+                    : null);
             try
             {
                 ConfigureAssetCatalog(candidate, catalog);
@@ -1369,6 +1387,24 @@ namespace GameCult.Eve.UnityScene
                 candidate.Dispose();
                 throw;
             }
+        }
+
+        private bool IsCrossTarget(AssetSource source) =>
+            !string.Equals(source.Target.VerseId, _target.VerseId, StringComparison.Ordinal) ||
+            !string.Equals(source.Target.AuthorityRuntimeId, _target.AuthorityRuntimeId, StringComparison.Ordinal);
+
+        private CultMeshAuthorityTrustPolicy AssetAuthorityTrust(AssetSource source) =>
+            IsCrossTarget(source) ? _crossTargetAuthorityTrust : _authorityTrust;
+
+        private IReadOnlyList<string> AssetRendezvousEndpoints(AssetSource source, bool crossTarget)
+        {
+            if (source.RendezvousEndpoints.Count > 0)
+                return source.RendezvousEndpoints;
+            if (crossTarget)
+                throw new InvalidOperationException(
+                    $"Cross-target asset source '{source.Target.VerseId}/{source.Target.AuthorityRuntimeId}' " +
+                    "must advertise at least one Odin rendezvous endpoint.");
+            return new[] { _rendezvousEndpoint };
         }
 
         private async Task AttachAssetCatalogSubscriptionAsync(

@@ -172,6 +172,7 @@ namespace GameCult.Eve.UnityScene
                 target.VerseId,
                 target.AuthorityRuntimeId,
                 _navigationAuthorityTrust,
+                _navigationAuthorityTrust,
                 CancellationToken.None).ConfigureAwait(false);
 
             StagePrepared(prepared);
@@ -355,6 +356,7 @@ namespace GameCult.Eve.UnityScene
                 verseFilter,
                 "",
                 _authorityTrust,
+                _navigationAuthorityTrust,
                 cancellationToken).ConfigureAwait(false);
             TraceStartup($"discovery and transport preparation {elapsed.Elapsed.TotalMilliseconds:0.###}ms");
             AdoptPrepared(prepared);
@@ -368,6 +370,7 @@ namespace GameCult.Eve.UnityScene
             string requiredVerseId,
             string requiredAuthorityRuntimeId,
             CultMeshAuthorityTrustPolicy trust,
+            CultMeshAuthorityTrustPolicy crossTargetTrust,
             CancellationToken cancellationToken)
         {
             var failures = new List<string>();
@@ -395,7 +398,8 @@ namespace GameCult.Eve.UnityScene
                         selection.ProviderId,
                         selection.SurfaceId,
                         runtimeId,
-                        authorityTrust: trust);
+                        authorityTrust: trust,
+                        crossTargetAuthorityTrust: crossTargetTrust);
                     try
                     {
                         await transport.PrepareAsync(cancellationToken).ConfigureAwait(false);

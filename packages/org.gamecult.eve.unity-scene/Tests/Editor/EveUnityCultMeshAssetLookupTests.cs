@@ -526,6 +526,31 @@ namespace GameCult.Eve.UnityScene.Tests
             UnityEngine.Object.DestroyImmediate(prefab);
         }
 
+        [Test]
+        public void CrossTargetAssetsUseConfiguredRemoteTrust()
+        {
+            var localTrust = new CultMeshAuthorityTrustPolicy(CultMeshAuthorityTrustMode.LocalDevelopment);
+            var remoteTrust = new CultMeshAuthorityTrustPolicy(CultMeshAuthorityTrustMode.AuthenticatedRemote);
+            using var transport = new EveUnityCultMeshLiveProviderTransport(
+                Path.Combine(Path.GetTempPath(), $"eve-asset-trust-{Guid.NewGuid():N}.cc"),
+                "cultnet+tcp://127.0.0.1:1",
+                "verse-a",
+                "authority-a",
+                "provider-a",
+                "surface-a",
+                authorityTrust: localTrust,
+                crossTargetAuthorityTrust: remoteTrust);
+            var trustMethod = typeof(EveUnityCultMeshLiveProviderTransport).GetMethod(
+                "AssetAuthorityTrust",
+                BindingFlags.Instance | BindingFlags.NonPublic)!;
+
+            var localSource = CreateAssetSource("verse-a", "authority-a", "provider-a", "catalog-a");
+            var remoteSource = CreateAssetSource("verse-b", "authority-b", "provider-b", "catalog-b");
+
+            Assert.That(trustMethod.Invoke(transport, new[] { localSource }), Is.SameAs(localTrust));
+            Assert.That(trustMethod.Invoke(transport, new[] { remoteSource }), Is.SameAs(remoteTrust));
+        }
+
         private static object CreateAssetSource(
             string verseId,
             string authorityRuntimeId,

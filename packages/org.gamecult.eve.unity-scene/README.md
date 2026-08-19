@@ -44,6 +44,10 @@ transport resolves that exact asset session and commits assets as one generation
 catalog, verified bundles, leases, lookups, render policy, and surface lowering
 are prepared off to the side, then swapped together. A failed or superseded
 candidate is disposed without unloading or rewriting the mounted generation.
+The mounted provider's trust policy authenticates only that provider. A
+provider-qualified asset source in another Verse/runtime uses the configured
+cross-target Odin trust for its catalog, subscription, manifests, content, and
+bundles; local-development trust does not cross that boundary.
 
 Navigation keeps the outgoing presentation quiesced until the candidate route
 is ready, then commits the provider route before activating the candidate.

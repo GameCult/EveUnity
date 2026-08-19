@@ -208,6 +208,7 @@ namespace GameCult.Eve.UnityScene.Tests
                 BindingFlags.NonPublic | BindingFlags.Instance)!;
             type.GetField("_bootstrapped", BindingFlags.NonPublic | BindingFlags.Instance)!
                 .SetValue(transport, true);
+            complete.Invoke(transport, new object[] { 1L });
             pending.Add(request.CommandId, request);
             var observed = new List<EveUnitySceneCommandReceipt>();
             transport.CommandReceiptAvailable += observed.Add;
@@ -219,6 +220,7 @@ namespace GameCult.Eve.UnityScene.Tests
 
             Assert.That(pending.ContainsKey(request.CommandId), Is.True);
             Assert.That(observed, Is.Empty);
+            type.GetProperty("CurrentSurfaceDocument")!.SetValue(transport, SceneSurface(100));
             var blocked = Assert.Throws<InvalidOperationException>(() =>
                 transport.SubmitCommand(Request("stale-launch", "launch")));
             StringAssert.Contains("read-only", blocked!.Message);
@@ -334,6 +336,33 @@ namespace GameCult.Eve.UnityScene.Tests
                 DateTimeOffset.UtcNow.ToString("O"),
                 sourceVersion,
                 invocationHash: EveCommandInvocationHash.Compute(request));
+
+        private static EveUnitySceneProviderSurfaceDocument SceneSurface(long version)
+        {
+            var surface = new EveSurfaceDocument(
+                "test.provider",
+                "",
+                "",
+                version,
+                "",
+                new EveSurfaceTree(
+                    "test.surface",
+                    new EveSurfaceComponent(
+                        "root",
+                        "surface",
+                        new Dictionary<string, string>(),
+                        Array.Empty<EveSurfaceComponent>()),
+                    Array.Empty<EveStyleToken>()),
+                Array.Empty<EveCommandTemplate>());
+            return new EveUnitySceneProviderSurfaceDocument(
+                surface,
+                new EveUnitySceneProviderSurfaceAdvertisement(
+                    "test.surface",
+                    "interactive-world",
+                    new EveUnitySceneWorldInteraction("", "", EveCommandReceiptDocument.SchemaId, "")),
+                "test:surface",
+                version);
+        }
 
         private static async Task AwaitOrCancel(Task task, CancellationToken cancellationToken)
         {

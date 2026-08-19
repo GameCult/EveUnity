@@ -183,4 +183,6 @@ its exact receipt lease alive, makes the obsolete surface read-only, and emits
 the terminal receipt only after that surface generation and its qualified asset
 catalog have committed together. Asset preparation failure therefore cannot
 leave an accepted Verse switch paired with actionable controls from the prior
-Verse.
+Verse. Embedded surfaces may recompose the visible tree, but their versions are
+derived rendering inputs and cannot satisfy or clear the advertised base
+surface's finality barrier.

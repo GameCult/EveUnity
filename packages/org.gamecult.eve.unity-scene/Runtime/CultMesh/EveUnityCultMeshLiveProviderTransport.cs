@@ -71,6 +71,7 @@ namespace GameCult.Eve.UnityScene
         private PendingAssetCatalogUpdate? _pendingAssetCatalog;
         private bool _assetCatalogUpdateRunning;
         private long _surfaceAssetGeneration;
+        private long _mountedBaseSurfaceVersion;
         private long _presentationBarrierVersion = -1;
         private long _lastQueuedEntityViewEpoch = -1;
         private long _lastQueuedEntityViewSequence = -1;
@@ -905,11 +906,13 @@ namespace GameCult.Eve.UnityScene
         private void PublishBaseSurface(EveSurfaceDocument surface)
         {
             if (surface == null) throw new ArgumentNullException(nameof(surface));
+            if (_baseSurface != null && surface.Version <= MountedBaseSurfaceVersion)
+                return;
             var generation = Interlocked.Increment(ref _surfaceAssetGeneration);
             if (!_bootstrapped)
             {
                 _baseSurface = surface;
-                PublishComposedSurface();
+                PublishComposedSurface(surface.Version);
                 return;
             }
 
@@ -917,7 +920,7 @@ namespace GameCult.Eve.UnityScene
             if (string.Equals(source.Identity, CurrentAssetSourceIdentity, StringComparison.Ordinal))
             {
                 _baseSurface = surface;
-                PublishComposedSurface();
+                PublishComposedSurface(surface.Version);
                 return;
             }
 
@@ -937,10 +940,11 @@ namespace GameCult.Eve.UnityScene
             PublishComposedSurface();
         }
 
-        private void PublishComposedSurface()
+        private void PublishComposedSurface(long? committedBaseVersion = null)
         {
             ApplyPreparedSurface(PrepareComposedSurface(
-                _baseSurface ?? throw new InvalidOperationException("The base Eve surface is unavailable.")));
+                _baseSurface ?? throw new InvalidOperationException("The base Eve surface is unavailable.")),
+                committedBaseVersion);
         }
 
         private PreparedSurface PrepareComposedSurface(EveSurfaceDocument baseSurface)
@@ -969,14 +973,15 @@ namespace GameCult.Eve.UnityScene
             return new PreparedSurface(document, continuousCommands);
         }
 
-        private void ApplyPreparedSurface(PreparedSurface prepared)
+        private void ApplyPreparedSurface(PreparedSurface prepared, long? committedBaseVersion = null)
         {
             CurrentSurfaceDocument = prepared.Document;
             _continuousCommandIds.Clear();
             foreach (var command in prepared.ContinuousCommands)
                 _continuousCommandIds.Add(command);
             SurfaceDocumentAvailable?.Invoke(CurrentSurfaceDocument);
-            CompletePresentationTransition(CurrentSurfaceDocument.Version);
+            if (committedBaseVersion.HasValue)
+                CompletePresentationTransition(committedBaseVersion.Value);
         }
 
         internal static EveSurfaceDocument ComposeSurface(
@@ -1463,7 +1468,7 @@ namespace GameCult.Eve.UnityScene
                 _baseSurface = surface;
             try
             {
-                ApplyPreparedSurface(prepared);
+                ApplyPreparedSurface(prepared, surface?.Version);
             }
             finally
             {
@@ -2000,28 +2005,30 @@ namespace GameCult.Eve.UnityScene
         {
             lock (_presentationFinalityGate)
             {
-                if (_presentationBarrierVersion > CurrentSurfaceDocument.Version)
+                if (_presentationBarrierVersion > _mountedBaseSurfaceVersion)
                     throw new InvalidOperationException(
                         $"The Eve presentation is awaiting provider surface version {_presentationBarrierVersion}; " +
-                        $"mounted version {CurrentSurfaceDocument.Version} is read-only until that generation commits.");
+                        $"mounted base version {_mountedBaseSurfaceVersion} is read-only until that generation commits.");
             }
         }
 
         private void BeginPresentationTransition(long sourceVersion)
         {
-            if (sourceVersion <= CurrentSurfaceDocument.Version)
-                return;
             lock (_presentationFinalityGate)
+            {
+                if (sourceVersion <= _mountedBaseSurfaceVersion)
+                    return;
                 _presentationBarrierVersion = Math.Max(_presentationBarrierVersion, sourceVersion);
+            }
         }
 
         private bool DeferTerminalReceiptUntilPresentation(EveCommandReceiptDocument receipt)
         {
             lock (_presentationFinalityGate)
             {
-                if (receipt.SourceVersion > CurrentSurfaceDocument.Version)
+                if (receipt.SourceVersion > _mountedBaseSurfaceVersion)
                     _presentationBarrierVersion = Math.Max(_presentationBarrierVersion, receipt.SourceVersion);
-                if (_presentationBarrierVersion <= CurrentSurfaceDocument.Version)
+                if (_presentationBarrierVersion <= _mountedBaseSurfaceVersion)
                     return false;
                 _deferredTerminalReceipts[receipt.CommandId] = receipt;
                 return true;
@@ -2033,6 +2040,7 @@ namespace GameCult.Eve.UnityScene
             EveCommandReceiptDocument[] ready;
             lock (_presentationFinalityGate)
             {
+                _mountedBaseSurfaceVersion = Math.Max(_mountedBaseSurfaceVersion, committedVersion);
                 if (_presentationBarrierVersion > committedVersion)
                     return;
                 _presentationBarrierVersion = -1;
@@ -2044,6 +2052,15 @@ namespace GameCult.Eve.UnityScene
             }
             foreach (var receipt in ready)
                 FinalizeReceipt(receipt, terminal: true);
+        }
+
+        private long MountedBaseSurfaceVersion
+        {
+            get
+            {
+                lock (_presentationFinalityGate)
+                    return _mountedBaseSurfaceVersion;
+            }
         }
 
         private void FinalizeReceipt(EveCommandReceiptDocument receipt, bool terminal)

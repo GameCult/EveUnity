@@ -35,22 +35,7 @@ namespace GameCult.Eve.UnityScene
             new Dictionary<string, EveSurfaceCommandRequest>(StringComparer.Ordinal);
         private readonly Dictionary<string, Task<ReceiptSubscription>> _receiptSubscriptions =
             new Dictionary<string, Task<ReceiptSubscription>>(StringComparer.Ordinal);
-        private readonly Dictionary<string, GameObject> _prefabs = new Dictionary<string, GameObject>(StringComparer.Ordinal);
-        private readonly Dictionary<string, UnityEngine.Object> _nativeAssets = new Dictionary<string, UnityEngine.Object>(StringComparer.Ordinal);
-        private readonly Dictionary<string, IReadOnlyDictionary<string, string>> _nativeAssetMetadata =
-            new Dictionary<string, IReadOnlyDictionary<string, string>>(StringComparer.Ordinal);
-        private readonly List<AssetBundle> _assetBundles = new List<AssetBundle>();
-        private readonly Dictionary<string, SelectedAsset> _assetSelections =
-            new Dictionary<string, SelectedAsset>(StringComparer.Ordinal);
-        private readonly Dictionary<string, List<SelectedAsset>> _bundleSelections =
-            new Dictionary<string, List<SelectedAsset>>(StringComparer.Ordinal);
-        private readonly Dictionary<string, EveAssetVariant> _bundleVariants =
-            new Dictionary<string, EveAssetVariant>(StringComparer.Ordinal);
-        private readonly HashSet<string> _loadedBundleUris = new HashSet<string>(StringComparer.Ordinal);
-        private readonly HashSet<string> _loadingBundleUris = new HashSet<string>(StringComparer.Ordinal);
         private readonly HashSet<string> _continuousCommandIds = new HashSet<string>(StringComparer.Ordinal);
-        private readonly List<ICultMeshBodyReadLease> _assetBodyLeases = new List<ICultMeshBodyReadLease>();
-        private readonly Dictionary<string, int> _renderChannelLayers = new Dictionary<string, int>(StringComparer.Ordinal);
         private readonly ConcurrentQueue<object> _liveDocuments = new ConcurrentQueue<object>();
         private readonly object _realtimeFrameGate = new object();
         private readonly Dictionary<string, CultMeshRealtimeFrame> _latestRealtimeFrames =
@@ -62,16 +47,11 @@ namespace GameCult.Eve.UnityScene
         private readonly List<IDisposable> _documentLeases = new List<IDisposable>();
         private readonly List<IDisposable> _documentWatches = new List<IDisposable>();
         private readonly CancellationTokenSource _lifetime = new CancellationTokenSource();
+        private readonly SemaphoreSlim _assetGenerationGate = new SemaphoreSlim(1, 1);
         private CultMeshClient? _meshClient;
-        private CultMeshClient? _assetMeshClient;
-        private IDisposable? _assetCatalogLease;
-        private IDisposable? _assetCatalogWatch;
         private bool _liveDocumentsReady;
         private CultCache? _contentState;
-        private CultMeshContentTransferService? _contentTransfer;
-        private CultMeshVerifiedBodyMappingBroker? _assetBodyMappings;
-        private CultMeshSessionTarget _assetTarget;
-        private string _assetProviderId;
+        private AssetGeneration _assetGeneration;
         private EveProviderAdvertisementDocument? _advertisement;
         private EveAdvertisedSurface? _advertisedSurface;
         private EveSurfaceDocument? _baseSurface;
@@ -115,8 +95,11 @@ namespace GameCult.Eve.UnityScene
             _providerId = string.IsNullOrWhiteSpace(providerId)
                 ? throw new ArgumentException("Provider id must be non-empty.", nameof(providerId))
                 : providerId.Trim();
-            _assetTarget = _target;
-            _assetProviderId = _providerId;
+            _assetGeneration = new AssetGeneration(
+                new AssetSource(_target, _providerId, "", Array.Empty<string>()),
+                sourceIdentity: "",
+                catalogVersion: -1,
+                meshClient: null);
             _surfaceId = string.IsNullOrWhiteSpace(surfaceId)
                 ? throw new ArgumentException("Surface id must be non-empty.", nameof(surfaceId))
                 : surfaceId.Trim();
@@ -141,7 +124,7 @@ namespace GameCult.Eve.UnityScene
 
         public EveInputCapabilityDocument CurrentInputCapability { get; private set; }
 
-        public CultMeshBodyTransportKind? CurrentAssetBodyTransportKind { get; private set; }
+        public CultMeshBodyTransportKind? CurrentAssetBodyTransportKind => _assetGeneration.BodyTransportKind;
 
         public event Action<EveUnitySceneProviderSurfaceDocument>? SurfaceDocumentAvailable;
 
@@ -194,8 +177,6 @@ namespace GameCult.Eve.UnityScene
                 TraceStartup("surface", elapsed);
                 await RefreshAssetCatalogAsync(cancellationToken);
                 TraceStartup("asset-catalog-and-bundles", elapsed);
-                await PreloadAssetsAsync(cancellationToken);
-                TraceStartup("asset-preload", elapsed);
                 await EnsureLiveDocumentsAsync(cancellationToken);
                 TraceStartup("subscriptions", elapsed);
                 _commandOutbox = new EveUnityCultMeshCommandOutbox(
@@ -443,18 +424,7 @@ namespace GameCult.Eve.UnityScene
             _lifetime.Cancel();
             _commandOutbox?.Dispose();
             _commandOutbox = null;
-            foreach (var bundle in _assetBundles) bundle.Unload(unloadAllLoadedObjects: false);
-            _assetBundles.Clear();
-            foreach (var lease in _assetBodyLeases) lease.Dispose();
-            _assetBodyLeases.Clear();
-            _prefabs.Clear();
-            _nativeAssets.Clear();
-            _nativeAssetMetadata.Clear();
-            _assetSelections.Clear();
-            _bundleSelections.Clear();
-            _bundleVariants.Clear();
-            _loadedBundleUris.Clear();
-            _loadingBundleUris.Clear();
+            _assetGeneration.Dispose();
             _mappedEntityFrameCursor?.Dispose();
             _mappedEntityFrameCursor = null;
             _mappedEntityFrameContract = null;
@@ -465,18 +435,10 @@ namespace GameCult.Eve.UnityScene
             _realtimeLifetime?.Dispose();
             _realtimeLifetime = null;
             DisposeLiveDocuments();
-            _assetCatalogWatch?.Dispose();
-            _assetCatalogWatch = null;
-            _assetCatalogLease?.Dispose();
-            _assetCatalogLease = null;
             _contentState?.Dispose();
             _contentState = null;
             _meshClient?.Dispose();
             _meshClient = null;
-            _assetMeshClient?.Dispose();
-            _assetMeshClient = null;
-            _contentTransfer = null;
-            _assetBodyMappings = null;
             _baseSurface = null;
             _embeddedSurfaces.Clear();
             lock (_pendingCommands)
@@ -493,7 +455,7 @@ namespace GameCult.Eve.UnityScene
         {
             if (asset == null) throw new ArgumentNullException(nameof(asset));
             EnsureAssetPrepared(asset.AssetRef);
-            return _prefabs.TryGetValue(asset.AssetRef, out var prefab) ? prefab : null;
+            return _assetGeneration.Prefabs.TryGetValue(asset.AssetRef, out var prefab) ? prefab : null;
         }
 
         public UnityEngine.Object? ResolveAsset(EveUnityPlayableWorldAssetBinding asset, Type assetType)
@@ -501,14 +463,15 @@ namespace GameCult.Eve.UnityScene
             if (asset == null) throw new ArgumentNullException(nameof(asset));
             if (assetType == null) throw new ArgumentNullException(nameof(assetType));
             EnsureAssetPrepared(asset.AssetRef);
-            return _nativeAssets.TryGetValue(asset.AssetRef, out var value) && assetType.IsInstanceOfType(value)
+            return _assetGeneration.NativeAssets.TryGetValue(asset.AssetRef, out var value) && assetType.IsInstanceOfType(value)
                 ? value : null;
         }
 
         private void EnsureAssetPrepared(string assetRef)
         {
             EnsurePrepared();
-            if (_assetSelections.ContainsKey(assetRef) && !_nativeAssets.ContainsKey(assetRef))
+            if (_assetGeneration.AssetSelections.ContainsKey(assetRef) &&
+                !_assetGeneration.NativeAssets.ContainsKey(assetRef))
                 throw new InvalidOperationException(
                     $"Provider asset '{assetRef}' was not materialized during asynchronous preparation.");
         }
@@ -518,12 +481,12 @@ namespace GameCult.Eve.UnityScene
             out IReadOnlyDictionary<string, string> metadata)
         {
             if (asset == null) throw new ArgumentNullException(nameof(asset));
-            return _nativeAssetMetadata.TryGetValue(asset.AssetRef, out metadata!);
+            return _assetGeneration.NativeAssetMetadata.TryGetValue(asset.AssetRef, out metadata!);
         }
 
         public bool TryGetRenderChannelLayer(string channel, out int layer)
         {
-            return _renderChannelLayers.TryGetValue(channel ?? "", out layer);
+            return _assetGeneration.RenderChannelLayers.TryGetValue(channel ?? "", out layer);
         }
 
         private void EnsureOpen()
@@ -549,7 +512,8 @@ namespace GameCult.Eve.UnityScene
             });
         }
 
-        private CultMeshClient AssetMeshClient() => _assetMeshClient ??
+        private CultMeshClient AssetMeshClient(AssetGeneration? generation = null) =>
+            (generation ?? _assetGeneration).MeshClient ??
             _meshClient ?? throw new InvalidOperationException("The CultMesh client is not open.");
 
         private async Task ResolveAdvertisementAsync(
@@ -956,11 +920,15 @@ namespace GameCult.Eve.UnityScene
 
         private void PublishComposedSurface()
         {
-            var surface = ComposeSurface(
-                _baseSurface ?? throw new InvalidOperationException("The base Eve surface is unavailable."),
-                _embeddedSurfaces);
+            ApplyPreparedSurface(PrepareComposedSurface(
+                _baseSurface ?? throw new InvalidOperationException("The base Eve surface is unavailable.")));
+        }
+
+        private PreparedSurface PrepareComposedSurface(EveSurfaceDocument baseSurface)
+        {
+            var surface = ComposeSurface(baseSurface, _embeddedSurfaces);
             var interaction = RequireWorldInteraction();
-            CurrentSurfaceDocument = new EveUnitySceneProviderSurfaceDocument(
+            var document = new EveUnitySceneProviderSurfaceDocument(
                 surface,
                 new EveUnitySceneProviderSurfaceAdvertisement(
                     _advertisedSurface.SurfaceId,
@@ -973,12 +941,21 @@ namespace GameCult.Eve.UnityScene
                 _advertisedSurface.RecordRef,
                 surface.Version);
             var lowered = new EveUnitySceneSurfaceLowerer()
-                .Lower(CurrentSurfaceDocument.SurfaceDocument, CurrentSurfaceDocument.AdvertisedSurface);
-            _continuousCommandIds.Clear();
+                .Lower(document.SurfaceDocument, document.AdvertisedSurface);
+            var continuousCommands = new HashSet<string>(StringComparer.Ordinal);
             if (!string.IsNullOrWhiteSpace(lowered.PlayableWorld?.MovementCommand))
-                _continuousCommandIds.Add(lowered.PlayableWorld.MovementCommand);
+                continuousCommands.Add(lowered.PlayableWorld.MovementCommand);
             if (!string.IsNullOrWhiteSpace(lowered.PlayableWorld?.LookCommand))
-                _continuousCommandIds.Add(lowered.PlayableWorld.LookCommand);
+                continuousCommands.Add(lowered.PlayableWorld.LookCommand);
+            return new PreparedSurface(document, continuousCommands);
+        }
+
+        private void ApplyPreparedSurface(PreparedSurface prepared)
+        {
+            CurrentSurfaceDocument = prepared.Document;
+            _continuousCommandIds.Clear();
+            foreach (var command in prepared.ContinuousCommands)
+                _continuousCommandIds.Add(command);
             SurfaceDocumentAvailable?.Invoke(CurrentSurfaceDocument);
         }
 
@@ -1258,6 +1235,20 @@ namespace GameCult.Eve.UnityScene
             public EveSurfaceDocument Document { get; }
         }
 
+        private sealed class PreparedSurface
+        {
+            public PreparedSurface(
+                EveUnitySceneProviderSurfaceDocument document,
+                IReadOnlyCollection<string> continuousCommands)
+            {
+                Document = document;
+                ContinuousCommands = continuousCommands;
+            }
+
+            public EveUnitySceneProviderSurfaceDocument Document { get; }
+            public IReadOnlyCollection<string> ContinuousCommands { get; }
+        }
+
         private static void TraceHotState(string message)
         {
             if (string.Equals(Environment.GetEnvironmentVariable("AETHERIA_TRACE_CLIENT_RUDP"), "1", StringComparison.Ordinal))
@@ -1272,9 +1263,8 @@ namespace GameCult.Eve.UnityScene
                 return;
 
             var catalog = await ReadAssetCatalogAsync(source, cancellationToken);
-            ApplyAssetSource(source);
-            PublishAssetCatalog(source.Identity, catalog);
-            await ReplaceAssetCatalogSubscriptionAsync(source, cancellationToken);
+            var candidate = await BuildAssetGenerationAsync(source, catalog, cancellationToken);
+            CommitAssetGeneration(candidate);
         }
 
         private async Task RefreshAssetsForSurfaceAsync(
@@ -1288,14 +1278,23 @@ namespace GameCult.Eve.UnityScene
                 var catalog = await ReadAssetCatalogAsync(source, cancellationToken);
                 if (generation != Interlocked.Read(ref _surfaceAssetGeneration))
                     return;
-                ApplyAssetSource(source);
-                PublishAssetCatalog(source.Identity, catalog);
-                await ReplaceAssetCatalogSubscriptionAsync(source, cancellationToken);
-                await PreloadAssetsAsync(cancellationToken);
-                if (generation != Interlocked.Read(ref _surfaceAssetGeneration))
-                    return;
-                _baseSurface = surface;
-                PublishComposedSurface();
+                await _assetGenerationGate.WaitAsync(cancellationToken);
+                try
+                {
+                    if (generation != Interlocked.Read(ref _surfaceAssetGeneration))
+                        return;
+                    var candidate = await BuildAssetGenerationAsync(source, catalog, cancellationToken);
+                    if (generation != Interlocked.Read(ref _surfaceAssetGeneration))
+                    {
+                        candidate.Dispose();
+                        return;
+                    }
+                    CommitAssetGeneration(candidate, surface);
+                }
+                finally
+                {
+                    _assetGenerationGate.Release();
+                }
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -1347,46 +1346,115 @@ namespace GameCult.Eve.UnityScene
                 .ReadAsync<EveAssetCatalogDocument>(source.Target, source.ManifestRecordRef, cancellationToken);
         }
 
-        private void ApplyAssetSource(AssetSource source)
-        {
-            if (string.Equals(source.Identity, CurrentAssetSourceIdentity, StringComparison.Ordinal))
-                return;
-            _assetTarget = source.Target;
-            _assetProviderId = source.ProviderId;
-            _assetCatalogWatch?.Dispose();
-            _assetCatalogWatch = null;
-            _assetCatalogLease?.Dispose();
-            _assetCatalogLease = null;
-            _assetMeshClient?.Dispose();
-            _assetMeshClient = null;
-            if (source.RendezvousEndpoints.Count > 0)
-                _assetMeshClient = CreateMeshClient(source.RendezvousEndpoints);
-            _contentTransfer = null;
-            _assetBodyMappings = null;
-        }
-
-        private async Task ReplaceAssetCatalogSubscriptionAsync(
+        private async Task<AssetGeneration> BuildAssetGenerationAsync(
             AssetSource source,
+            EveAssetCatalogDocument catalog,
             CancellationToken cancellationToken)
         {
-            var lease = await AssetMeshClient()
-                .LeaseDocumentAsync<EveAssetCatalogDocument>(source.Target, source.ManifestRecordRef, cancellationToken);
+            var candidate = new AssetGeneration(
+                source,
+                source.Identity,
+                catalog.Version,
+                source.RendezvousEndpoints.Count > 0 ? CreateMeshClient(source.RendezvousEndpoints) : null);
+            try
+            {
+                ConfigureAssetCatalog(candidate, catalog);
+                ReuseCompatibleBundles(_assetGeneration, candidate);
+                await PreloadAssetsAsync(candidate, cancellationToken);
+                await AttachAssetCatalogSubscriptionAsync(candidate, cancellationToken);
+                return candidate;
+            }
+            catch
+            {
+                candidate.Dispose();
+                throw;
+            }
+        }
+
+        private async Task AttachAssetCatalogSubscriptionAsync(
+            AssetGeneration candidate,
+            CancellationToken cancellationToken)
+        {
+            var lease = await AssetMeshClient(candidate)
+                .LeaseDocumentAsync<EveAssetCatalogDocument>(
+                    candidate.Source.Target,
+                    candidate.Source.ManifestRecordRef,
+                    cancellationToken);
             IDisposable? watch = null;
             try
             {
-                watch = lease.Handle.Watch(catalog => QueueAssetCatalogUpdate(source.Identity, catalog));
-                var oldWatch = _assetCatalogWatch;
-                var oldLease = _assetCatalogLease;
-                _assetCatalogWatch = watch;
-                _assetCatalogLease = lease;
-                oldWatch?.Dispose();
-                oldLease?.Dispose();
+                watch = lease.Handle.Watch(catalog => QueueAssetCatalogUpdate(candidate.SourceIdentity, catalog));
+                candidate.CatalogWatch = watch;
+                candidate.CatalogLease = lease;
             }
             catch
             {
                 watch?.Dispose();
                 lease.Dispose();
                 throw;
+            }
+        }
+
+        private void CommitAssetGeneration(AssetGeneration candidate, EveSurfaceDocument? surface = null)
+        {
+            PreparedSurface prepared;
+            try
+            {
+                prepared = PrepareComposedSurface(surface ?? _baseSurface ??
+                    throw new InvalidOperationException("The base Eve surface is unavailable."));
+            }
+            catch
+            {
+                candidate.Dispose();
+                throw;
+            }
+            var previous = _assetGeneration;
+            previous.TransferSharedBundlesTo(candidate);
+            _assetGeneration = candidate;
+            if (surface != null)
+                _baseSurface = surface;
+            try
+            {
+                ApplyPreparedSurface(prepared);
+            }
+            finally
+            {
+                previous.Dispose();
+            }
+        }
+
+        private static void ReuseCompatibleBundles(AssetGeneration current, AssetGeneration candidate)
+        {
+            foreach (var pair in candidate.BundleVariants)
+            {
+                if (!current.LoadedBundlesByUri.TryGetValue(pair.Key, out var bundle) ||
+                    !current.BundleVariants.TryGetValue(pair.Key, out var existing) ||
+                    !string.Equals(existing.ContentHash, pair.Value.ContentHash, StringComparison.Ordinal) ||
+                    existing.SizeBytes != pair.Value.SizeBytes)
+                    continue;
+                var selections = candidate.BundleSelections[pair.Key];
+                if (selections.Any(selection =>
+                        !current.NativeAssets.ContainsKey(selection.Asset.AssetRef)))
+                    continue;
+
+                candidate.AssetBundles.Add(bundle);
+                candidate.BorrowedAssetBundles.Add(bundle);
+                candidate.LoadedBundlesByUri[pair.Key] = bundle;
+                candidate.LoadedBundleUris.Add(pair.Key);
+                foreach (var selection in selections)
+                {
+                    var value = current.NativeAssets[selection.Asset.AssetRef];
+                    candidate.NativeAssets[selection.Asset.AssetRef] = value;
+                    if (value is GameObject prefab)
+                        candidate.Prefabs[selection.Asset.AssetRef] = prefab;
+                    if (selection.Asset.Metadata.TryGetValue("presentationRole", out var role) &&
+                        !string.IsNullOrWhiteSpace(role))
+                    {
+                        candidate.NativeAssets[role] = value;
+                        if (value is GameObject rolePrefab)
+                            candidate.Prefabs[role] = rolePrefab;
+                    }
+                }
             }
         }
 
@@ -1411,26 +1479,8 @@ namespace GameCult.Eve.UnityScene
                 .Distinct(StringComparer.Ordinal)
                 .ToArray();
 
-        private void PublishAssetCatalog(string sourceIdentity, EveAssetCatalogDocument catalog)
+        private static void ConfigureAssetCatalog(AssetGeneration candidate, EveAssetCatalogDocument catalog)
         {
-            if (string.Equals(sourceIdentity, CurrentAssetSourceIdentity, StringComparison.Ordinal) &&
-                catalog.Version == CurrentAssetCatalogVersion)
-                return;
-
-            foreach (var bundle in _assetBundles) bundle.Unload(unloadAllLoadedObjects: false);
-            _assetBundles.Clear();
-            foreach (var lease in _assetBodyLeases) lease.Dispose();
-            _assetBodyLeases.Clear();
-            CurrentAssetBodyTransportKind = null;
-            _prefabs.Clear();
-            _nativeAssets.Clear();
-            _nativeAssetMetadata.Clear();
-            _assetSelections.Clear();
-            _bundleSelections.Clear();
-            _bundleVariants.Clear();
-            _loadedBundleUris.Clear();
-            _loadingBundleUris.Clear();
-            _renderChannelLayers.Clear();
             var selected = catalog.Assets
                 .Select(asset => new SelectedAsset(
                     asset,
@@ -1449,30 +1499,27 @@ namespace GameCult.Eve.UnityScene
                     $"Provider asset catalog '{catalog.CatalogId}' has no unity-scene/{CurrentBundlePlatform()} variant. " +
                     $"Advertised variants: {string.Join(", ", advertisedVariants)}");
             }
-            ReadCameraPolicies(selected.Select(selection => selection.Variant!));
+            ReadCameraPolicies(candidate, selected.Select(selection => selection.Variant!));
             foreach (var selection in selected)
             {
                 var variant = selection.Variant!;
-                _assetSelections[selection.Asset.AssetRef] = selection;
-                _bundleVariants[variant.Uri] = variant;
-                if (!_bundleSelections.TryGetValue(variant.Uri, out var group))
+                candidate.AssetSelections[selection.Asset.AssetRef] = selection;
+                candidate.BundleVariants[variant.Uri] = variant;
+                if (!candidate.BundleSelections.TryGetValue(variant.Uri, out var group))
                 {
                     group = new List<SelectedAsset>();
-                    _bundleSelections[variant.Uri] = group;
+                    candidate.BundleSelections[variant.Uri] = group;
                 }
                 group.Add(selection);
                 var metadata = MergeAssetMetadata(selection.Asset.Metadata, variant.Metadata);
-                _nativeAssetMetadata[selection.Asset.AssetRef] = metadata;
+                candidate.NativeAssetMetadata[selection.Asset.AssetRef] = metadata;
                 if (selection.Asset.Metadata.TryGetValue("presentationRole", out var role) &&
                     !string.IsNullOrWhiteSpace(role))
                 {
-                    _assetSelections[role] = selection;
-                    _nativeAssetMetadata[role] = metadata;
+                    candidate.AssetSelections[role] = selection;
+                    candidate.NativeAssetMetadata[role] = metadata;
                 }
             }
-
-            CurrentAssetCatalogVersion = catalog.Version;
-            CurrentAssetSourceIdentity = sourceIdentity;
         }
 
         private void QueueAssetCatalogUpdate(string sourceIdentity, EveAssetCatalogDocument catalog)
@@ -1496,9 +1543,27 @@ namespace GameCult.Eve.UnityScene
                     if (update == null) break;
                     if (!string.Equals(update.SourceIdentity, CurrentAssetSourceIdentity, StringComparison.Ordinal))
                         continue;
-                    PublishAssetCatalog(update.SourceIdentity, update.Catalog);
-                    await PreloadAssetsAsync(_lifetime.Token);
-                    PublishComposedSurface();
+                    if (update.Catalog.Version == CurrentAssetCatalogVersion)
+                        continue;
+                    await _assetGenerationGate.WaitAsync(_lifetime.Token);
+                    try
+                    {
+                        if (!string.Equals(update.SourceIdentity, CurrentAssetSourceIdentity, StringComparison.Ordinal) ||
+                            update.Catalog.Version == CurrentAssetCatalogVersion)
+                            continue;
+                        var source = _assetGeneration.Source;
+                        var candidate = await BuildAssetGenerationAsync(source, update.Catalog, _lifetime.Token);
+                        if (!string.Equals(update.SourceIdentity, CurrentAssetSourceIdentity, StringComparison.Ordinal))
+                        {
+                            candidate.Dispose();
+                            continue;
+                        }
+                        CommitAssetGeneration(candidate);
+                    }
+                    finally
+                    {
+                        _assetGenerationGate.Release();
+                    }
                 }
             }
             catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
@@ -1516,36 +1581,40 @@ namespace GameCult.Eve.UnityScene
             }
         }
 
-        private async Task PreloadAssetsAsync(CancellationToken cancellationToken)
+        private async Task PreloadAssetsAsync(AssetGeneration candidate, CancellationToken cancellationToken)
         {
-            foreach (var uri in _bundleVariants.Keys.OrderBy(value => value, StringComparer.Ordinal).ToArray())
-                await EnsureBundleLoadedAsync(uri, cancellationToken);
+            foreach (var uri in candidate.BundleVariants.Keys.OrderBy(value => value, StringComparer.Ordinal).ToArray())
+                await EnsureBundleLoadedAsync(candidate, uri, cancellationToken);
         }
 
-        private async Task EnsureBundleLoadedAsync(string uri, CancellationToken cancellationToken)
+        private async Task EnsureBundleLoadedAsync(
+            AssetGeneration candidate,
+            string uri,
+            CancellationToken cancellationToken)
         {
-            if (_loadedBundleUris.Contains(uri)) return;
-            if (!_bundleVariants.TryGetValue(uri, out var variant))
+            if (candidate.LoadedBundleUris.Contains(uri)) return;
+            if (!candidate.BundleVariants.TryGetValue(uri, out var variant))
                 throw new InvalidOperationException($"Provider asset bundle '{uri}' is not present in the selected runtime catalog.");
-            if (!_loadingBundleUris.Add(uri))
+            if (!candidate.LoadingBundleUris.Add(uri))
                 throw new InvalidOperationException($"Provider asset bundle dependency cycle includes '{uri}'.");
             try
             {
                 if (variant.Metadata.TryGetValue("unity.bundleDependencyUris", out var dependencies))
                 foreach (var dependency in dependencies.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries))
-                    await EnsureBundleLoadedAsync(dependency, cancellationToken);
+                    await EnsureBundleLoadedAsync(candidate, dependency, cancellationToken);
 
                 var groupElapsed = Stopwatch.StartNew();
-                var descriptor = await AssetMeshClient()
-                    .ReadAsync<CultMeshCdnArtifactManifest>(_assetTarget, uri, cancellationToken);
+                var descriptor = await AssetMeshClient(candidate)
+                    .ReadAsync<CultMeshCdnArtifactManifest>(candidate.Source.Target, uri, cancellationToken);
                 TraceStartup("asset-manifest", groupElapsed);
-                var bundle = await LoadVerifiedBundleAsync(descriptor, variant, cancellationToken);
+                var bundle = await LoadVerifiedBundleAsync(candidate, descriptor, variant, cancellationToken);
                 TraceStartup("asset-transfer-and-bundle-load", groupElapsed);
                 if (bundle == null)
                     throw new InvalidOperationException($"Unity could not load provider asset bundle '{uri}'.");
-                _assetBundles.Add(bundle);
+                candidate.AssetBundles.Add(bundle);
+                candidate.LoadedBundlesByUri[uri] = bundle;
                 var bundleAssetNames = bundle.GetAllAssetNames();
-                foreach (var selection in _bundleSelections[uri])
+                foreach (var selection in candidate.BundleSelections[uri])
                 {
                     var bundleAssetName = ResolveBundleAssetName(bundleAssetNames, selection.Variant!.AssetKey);
                     var value = bundleAssetName == null
@@ -1555,22 +1624,22 @@ namespace GameCult.Eve.UnityScene
                         throw new InvalidOperationException(
                             $"Provider asset '{selection.Asset.AssetRef}' advertises missing Unity bundle asset " +
                             $"'{selection.Variant.AssetKey}'. Available assets: " + string.Join(", ", bundleAssetNames));
-                    _nativeAssets[selection.Asset.AssetRef] = value;
+                    candidate.NativeAssets[selection.Asset.AssetRef] = value;
                     if (selection.Asset.Metadata.TryGetValue("presentationRole", out var role) &&
                         !string.IsNullOrWhiteSpace(role))
-                        _nativeAssets[role] = value;
+                        candidate.NativeAssets[role] = value;
                     if (value is GameObject prefab)
                     {
-                        _prefabs[selection.Asset.AssetRef] = prefab;
-                        if (!string.IsNullOrWhiteSpace(role)) _prefabs[role] = prefab;
+                        candidate.Prefabs[selection.Asset.AssetRef] = prefab;
+                        if (!string.IsNullOrWhiteSpace(role)) candidate.Prefabs[role] = prefab;
                     }
                 }
-                _loadedBundleUris.Add(uri);
+                candidate.LoadedBundleUris.Add(uri);
                 TraceStartup("bundle-assets", groupElapsed);
             }
             finally
             {
-                _loadingBundleUris.Remove(uri);
+                candidate.LoadingBundleUris.Remove(uri);
             }
         }
 
@@ -1599,6 +1668,84 @@ namespace GameCult.Eve.UnityScene
             public EveAssetVariant? Variant { get; }
         }
 
+        private sealed class AssetGeneration : IDisposable
+        {
+            public AssetGeneration(
+                AssetSource source,
+                string sourceIdentity,
+                long catalogVersion,
+                CultMeshClient? meshClient)
+            {
+                Source = source;
+                SourceIdentity = sourceIdentity ?? "";
+                CatalogVersion = catalogVersion;
+                MeshClient = meshClient;
+            }
+
+            public AssetSource Source { get; }
+            public string SourceIdentity { get; }
+            public long CatalogVersion { get; }
+            public CultMeshClient? MeshClient { get; }
+            public IDisposable? CatalogLease { get; set; }
+            public IDisposable? CatalogWatch { get; set; }
+            public CultMeshContentTransferService? ContentTransfer { get; set; }
+            public CultMeshVerifiedBodyMappingBroker? BodyMappings { get; set; }
+            public CultMeshBodyTransportKind? BodyTransportKind { get; set; }
+            public Dictionary<string, GameObject> Prefabs { get; } = new Dictionary<string, GameObject>(StringComparer.Ordinal);
+            public Dictionary<string, UnityEngine.Object> NativeAssets { get; } = new Dictionary<string, UnityEngine.Object>(StringComparer.Ordinal);
+            public Dictionary<string, IReadOnlyDictionary<string, string>> NativeAssetMetadata { get; } =
+                new Dictionary<string, IReadOnlyDictionary<string, string>>(StringComparer.Ordinal);
+            public List<AssetBundle> AssetBundles { get; } = new List<AssetBundle>();
+            public HashSet<AssetBundle> BorrowedAssetBundles { get; } = new HashSet<AssetBundle>();
+            public Dictionary<string, AssetBundle> LoadedBundlesByUri { get; } =
+                new Dictionary<string, AssetBundle>(StringComparer.Ordinal);
+            public Dictionary<string, SelectedAsset> AssetSelections { get; } =
+                new Dictionary<string, SelectedAsset>(StringComparer.Ordinal);
+            public Dictionary<string, List<SelectedAsset>> BundleSelections { get; } =
+                new Dictionary<string, List<SelectedAsset>>(StringComparer.Ordinal);
+            public Dictionary<string, EveAssetVariant> BundleVariants { get; } =
+                new Dictionary<string, EveAssetVariant>(StringComparer.Ordinal);
+            public HashSet<string> LoadedBundleUris { get; } = new HashSet<string>(StringComparer.Ordinal);
+            public HashSet<string> LoadingBundleUris { get; } = new HashSet<string>(StringComparer.Ordinal);
+            public List<ICultMeshBodyReadLease> BodyLeases { get; } = new List<ICultMeshBodyReadLease>();
+            public Dictionary<string, int> RenderChannelLayers { get; } =
+                new Dictionary<string, int>(StringComparer.Ordinal);
+
+            public void TransferSharedBundlesTo(AssetGeneration next)
+            {
+                foreach (var bundle in next.BorrowedAssetBundles)
+                    AssetBundles.Remove(bundle);
+                next.BorrowedAssetBundles.Clear();
+            }
+
+            public void Dispose()
+            {
+                CatalogWatch?.Dispose();
+                CatalogWatch = null;
+                CatalogLease?.Dispose();
+                CatalogLease = null;
+                MeshClient?.Dispose();
+                foreach (var bundle in AssetBundles)
+                    if (!BorrowedAssetBundles.Contains(bundle))
+                        bundle.Unload(unloadAllLoadedObjects: false);
+                AssetBundles.Clear();
+                BorrowedAssetBundles.Clear();
+                foreach (var lease in BodyLeases)
+                    lease.Dispose();
+                BodyLeases.Clear();
+                Prefabs.Clear();
+                NativeAssets.Clear();
+                NativeAssetMetadata.Clear();
+                AssetSelections.Clear();
+                BundleSelections.Clear();
+                BundleVariants.Clear();
+                LoadedBundleUris.Clear();
+                LoadingBundleUris.Clear();
+                LoadedBundlesByUri.Clear();
+                RenderChannelLayers.Clear();
+            }
+        }
+
         private static string? ResolveBundleAssetName(IEnumerable<string> bundleAssetNames, string advertisedAssetKey)
         {
             return bundleAssetNames.FirstOrDefault(assetName =>
@@ -1615,9 +1762,8 @@ namespace GameCult.Eve.UnityScene
             return merged;
         }
 
-        private void ReadCameraPolicies(IEnumerable<EveAssetVariant> variants)
+        private static void ReadCameraPolicies(AssetGeneration candidate, IEnumerable<EveAssetVariant> variants)
         {
-            _renderChannelLayers.Clear();
             foreach (var variant in variants)
             {
                 foreach (var pair in variant.Metadata)
@@ -1630,14 +1776,14 @@ namespace GameCult.Eve.UnityScene
                     var channel = pair.Key.Substring(prefix.Length, pair.Key.Length - prefix.Length - suffix.Length);
                     if (!string.IsNullOrWhiteSpace(channel) &&
                         int.TryParse(pair.Value, out var layer) && layer >= 0 && layer < 32)
-                        _renderChannelLayers[channel] = layer;
+                        candidate.RenderChannelLayers[channel] = layer;
                 }
             }
         }
 
-        private long CurrentAssetCatalogVersion { get; set; } = -1;
+        private long CurrentAssetCatalogVersion => _assetGeneration.CatalogVersion;
 
-        private string CurrentAssetSourceIdentity { get; set; } = "";
+        private string CurrentAssetSourceIdentity => _assetGeneration.SourceIdentity;
 
         private static string CurrentBundlePlatform()
         {
@@ -1647,10 +1793,10 @@ namespace GameCult.Eve.UnityScene
                 : Application.platform.ToString();
         }
 
-        private CultMeshContentTransferService ContentTransfer()
+        private CultMeshContentTransferService ContentTransfer(AssetGeneration candidate)
         {
-            if (_contentTransfer != null)
-                return _contentTransfer;
+            if (candidate.ContentTransfer != null)
+                return candidate.ContentTransfer;
             if (_advertisement == null)
                 throw new InvalidOperationException("The Eve provider advertisement must be prepared before content transfer.");
             if (string.IsNullOrWhiteSpace(_advertisement!.ServiceId))
@@ -1658,23 +1804,24 @@ namespace GameCult.Eve.UnityScene
             var cacheRoot = Environment.GetEnvironmentVariable("EVEUNITY_ASSET_CACHE_PATH");
             if (string.IsNullOrWhiteSpace(cacheRoot))
                 cacheRoot = Path.Combine(Application.persistentDataPath, "EveUnity", "assets");
-            _assetBodyMappings = new CultMeshVerifiedBodyMappingBroker(cacheRoot);
+            candidate.BodyMappings = new CultMeshVerifiedBodyMappingBroker(cacheRoot);
             _contentState ??= new CultCache(
                 CultMesh.CreateCultCacheDocumentRegistry(typeof(CultMeshContentTransferStateDocument)));
-            _contentTransfer = new CultMeshContentTransferService(
+            candidate.ContentTransfer = new CultMeshContentTransferService(
                 _contentState,
                 new[]
                 {
-                    AssetMeshClient().ContentProvider(
-                        _assetProviderId,
-                        _assetTarget)
+                    AssetMeshClient(candidate).ContentProvider(
+                        candidate.Source.ProviderId,
+                        candidate.Source.Target)
                 },
                 new CultMeshContentTransferOptions(cacheRoot),
-                _assetBodyMappings);
-            return _contentTransfer;
+                candidate.BodyMappings);
+            return candidate.ContentTransfer;
         }
 
         private async Task<AssetBundle?> LoadVerifiedBundleAsync(
+            AssetGeneration candidate,
             CultMeshCdnArtifactManifest manifest,
             EveAssetVariant variant,
             CancellationToken cancellationToken)
@@ -1689,7 +1836,7 @@ namespace GameCult.Eve.UnityScene
             var now = DateTimeOffset.UtcNow;
             var network = NetworkArtifactDescriptor(manifest, now, TimeSpan.FromMinutes(5));
             var elapsed = Stopwatch.StartNew();
-            var mapped = await ContentTransfer()
+            var mapped = await ContentTransfer(candidate)
                 .FetchMappedContentAsync(manifest, network, now, TimeSpan.FromMinutes(5), cancellationToken);
             TraceStartup("content-materialization", elapsed);
             var validationRequest = new CultMeshBodyValidationRequest
@@ -1706,14 +1853,14 @@ namespace GameCult.Eve.UnityScene
             var transport = new CultMeshBodyTransportService(
                 new ICultMeshBodyTransportAdapter[]
                 {
-                    new CultMeshMappedBodyAdapter(_assetBodyMappings!),
+                    new CultMeshMappedBodyAdapter(candidate.BodyMappings!),
                     new CultMeshNetworkBodyAdapter(_ => File.ReadAllBytes(mapped.VerifiedPath))
                 },
                 descriptor => string.Equals(descriptor.BodyId, manifest.ArtifactId, StringComparison.Ordinal) &&
                     string.Equals(descriptor.SemanticHash, hash, StringComparison.Ordinal));
             var negotiated = transport.NegotiateReadOnly(mapped.Descriptor, network, validationRequest);
-            CurrentAssetBodyTransportKind = negotiated.SelectedTransport;
-            _assetBodyLeases.Add(negotiated.Lease);
+            candidate.BodyTransportKind = negotiated.SelectedTransport;
+            candidate.BodyLeases.Add(negotiated.Lease);
             var bundleRequest = AssetBundle.LoadFromFileAsync(mapped.VerifiedPath);
             await AwaitUnityAsync(bundleRequest, cancellationToken);
             TraceStartup("asset-bundle-load-from-file", elapsed);

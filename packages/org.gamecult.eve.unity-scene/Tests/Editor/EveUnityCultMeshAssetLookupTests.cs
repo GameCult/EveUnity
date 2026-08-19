@@ -442,30 +442,16 @@ namespace GameCult.Eve.UnityScene.Tests
         }
 
         [Test]
-        public void PublishingCatalogRegistersBundlesWithoutMaterializingThem()
+        public void ConfiguringCandidateCatalogRegistersBundlesWithoutMaterializingThem()
         {
             var platformMethod = typeof(EveUnityCultMeshLiveProviderTransport).GetMethod(
                 "CurrentBundlePlatform",
                 BindingFlags.Static | BindingFlags.NonPublic);
-            var publishMethod = typeof(EveUnityCultMeshLiveProviderTransport).GetMethod(
-                "PublishAssetCatalog",
-                BindingFlags.Instance | BindingFlags.NonPublic);
-            var bundlesField = typeof(EveUnityCultMeshLiveProviderTransport).GetField(
-                "_assetBundles",
-                BindingFlags.Instance | BindingFlags.NonPublic);
-            var selectionsField = typeof(EveUnityCultMeshLiveProviderTransport).GetField(
-                "_assetSelections",
-                BindingFlags.Instance | BindingFlags.NonPublic);
+            var configureMethod = typeof(EveUnityCultMeshLiveProviderTransport).GetMethod(
+                "ConfigureAssetCatalog",
+                BindingFlags.Static | BindingFlags.NonPublic);
             Assert.That(platformMethod, Is.Not.Null);
-            Assert.That(publishMethod, Is.Not.Null);
-
-            using var transport = new EveUnityCultMeshLiveProviderTransport(
-                Path.Combine(Path.GetTempPath(), $"eve-lazy-assets-{Guid.NewGuid():N}.cc"),
-                "cultnet+tcp://127.0.0.1:1",
-                "provider",
-                "provider",
-                "provider",
-                "surface");
+            Assert.That(configureMethod, Is.Not.Null);
             var variant = new EveAssetVariant(
                 "unity-scene",
                 (string)platformMethod!.Invoke(null, Array.Empty<object>())!,
@@ -480,11 +466,121 @@ namespace GameCult.Eve.UnityScene.Tests
                 1,
                 DateTimeOffset.UtcNow.ToString("O"),
                 new[] { new EveAssetCatalogEntry("prefab.entity", "prefab", new[] { variant }) });
+            var candidate = CreateAssetGeneration("verse", "authority", "provider", "catalog", "candidate", 1);
 
-            publishMethod!.Invoke(transport, new object[] { catalog });
+            configureMethod!.Invoke(null, new[] { candidate, catalog });
 
-            Assert.That(((System.Collections.ICollection)bundlesField!.GetValue(transport)!).Count, Is.Zero);
-            Assert.That(((System.Collections.IDictionary)selectionsField!.GetValue(transport)!).Count, Is.EqualTo(1));
+            Assert.That(GenerationCollection(candidate, "AssetBundles").Count, Is.Zero);
+            Assert.That(GenerationDictionary(candidate, "AssetSelections").Count, Is.EqualTo(1));
+            ((IDisposable)candidate).Dispose();
         }
+
+        [Test]
+        public void FailedAssetCandidatePreservesCommittedGeneration()
+        {
+            var transportType = typeof(EveUnityCultMeshLiveProviderTransport);
+            var generationField = transportType.GetField(
+                "_assetGeneration",
+                BindingFlags.Instance | BindingFlags.NonPublic)!;
+            var buildMethod = transportType.GetMethod(
+                "BuildAssetGenerationAsync",
+                BindingFlags.Instance | BindingFlags.NonPublic)!;
+            using var transport = new EveUnityCultMeshLiveProviderTransport(
+                Path.Combine(Path.GetTempPath(), $"eve-asset-generation-{Guid.NewGuid():N}.cc"),
+                "cultnet+tcp://127.0.0.1:1",
+                "verse-a",
+                "authority-a",
+                "provider-a",
+                "surface-a");
+            var initial = (IDisposable)generationField.GetValue(transport)!;
+            var committed = CreateAssetGeneration(
+                "verse-a", "authority-a", "provider-a", "catalog-a", "source-a", 1);
+            var prefab = new GameObject("committed-a");
+            GenerationDictionary(committed, "Prefabs")["prefab.a"] = prefab;
+            initial.Dispose();
+            generationField.SetValue(transport, committed);
+
+            var invalidVariant = new EveAssetVariant(
+                "browser",
+                "web",
+                "url",
+                "https://example.invalid/a",
+                "sha256:00",
+                1,
+                "prefab.a");
+            var invalidCatalog = new EveAssetCatalogDocument(
+                "provider-b",
+                "catalog-b",
+                2,
+                DateTimeOffset.UtcNow.ToString("O"),
+                new[] { new EveAssetCatalogEntry("prefab.b", "prefab", new[] { invalidVariant }) });
+            var source = CreateAssetSource("verse-b", "authority-b", "provider-b", "catalog-b");
+            var task = (Task)buildMethod.Invoke(
+                transport,
+                new[] { source, invalidCatalog, CancellationToken.None })!;
+
+            Assert.Throws<InvalidOperationException>(() => task.GetAwaiter().GetResult());
+            Assert.That(generationField.GetValue(transport), Is.SameAs(committed));
+            Assert.That(GenerationProperty<string>(committed, "SourceIdentity"), Is.EqualTo("source-a"));
+            Assert.That(GenerationDictionary(committed, "Prefabs")["prefab.a"], Is.SameAs(prefab));
+            UnityEngine.Object.DestroyImmediate(prefab);
+        }
+
+        private static object CreateAssetSource(
+            string verseId,
+            string authorityRuntimeId,
+            string providerId,
+            string manifestRecordRef)
+        {
+            var type = typeof(EveUnityCultMeshLiveProviderTransport).GetNestedType(
+                "AssetSource",
+                BindingFlags.NonPublic)!;
+            return Activator.CreateInstance(
+                type,
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                null,
+                new object[]
+                {
+                    new CultMeshSessionTarget(verseId, authorityRuntimeId),
+                    providerId,
+                    manifestRecordRef,
+                    Array.Empty<string>()
+                },
+                null)!;
+        }
+
+        private static object CreateAssetGeneration(
+            string verseId,
+            string authorityRuntimeId,
+            string providerId,
+            string manifestRecordRef,
+            string sourceIdentity,
+            long catalogVersion)
+        {
+            var type = typeof(EveUnityCultMeshLiveProviderTransport).GetNestedType(
+                "AssetGeneration",
+                BindingFlags.NonPublic)!;
+            return Activator.CreateInstance(
+                type,
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                null,
+                new[]
+                {
+                    CreateAssetSource(verseId, authorityRuntimeId, providerId, manifestRecordRef),
+                    sourceIdentity,
+                    catalogVersion,
+                    null
+                },
+                null)!;
+        }
+
+        private static System.Collections.IList GenerationCollection(object generation, string property) =>
+            (System.Collections.IList)generation.GetType().GetProperty(property)!.GetValue(generation)!;
+
+        private static System.Collections.IDictionary GenerationDictionary(object generation, string property) =>
+            (System.Collections.IDictionary)generation.GetType().GetProperty(property)!.GetValue(generation)!;
+
+        private static T GenerationProperty<T>(object generation, string property) =>
+            (T)generation.GetType().GetProperty(property)!.GetValue(generation)!;
     }
 }

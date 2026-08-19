@@ -73,6 +73,8 @@ namespace GameCult.Eve.UnityScene
         private bool _assetCatalogUpdateRunning;
         private long _surfaceAssetGeneration;
         private long _highestObservedBaseSurfaceVersion = -1;
+        private long _activeBaseSurfaceCandidateVersion = -1;
+        private long _activeBaseSurfaceCandidateGeneration = -1;
         private long _mountedBaseSurfaceVersion;
         private long _presentationBarrierVersion = -1;
         private long _lastQueuedEntityViewEpoch = -1;
@@ -911,7 +913,7 @@ namespace GameCult.Eve.UnityScene
         private void PublishBaseSurface(EveSurfaceDocument surface)
         {
             if (surface == null) throw new ArgumentNullException(nameof(surface));
-            if (!TryObserveBaseSurfaceVersion(surface.Version))
+            if (!TryBeginBaseSurfaceCandidate(surface.Version, out var generation))
                 return;
             CancellationToken candidateToken;
             lock (_presentationFinalityGate)
@@ -921,7 +923,6 @@ namespace GameCult.Eve.UnityScene
                 _surfaceAssetCandidateLifetime = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
                 candidateToken = _surfaceAssetCandidateLifetime.Token;
             }
-            var generation = Interlocked.Increment(ref _surfaceAssetGeneration);
             if (!_bootstrapped)
             {
                 _baseSurface = surface;
@@ -946,14 +947,33 @@ namespace GameCult.Eve.UnityScene
             _ = RefreshAssetsForSurfaceAsync(surface, source, generation, candidateToken);
         }
 
-        private bool TryObserveBaseSurfaceVersion(long version)
+        private bool TryBeginBaseSurfaceCandidate(long version, out long generation)
         {
             lock (_presentationFinalityGate)
             {
-                if (version <= _highestObservedBaseSurfaceVersion)
+                generation = -1;
+                if (version < _highestObservedBaseSurfaceVersion ||
+                    version <= _mountedBaseSurfaceVersion ||
+                    (version == _highestObservedBaseSurfaceVersion &&
+                     _activeBaseSurfaceCandidateVersion == version))
                     return false;
-                _highestObservedBaseSurfaceVersion = version;
+                _highestObservedBaseSurfaceVersion = Math.Max(_highestObservedBaseSurfaceVersion, version);
+                generation = Interlocked.Increment(ref _surfaceAssetGeneration);
+                _activeBaseSurfaceCandidateVersion = version;
+                _activeBaseSurfaceCandidateGeneration = generation;
                 return true;
+            }
+        }
+
+        private void RetireFailedBaseSurfaceCandidate(long version, long generation)
+        {
+            lock (_presentationFinalityGate)
+            {
+                if (_activeBaseSurfaceCandidateVersion != version ||
+                    _activeBaseSurfaceCandidateGeneration != generation)
+                    return;
+                _activeBaseSurfaceCandidateVersion = -1;
+                _activeBaseSurfaceCandidateGeneration = -1;
             }
         }
 
@@ -1349,6 +1369,7 @@ namespace GameCult.Eve.UnityScene
             }
             catch (Exception error)
             {
+                RetireFailedBaseSurfaceCandidate(surface.Version, generation);
                 _liveDocuments.Enqueue(error);
             }
         }
@@ -2110,6 +2131,11 @@ namespace GameCult.Eve.UnityScene
             lock (_presentationFinalityGate)
             {
                 _mountedBaseSurfaceVersion = Math.Max(_mountedBaseSurfaceVersion, committedVersion);
+                if (_activeBaseSurfaceCandidateVersion == committedVersion)
+                {
+                    _activeBaseSurfaceCandidateVersion = -1;
+                    _activeBaseSurfaceCandidateGeneration = -1;
+                }
                 ready = _deferredTerminalReceipts.Values
                     .Where(receipt => receipt.PresentationSurfaceVersion <= _mountedBaseSurfaceVersion)
                     .ToArray();

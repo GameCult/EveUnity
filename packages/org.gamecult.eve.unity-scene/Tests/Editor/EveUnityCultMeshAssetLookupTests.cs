@@ -357,7 +357,7 @@ namespace GameCult.Eve.UnityScene.Tests
                 presentationSurfaceVersion: presentationSurfaceVersion);
 
         [Test]
-        public void OlderObservedBaseVersionCannotSupersedeANewerCandidate()
+        public void FailedNewestCandidateCanRetryWithoutAllowingAnOlderSurface()
         {
             using var transport = new EveUnityCultMeshLiveProviderTransport(
                 "test-cache",
@@ -366,14 +366,24 @@ namespace GameCult.Eve.UnityScene.Tests
                 "test.runtime",
                 "test.provider",
                 "test.surface");
-            var observe = typeof(EveUnityCultMeshLiveProviderTransport).GetMethod(
-                "TryObserveBaseSurfaceVersion",
+            var begin = typeof(EveUnityCultMeshLiveProviderTransport).GetMethod(
+                "TryBeginBaseSurfaceCandidate",
                 BindingFlags.NonPublic | BindingFlags.Instance)!;
+            var retire = typeof(EveUnityCultMeshLiveProviderTransport).GetMethod(
+                "RetireFailedBaseSurfaceCandidate",
+                BindingFlags.NonPublic | BindingFlags.Instance)!;
+            var first = new object[] { 10L, -1L };
+            var older = new object[] { 7L, -1L };
+            var duplicate = new object[] { 10L, -1L };
 
-            Assert.That(observe.Invoke(transport, new object[] { 10L }), Is.True);
-            Assert.That(observe.Invoke(transport, new object[] { 7L }), Is.False);
-            Assert.That(observe.Invoke(transport, new object[] { 10L }), Is.False);
-            Assert.That(observe.Invoke(transport, new object[] { 11L }), Is.True);
+            Assert.That(begin.Invoke(transport, first), Is.True);
+            Assert.That(begin.Invoke(transport, older), Is.False);
+            Assert.That(begin.Invoke(transport, duplicate), Is.False);
+            retire.Invoke(transport, new[] { first[0], first[1] });
+            var retry = new object[] { 10L, -1L };
+            Assert.That(begin.Invoke(transport, retry), Is.True);
+            Assert.That((long)retry[1], Is.GreaterThan((long)first[1]));
+            Assert.That(begin.Invoke(transport, new object[] { 9L, -1L }), Is.False);
         }
 
         private static EveUnitySceneProviderSurfaceDocument SceneSurface(long version)

@@ -48,6 +48,10 @@ The mounted provider's trust policy authenticates only that provider. A
 provider-qualified asset source in another Verse/runtime uses the configured
 cross-target Odin trust for its catalog, subscription, manifests, content, and
 bundles; local-development trust does not cross that boundary.
+The candidate opens its catalog lease before preload, observes updates in a
+candidate-owned buffer, and verifies the leased version again before commit.
+An update that lands during preload therefore rebuilds the candidate instead
+of disappearing between a one-shot read and a later subscription.
 
 Navigation keeps the outgoing presentation quiesced until the candidate route
 is ready, then commits the provider route before activating the candidate.

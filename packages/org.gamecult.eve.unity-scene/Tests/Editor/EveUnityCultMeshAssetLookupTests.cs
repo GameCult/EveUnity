@@ -482,9 +482,9 @@ namespace GameCult.Eve.UnityScene.Tests
             var generationField = transportType.GetField(
                 "_assetGeneration",
                 BindingFlags.Instance | BindingFlags.NonPublic)!;
-            var buildMethod = transportType.GetMethod(
-                "BuildAssetGenerationAsync",
-                BindingFlags.Instance | BindingFlags.NonPublic)!;
+            var configureMethod = transportType.GetMethod(
+                "ConfigureAssetCatalog",
+                BindingFlags.Static | BindingFlags.NonPublic)!;
             using var transport = new EveUnityCultMeshLiveProviderTransport(
                 Path.Combine(Path.GetTempPath(), $"eve-asset-generation-{Guid.NewGuid():N}.cc"),
                 "cultnet+tcp://127.0.0.1:1",
@@ -514,16 +514,35 @@ namespace GameCult.Eve.UnityScene.Tests
                 2,
                 DateTimeOffset.UtcNow.ToString("O"),
                 new[] { new EveAssetCatalogEntry("prefab.b", "prefab", new[] { invalidVariant }) });
-            var source = CreateAssetSource("verse-b", "authority-b", "provider-b", "catalog-b");
-            var task = (Task)buildMethod.Invoke(
-                transport,
-                new[] { source, invalidCatalog, CancellationToken.None })!;
-
-            Assert.Throws<InvalidOperationException>(() => task.GetAwaiter().GetResult());
+            var rejected = CreateAssetGeneration(
+                "verse-b", "authority-b", "provider-b", "catalog-b", "source-b", -1);
+            var error = Assert.Throws<TargetInvocationException>(() =>
+                configureMethod.Invoke(null, new[] { rejected, invalidCatalog }));
+            Assert.That(error!.InnerException, Is.TypeOf<InvalidOperationException>());
+            ((IDisposable)rejected).Dispose();
             Assert.That(generationField.GetValue(transport), Is.SameAs(committed));
             Assert.That(GenerationProperty<string>(committed, "SourceIdentity"), Is.EqualTo("source-a"));
             Assert.That(GenerationDictionary(committed, "Prefabs")["prefab.a"], Is.SameAs(prefab));
             UnityEngine.Object.DestroyImmediate(prefab);
+        }
+
+        [Test]
+        public void CandidateCatalogObservationSurvivesPrecommitWindow()
+        {
+            var candidate = CreateAssetGeneration(
+                "verse-b", "authority-b", "provider-b", "catalog-b", "source-b", 1);
+            var candidateType = candidate.GetType();
+            var observe = candidateType.GetMethod("ObserveCatalog")!;
+            var activate = candidateType.GetMethod("ActivateCatalogObservation")!;
+            var variant = new EveAssetVariant(
+                "unity-scene", "StandaloneWindows64", "url", "https://example.invalid/b", "sha256:01", 1, "prefab.b");
+            var catalogB = new EveAssetCatalogDocument(
+                "provider-b", "catalog-b", 2, DateTimeOffset.UtcNow.ToString("O"),
+                new[] { new EveAssetCatalogEntry("prefab.b", "prefab", new[] { variant }) });
+
+            Assert.That(observe.Invoke(candidate, new object[] { catalogB }), Is.Null);
+            Assert.That(activate.Invoke(candidate, Array.Empty<object>()), Is.SameAs(catalogB));
+            ((IDisposable)candidate).Dispose();
         }
 
         [Test]

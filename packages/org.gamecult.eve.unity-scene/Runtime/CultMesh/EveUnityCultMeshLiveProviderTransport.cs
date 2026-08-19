@@ -1270,8 +1270,7 @@ namespace GameCult.Eve.UnityScene
             if (string.IsNullOrWhiteSpace(source.ManifestRecordRef))
                 return;
 
-            var catalog = await ReadAssetCatalogAsync(source, cancellationToken);
-            var candidate = await BuildAssetGenerationAsync(source, catalog, cancellationToken);
+            var candidate = await BuildAssetGenerationAsync(source, cancellationToken);
             CommitAssetGeneration(candidate);
         }
 
@@ -1283,7 +1282,6 @@ namespace GameCult.Eve.UnityScene
         {
             try
             {
-                var catalog = await ReadAssetCatalogAsync(source, cancellationToken);
                 if (generation != Interlocked.Read(ref _surfaceAssetGeneration))
                     return;
                 await _assetGenerationGate.WaitAsync(cancellationToken);
@@ -1291,7 +1289,7 @@ namespace GameCult.Eve.UnityScene
                 {
                     if (generation != Interlocked.Read(ref _surfaceAssetGeneration))
                         return;
-                    var candidate = await BuildAssetGenerationAsync(source, catalog, cancellationToken);
+                    var candidate = await BuildAssetGenerationAsync(source, cancellationToken);
                     if (generation != Interlocked.Read(ref _surfaceAssetGeneration))
                     {
                         candidate.Dispose();
@@ -1339,53 +1337,44 @@ namespace GameCult.Eve.UnityScene
                 rendezvousEndpoints);
         }
 
-        private async Task<EveAssetCatalogDocument> ReadAssetCatalogAsync(
-            AssetSource source,
-            CancellationToken cancellationToken)
-        {
-            if (string.Equals(source.Identity, CurrentAssetSourceIdentity, StringComparison.Ordinal))
-                return await AssetMeshClient()
-                    .ReadAsync<EveAssetCatalogDocument>(source.Target, source.ManifestRecordRef, cancellationToken);
-            var crossTarget = IsCrossTarget(source);
-            var endpoints = AssetRendezvousEndpoints(source, crossTarget);
-            using var candidateClient = crossTarget || source.RendezvousEndpoints.Count > 0
-                ? CreateMeshClient(
-                    endpoints,
-                    AssetAuthorityTrust(source))
-                : null;
-            return await (candidateClient ?? _meshClient ??
-                    throw new InvalidOperationException("The CultMesh client is not open."))
-                .ReadAsync<EveAssetCatalogDocument>(source.Target, source.ManifestRecordRef, cancellationToken);
-        }
-
         private async Task<AssetGeneration> BuildAssetGenerationAsync(
             AssetSource source,
-            EveAssetCatalogDocument catalog,
             CancellationToken cancellationToken)
         {
-            var crossTarget = IsCrossTarget(source);
-            var endpoints = AssetRendezvousEndpoints(source, crossTarget);
-            var candidate = new AssetGeneration(
-                source,
-                source.Identity,
-                catalog.Version,
-                crossTarget || source.RendezvousEndpoints.Count > 0
-                    ? CreateMeshClient(
-                        endpoints,
-                        AssetAuthorityTrust(source))
-                    : null);
-            try
+            while (true)
             {
-                ConfigureAssetCatalog(candidate, catalog);
-                ReuseCompatibleBundles(_assetGeneration, candidate);
-                await PreloadAssetsAsync(candidate, cancellationToken);
-                await AttachAssetCatalogSubscriptionAsync(candidate, cancellationToken);
-                return candidate;
-            }
-            catch
-            {
-                candidate.Dispose();
-                throw;
+                cancellationToken.ThrowIfCancellationRequested();
+                var crossTarget = IsCrossTarget(source);
+                var endpoints = AssetRendezvousEndpoints(source, crossTarget);
+                var candidate = new AssetGeneration(
+                    source,
+                    source.Identity,
+                    catalogVersion: -1,
+                    crossTarget || source.RendezvousEndpoints.Count > 0
+                        ? CreateMeshClient(
+                            endpoints,
+                            AssetAuthorityTrust(source))
+                        : null);
+                try
+                {
+                    var catalog = await AttachAssetCatalogSubscriptionAsync(candidate, cancellationToken);
+                    ConfigureAssetCatalog(candidate, catalog);
+                    ReuseCompatibleBundles(_assetGeneration, candidate);
+                    await PreloadAssetsAsync(candidate, cancellationToken);
+                    var latest = await candidate.CatalogLease!.Handle.LatestAsync();
+                    candidate.ObserveCatalog(latest);
+                    if (latest.Version != candidate.CatalogVersion)
+                    {
+                        candidate.Dispose();
+                        continue;
+                    }
+                    return candidate;
+                }
+                catch
+                {
+                    candidate.Dispose();
+                    throw;
+                }
             }
         }
 
@@ -1407,7 +1396,7 @@ namespace GameCult.Eve.UnityScene
             return new[] { _rendezvousEndpoint };
         }
 
-        private async Task AttachAssetCatalogSubscriptionAsync(
+        private async Task<EveAssetCatalogDocument> AttachAssetCatalogSubscriptionAsync(
             AssetGeneration candidate,
             CancellationToken cancellationToken)
         {
@@ -1419,9 +1408,17 @@ namespace GameCult.Eve.UnityScene
             IDisposable? watch = null;
             try
             {
-                watch = lease.Handle.Watch(catalog => QueueAssetCatalogUpdate(candidate.SourceIdentity, catalog));
+                watch = lease.Handle.Watch(catalog =>
+                {
+                    var pending = candidate.ObserveCatalog(catalog);
+                    if (pending != null)
+                        QueueAssetCatalogUpdate(candidate.SourceIdentity, pending);
+                });
                 candidate.CatalogWatch = watch;
                 candidate.CatalogLease = lease;
+                var catalog = await lease.Handle.LatestAsync();
+                candidate.ObserveCatalog(catalog);
+                return catalog;
             }
             catch
             {
@@ -1447,6 +1444,9 @@ namespace GameCult.Eve.UnityScene
             var previous = _assetGeneration;
             previous.TransferSharedBundlesTo(candidate);
             _assetGeneration = candidate;
+            var pendingCatalog = candidate.ActivateCatalogObservation();
+            if (pendingCatalog != null)
+                QueueAssetCatalogUpdate(candidate.SourceIdentity, pendingCatalog);
             if (surface != null)
                 _baseSurface = surface;
             try
@@ -1535,6 +1535,7 @@ namespace GameCult.Eve.UnityScene
                     $"Provider asset catalog '{catalog.CatalogId}' has no unity-scene/{CurrentBundlePlatform()} variant. " +
                     $"Advertised variants: {string.Join(", ", advertisedVariants)}");
             }
+            candidate.SetCatalogVersion(catalog.Version);
             ReadCameraPolicies(candidate, selected.Select(selection => selection.Variant!));
             foreach (var selection in selected)
             {
@@ -1588,7 +1589,7 @@ namespace GameCult.Eve.UnityScene
                             update.Catalog.Version == CurrentAssetCatalogVersion)
                             continue;
                         var source = _assetGeneration.Source;
-                        var candidate = await BuildAssetGenerationAsync(source, update.Catalog, _lifetime.Token);
+                        var candidate = await BuildAssetGenerationAsync(source, _lifetime.Token);
                         if (!string.Equals(update.SourceIdentity, CurrentAssetSourceIdentity, StringComparison.Ordinal))
                         {
                             candidate.Dispose();
@@ -1706,6 +1707,10 @@ namespace GameCult.Eve.UnityScene
 
         private sealed class AssetGeneration : IDisposable
         {
+            private readonly object _catalogObservationGate = new object();
+            private EveAssetCatalogDocument? _latestObservedCatalog;
+            private bool _catalogObservationActive;
+
             public AssetGeneration(
                 AssetSource source,
                 string sourceIdentity,
@@ -1720,9 +1725,9 @@ namespace GameCult.Eve.UnityScene
 
             public AssetSource Source { get; }
             public string SourceIdentity { get; }
-            public long CatalogVersion { get; }
+            public long CatalogVersion { get; private set; }
             public CultMeshClient? MeshClient { get; }
-            public IDisposable? CatalogLease { get; set; }
+            public CultMeshDocumentLease<EveAssetCatalogDocument>? CatalogLease { get; set; }
             public IDisposable? CatalogWatch { get; set; }
             public CultMeshContentTransferService? ContentTransfer { get; set; }
             public CultMeshVerifiedBodyMappingBroker? BodyMappings { get; set; }
@@ -1752,6 +1757,33 @@ namespace GameCult.Eve.UnityScene
                 foreach (var bundle in next.BorrowedAssetBundles)
                     AssetBundles.Remove(bundle);
                 next.BorrowedAssetBundles.Clear();
+            }
+
+            public void SetCatalogVersion(long catalogVersion)
+            {
+                if (CatalogVersion >= 0 && CatalogVersion != catalogVersion)
+                    throw new InvalidOperationException("An asset generation cannot change its catalog version after configuration.");
+                CatalogVersion = catalogVersion;
+            }
+
+            public EveAssetCatalogDocument? ObserveCatalog(EveAssetCatalogDocument catalog)
+            {
+                lock (_catalogObservationGate)
+                {
+                    _latestObservedCatalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
+                    return _catalogObservationActive && catalog.Version != CatalogVersion ? catalog : null;
+                }
+            }
+
+            public EveAssetCatalogDocument? ActivateCatalogObservation()
+            {
+                lock (_catalogObservationGate)
+                {
+                    _catalogObservationActive = true;
+                    return _latestObservedCatalog != null && _latestObservedCatalog.Version != CatalogVersion
+                        ? _latestObservedCatalog
+                        : null;
+                }
             }
 
             public void Dispose()

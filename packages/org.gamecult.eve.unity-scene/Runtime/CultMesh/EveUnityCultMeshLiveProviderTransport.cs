@@ -1626,6 +1626,7 @@ namespace GameCult.Eve.UnityScene
             string.Equals(receipt.ProviderId, request.ProviderId, StringComparison.Ordinal) &&
             string.Equals(receipt.SurfaceId, request.SurfaceId, StringComparison.Ordinal) &&
             string.Equals(receipt.Authority, _target.AuthorityRuntimeId, StringComparison.Ordinal) &&
+            string.Equals(receipt.InvocationHash, EveCommandInvocationHash.Compute(request), StringComparison.Ordinal) &&
             IsKnownReceiptState(receipt.State);
 
         private static bool IsKnownReceiptState(string state) =>

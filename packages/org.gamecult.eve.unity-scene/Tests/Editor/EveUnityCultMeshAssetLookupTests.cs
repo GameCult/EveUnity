@@ -188,6 +188,47 @@ namespace GameCult.Eve.UnityScene.Tests
         }
 
         [Test]
+        public void ReceiptForAnotherInvocationCannotRetireTheCommand()
+        {
+            using var transport = new EveUnityCultMeshLiveProviderTransport(
+                "test-cache",
+                "cultnet+tcp://127.0.0.1:1",
+                "test.verse",
+                "test.runtime",
+                "test.provider",
+                "test.surface");
+            var request = Request("launch-1", "launch");
+            var pendingField = typeof(EveUnityCultMeshLiveProviderTransport).GetField(
+                "_pendingCommands",
+                BindingFlags.NonPublic | BindingFlags.Instance);
+            var publish = typeof(EveUnityCultMeshLiveProviderTransport).GetMethod(
+                "PublishReceipt",
+                BindingFlags.NonPublic | BindingFlags.Instance);
+            var pending = (IDictionary<string, EveSurfaceCommandRequest>)pendingField!.GetValue(transport)!;
+            pending.Add(request.CommandId, request);
+            var observed = new List<EveUnitySceneCommandReceipt>();
+            transport.CommandReceiptAvailable += observed.Add;
+            var collision = new EveCommandReceiptDocument(
+                "receipt-collision",
+                request.CommandId,
+                request.Command,
+                "accepted",
+                "AetheriaEve",
+                "test.runtime",
+                request.ProviderId,
+                request.SurfaceId,
+                "",
+                DateTimeOffset.UtcNow.ToString("O"),
+                1,
+                invocationHash: EveCommandInvocationHash.Compute(Request(request.CommandId, "another-payload")));
+
+            publish!.Invoke(transport, new object[] { collision });
+
+            Assert.That(pending.ContainsKey(request.CommandId), Is.True);
+            Assert.That(observed, Is.Empty);
+        }
+
+        [Test]
         public void ProviderSelectionCarriesStableIdentityWithoutExposingAPhysicalRoute()
         {
             var selection = new EveUnityCultMeshProviderSelection(
@@ -248,7 +289,8 @@ namespace GameCult.Eve.UnityScene.Tests
                 request.SurfaceId,
                 "",
                 DateTimeOffset.UtcNow.ToString("O"),
-                1);
+                1,
+                invocationHash: EveCommandInvocationHash.Compute(request));
 
         private static async Task AwaitOrCancel(Task task, CancellationToken cancellationToken)
         {

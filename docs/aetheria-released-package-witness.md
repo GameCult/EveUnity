@@ -4,26 +4,26 @@
 
 The generic `ReleaseConsumerProject` is pinned to released Git packages:
 
-- `org.gamecult.eve.unity-scene` `0.3.100`, commit
-  `3632bfb3354065b78a90b921d7025c4c3fa92be4`, and
-  `org.gamecult.eve.surface` `0.2.4`, commit
-  `e08fa08335f99e9edddeb706912eecfad07cb281`;
+- `org.gamecult.eve.unity-scene` `0.3.134`, commit
+  `d1663b36d12b60ff5c7249135eff48edf6227ca9`, and
+  `org.gamecult.eve.surface` `0.3.6`, commit
+  `96839ad34c8d464ef622d8bbdd5d277e1ca9d825`;
 - `org.gamecult.eve.plugin-fields` `0.2.3`, commit
   `c5a4a75c1b727499b16c2dae1895f29e2a9f72f0`;
-- `org.gamecult.eve.unity-uitoolkit` `0.1.1`, commit
-  `4d0cbe0185bdc4fc65eb63503a7c5cb578539669`;
-- `org.gamecult.cultlib` `1.0.43`, commit
-  `f67f5122ed1bd11da016e7b820ed60145ccd0299`.
+- `org.gamecult.eve.unity-uitoolkit` `0.1.9`, commit
+  `d1663b36d12b60ff5c7249135eff48edf6227ca9`;
+- `org.gamecult.cultlib` `1.0.56`, commit
+  `334e60f1928b4212a29dd8b0d19b2c099fe6365e`.
 
 The hand-run integration gates are the cold lowering proof and the warm
 full-session proof:
 
 ```powershell
 pwsh -File .\scripts\run-aetheria-daemon-world-witness.ps1 `
-  -CultLibRoot E:\Projects\CultLib-codex-cultmesh-reliability `
+  -CultLibRoot E:\Projects\CultLib `
   -CacheState cold `
-  -AssetCacheDirectory artifacts\cultlib-1043-scene-03100-cold-cache `
-  -OutputDirectory artifacts\cultlib-1043-scene-03100-cold `
+  -AssetCacheDirectory artifacts\admitted-release-cold-cache `
+  -OutputDirectory artifacts\admitted-release-cold `
   -SkipAssetBundleBuild
 ```
 
@@ -31,9 +31,13 @@ Both connect directly to the Aetheria daemon. Control, subscriptions, commands,
 and receipts use `cultnet+tcp`; provider files use `cultmesh-content+tcp`;
 same-machine entity state uses a mapped SoA body; and the released native QUIC
 client receives the advertised latest-only realtime body. No Odin hop or
-Aetheria-specific gameplay code participates in the Unity runtime.
+Aetheria-specific gameplay code participates in the Unity runtime. This
+admission pass proves the package graph with the isolated EditMode consumer; it
+does not claim a new rendered end-to-end witness.
 
-The current cold proof is
+## Historical witness ledger
+
+The retained cold proof is
 `artifacts/cultlib-1043-scene-03100-cold5/runtime-witness.cold.json`. It began
 with no bodies or partials and passed in 57.8 seconds end to end (14.9 seconds
 inside PlayMode). The client materialized nine requested bundles totaling
@@ -45,7 +49,7 @@ unloaded. This cold profile owns content transfer, world lowering, fog and
 Stardust execution, and pilot/map camera isolation. It deliberately issues no
 gameplay command into the paused Terminus fixture.
 
-The current warm full-session proof is
+The retained warm full-session proof is
 `artifacts/cultlib-1043-scene-03100-warm/runtime-witness.warm.json`. It passed in
 70.7 seconds end to end (27.9 seconds inside PlayMode). The generic client docks,
 buys and sells one typed item, resumes and undocks, moves, targets, aims, holds
@@ -62,8 +66,6 @@ black and the cloud frame remains too hot and cyan-grey. Those are provider
 visual-lever and shader-calibration issues, not concealed transport failures.
 The map capture is clean and contains only map-channel glyphs on its dark map
 background.
-
-## Historical witness ledger
 
 An earlier released-package cold world witness passed with:
 

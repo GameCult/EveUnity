@@ -13,6 +13,11 @@ namespace GameCult.Eve.UnityUIToolkit
     public sealed class EveUiToolkitSurfaceLowerer
     {
         private readonly EveUiToolkitSurfaceOptions _options;
+        private EveSurfaceComponent? _inventoryDragSource;
+        private Vector2 _inventoryDragStart;
+        private bool _inventoryPointerMoved;
+        private bool _suppressInventoryClick;
+        private readonly List<VisualElement> _inventoryPreviewCells = new();
 
         public EveUiToolkitSurfaceLowerer(EveUiToolkitSurfaceOptions? options = null)
         {
@@ -41,9 +46,22 @@ namespace GameCult.Eve.UnityUIToolkit
             element.AddToClassList($"eve-kind-{SafeClass(component.Kind)}");
             element.userData = component;
             ApplyGeneratedLayout(element, component);
+            element.SetEnabled(IsEnabled(component));
+
+            if (IsHidden(component) || IsExternalProjectionRoot(component.Kind))
+                return element;
+
+            // Select options are semantic children consumed by the control itself.
+            // They are not separately lowered visual elements.
+            if (NormalizeKind(component.Kind) == "control.select")
+                return element;
 
             foreach (var child in component.Children)
-                element.Add(LowerComponent(child, document, commandSink));
+            {
+                var loweredChild = LowerComponent(child, document, commandSink);
+                PositionInventoryChild(component, child, loweredChild);
+                element.Add(loweredChild);
+            }
 
             foreach (var slot in component.EmbeddedDocuments)
             {
@@ -97,6 +115,14 @@ namespace GameCult.Eve.UnityUIToolkit
                     element.style.alignItems = Align.Stretch;
                     return element;
                 }
+                case EveInventoryInteraction.GridKind:
+                    return InventoryGrid(component, document, commandSink);
+                case EveInventoryInteraction.ItemKind:
+                    return InventoryItem(component, document, commandSink);
+                case EveInventoryInteraction.DragSessionKind:
+                    return InventoryDragSession(component);
+                case "control.select":
+                    return Select(component, document, commandSink);
                 case "partition":
                 {
                     var element = new VisualElement();
@@ -106,6 +132,8 @@ namespace GameCult.Eve.UnityUIToolkit
                     element.style.flexWrap = Wrap.Wrap;
                     return element;
                 }
+                case "scroll":
+                    return new ScrollView(ScrollViewMode.Vertical);
                 case "pane":
                 case "modal":
                 case "card":
@@ -115,7 +143,11 @@ namespace GameCult.Eve.UnityUIToolkit
                     card.style.flexDirection = FlexDirection.Column;
                     var title = component.GetProp("title");
                     if (!string.IsNullOrWhiteSpace(title))
-                        card.Add(TitleLabel(title));
+                    {
+                        var titleLabel = TitleLabel(title);
+                        titleLabel.name = "title";
+                        card.Add(titleLabel);
+                    }
                     return card;
                 }
                 case "metric":
@@ -123,17 +155,24 @@ namespace GameCult.Eve.UnityUIToolkit
                     var metric = new VisualElement();
                     metric.AddToClassList("eve-metric");
                     metric.style.flexDirection = FlexDirection.Column;
-                    metric.Add(MutedLabel(component.GetProp("label")));
-                    metric.Add(ValueLabel(component.GetProp("value")));
+                    var label = MutedLabel(component.GetProp("label"));
+                    label.name = "label";
+                    metric.Add(label);
+                    var value = ValueLabel(component.GetProp("value"));
+                    value.name = "value";
+                    metric.Add(value);
                     return metric;
                 }
                 case "progress":
                 {
-                    var progress = new VisualElement();
+                    var progress = new ProgressBar
+                    {
+                        title = component.GetProp("label"),
+                        lowValue = 0f,
+                        highValue = 1f,
+                        value = ParseRatio(component.GetProp("ratio", component.GetProp("value")))
+                    };
                     progress.AddToClassList("eve-progress");
-                    progress.style.flexDirection = FlexDirection.Column;
-                    progress.Add(MutedLabel(component.GetProp("label")));
-                    progress.Add(ValueLabel(component.GetProp("value")));
                     return progress;
                 }
                 case "options":
@@ -207,6 +246,234 @@ namespace GameCult.Eve.UnityUIToolkit
             }
         }
 
+        private VisualElement InventoryGrid(
+            EveSurfaceComponent component,
+            EveSurfaceDocument document,
+            Action<EveSurfaceCommandRequest>? commandSink)
+        {
+            var grid = new VisualElement();
+            grid.AddToClassList("eve-inventory-grid");
+            grid.style.position = Position.Relative;
+            var columns = Math.Max(1, ParseInt(component.GetProp("columns"), 6));
+            var rows = Math.Max(1, ParseInt(component.GetProp("rows"), 3));
+            var cellSize = Math.Max(1f, ParseNumber(component.GetProp("cellSize"), 72f));
+            var gap = Math.Max(0f, ParseNumber(component.GetProp("cellGap"), 4f));
+            grid.style.width = columns * cellSize + Math.Max(0, columns - 1) * gap;
+            grid.style.height = rows * cellSize + Math.Max(0, rows - 1) * gap;
+            for (var index = 0; index < Math.Min(columns * rows, 256); index++)
+            {
+                var cell = new VisualElement();
+                cell.AddToClassList("eve-inventory-cell");
+                cell.style.position = Position.Absolute;
+                cell.style.left = (index % columns) * (cellSize + gap);
+                cell.style.top = (index / columns) * (cellSize + gap);
+                cell.style.width = cellSize;
+                cell.style.height = cellSize;
+                grid.Add(cell);
+            }
+            grid.RegisterCallback<ClickEvent>(evt =>
+            {
+                if (_inventoryDragSource == null || _suppressInventoryClick)
+                    return;
+                if (TryEmitInventoryDrop(document, _inventoryDragSource, component, grid, evt.position, commandSink))
+                    _inventoryDragSource = null;
+                ClearInventoryPreview();
+            });
+            return grid;
+        }
+
+        private VisualElement InventoryItem(
+            EveSurfaceComponent component,
+            EveSurfaceDocument document,
+            Action<EveSurfaceCommandRequest>? commandSink)
+        {
+            var item = new Button { text = component.GetProp("label", component.GetProp("itemKey")) };
+            item.AddToClassList("eve-inventory-item");
+            item.RegisterCallback<PointerDownEvent>(evt =>
+            {
+                if (!ParseBool(component.GetProp("draggable", "true")))
+                    return;
+                _inventoryDragSource = component;
+                _inventoryDragStart = evt.position;
+                _inventoryPointerMoved = false;
+                ClearInventoryPreview();
+                item.CapturePointer(evt.pointerId);
+                evt.StopPropagation();
+            });
+            item.RegisterCallback<PointerMoveEvent>(evt =>
+            {
+                if (_inventoryDragSource != component)
+                    return;
+                var pointerPosition = new Vector2(evt.position.x, evt.position.y);
+                if ((pointerPosition - _inventoryDragStart).sqrMagnitude > 16f)
+                {
+                    _inventoryPointerMoved = true;
+                    var picked = item.panel?.Pick(evt.position);
+                    var targetElement = InventoryGridAncestor(picked);
+                    if (targetElement?.userData is EveSurfaceComponent target)
+                        ShowInventoryPreview(component, target, targetElement, evt.position);
+                    else
+                        ClearInventoryPreview();
+                }
+            });
+            item.RegisterCallback<PointerUpEvent>(evt =>
+            {
+                if (_inventoryDragSource != component)
+                    return;
+                item.ReleasePointer(evt.pointerId);
+                if (_inventoryPointerMoved)
+                {
+                    var picked = item.panel?.Pick(evt.position);
+                    var targetElement = InventoryGridAncestor(picked);
+                    if (targetElement?.userData is EveSurfaceComponent target)
+                        TryEmitInventoryDrop(document, component, target, targetElement, evt.position, commandSink);
+                    _inventoryDragSource = null;
+                    _suppressInventoryClick = true;
+                    ClearInventoryPreview();
+                }
+                evt.StopPropagation();
+            });
+            item.RegisterCallback<ClickEvent>(evt =>
+            {
+                if (_suppressInventoryClick)
+                {
+                    _suppressInventoryClick = false;
+                    evt.StopPropagation();
+                    return;
+                }
+                _inventoryDragSource = component;
+                evt.StopPropagation();
+            });
+            return item;
+        }
+
+        private static VisualElement InventoryDragSession(EveSurfaceComponent component)
+        {
+            var panel = new VisualElement();
+            panel.AddToClassList("eve-inventory-drag-session");
+            var active = ParseBool(component.GetProp("active"));
+            panel.Add(BodyLabel(active
+                ? component.GetProp("itemKey", "Dragging")
+                : "No active drag"));
+            return panel;
+        }
+
+        private static void PositionInventoryChild(
+            EveSurfaceComponent parent,
+            EveSurfaceComponent child,
+            VisualElement element)
+        {
+            if (!string.Equals(parent.Kind, EveInventoryInteraction.GridKind, StringComparison.Ordinal) ||
+                !string.Equals(child.Kind, EveInventoryInteraction.ItemKind, StringComparison.Ordinal))
+                return;
+            var cellSize = Math.Max(1f, ParseNumber(parent.GetProp("cellSize"), 72f));
+            var gap = Math.Max(0f, ParseNumber(parent.GetProp("cellGap"), 4f));
+            var widthCells = Math.Max(1, ParseInt(child.GetProp("shapeWidth"), 1));
+            var heightCells = Math.Max(1, ParseInt(child.GetProp("shapeHeight"), 1));
+            var rotation = child.GetProp("rotation");
+            if (string.Equals(rotation, "Clockwise", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(rotation, "CounterClockwise", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(rotation, "Right", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(rotation, "Left", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(rotation, "Rotate90", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(rotation, "Rotate270", StringComparison.OrdinalIgnoreCase))
+            {
+                (widthCells, heightCells) = (heightCells, widthCells);
+            }
+            element.style.position = Position.Absolute;
+            element.style.left = Math.Max(0, ParseInt(child.GetProp("x"), 0)) * (cellSize + gap);
+            element.style.top = Math.Max(0, ParseInt(child.GetProp("y"), 0)) * (cellSize + gap);
+            element.style.width = widthCells * cellSize + Math.Max(0, widthCells - 1) * gap;
+            element.style.height = heightCells * cellSize + Math.Max(0, heightCells - 1) * gap;
+        }
+
+        private static VisualElement? InventoryGridAncestor(VisualElement? element)
+        {
+            while (element != null)
+            {
+                if (element.userData is EveSurfaceComponent component &&
+                    string.Equals(component.Kind, EveInventoryInteraction.GridKind, StringComparison.Ordinal))
+                    return element;
+                element = element.parent;
+            }
+            return null;
+        }
+
+        private static bool TryEmitInventoryDrop(
+            EveSurfaceDocument document,
+            EveSurfaceComponent source,
+            EveSurfaceComponent target,
+            VisualElement targetElement,
+            Vector2 panelPosition,
+            Action<EveSurfaceCommandRequest>? commandSink)
+        {
+            if (commandSink == null)
+                return false;
+            var local = targetElement.WorldToLocal(panelPosition);
+            var pitch = Math.Max(1f, ParseNumber(target.GetProp("cellSize"), 72f) +
+                Math.Max(0f, ParseNumber(target.GetProp("cellGap"), 4f)));
+            var x = Math.Max(0, (int)Math.Floor(local.x / pitch));
+            var y = Math.Max(0, (int)Math.Floor(local.y / pitch));
+            if (!EveInventoryInteraction.TryCreateDropRequest(
+                    document, source, target, x, y, "unity-uitoolkit", out var request) || request == null)
+                return false;
+            commandSink(request);
+            return true;
+        }
+
+        private void ShowInventoryPreview(
+            EveSurfaceComponent source,
+            EveSurfaceComponent target,
+            VisualElement targetElement,
+            Vector2 panelPosition)
+        {
+            ClearInventoryPreview();
+            var local = targetElement.WorldToLocal(panelPosition);
+            var cellSize = Math.Max(1f, ParseNumber(target.GetProp("cellSize"), 72f));
+            var gap = Math.Max(0f, ParseNumber(target.GetProp("cellGap"), 4f));
+            var pitch = cellSize + gap;
+            var x = Math.Max(0, (int)Math.Floor(local.x / Math.Max(1f, pitch)));
+            var y = Math.Max(0, (int)Math.Floor(local.y / Math.Max(1f, pitch)));
+            if (!EveInventoryInteraction.TryCreatePlacementPreview(source, target, x, y, out var preview) ||
+                preview == null)
+                return;
+
+            foreach (var cell in preview.Cells)
+            {
+                var element = new VisualElement { pickingMode = PickingMode.Ignore };
+                element.AddToClassList("eve-inventory-placement-preview");
+                element.AddToClassList(preview.IsValid
+                    ? "eve-inventory-placement-valid"
+                    : "eve-inventory-placement-invalid");
+                element.style.position = Position.Absolute;
+                element.style.left = cell.X * pitch;
+                element.style.top = cell.Y * pitch;
+                element.style.width = cellSize;
+                element.style.height = cellSize;
+                element.style.backgroundColor = preview.IsValid
+                    ? new Color(0.2f, 0.9f, 0.65f, 0.34f)
+                    : new Color(1f, 0.25f, 0.2f, 0.38f);
+                targetElement.Add(element);
+                _inventoryPreviewCells.Add(element);
+            }
+        }
+
+        private void ClearInventoryPreview()
+        {
+            foreach (var cell in _inventoryPreviewCells)
+                cell.RemoveFromHierarchy();
+            _inventoryPreviewCells.Clear();
+        }
+
+        private static int ParseInt(string value, int fallback) =>
+            int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) ? parsed : fallback;
+
+        private static bool ParseBool(string value) =>
+            bool.TryParse(value, out var parsed) && parsed;
+
+        private static float ParseNumber(string value, float fallback) =>
+            float.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed) ? parsed : fallback;
+
         private static void EmitCommand(
             EveSurfaceDocument document,
             EveSurfaceComponent component,
@@ -247,10 +514,62 @@ namespace GameCult.Eve.UnityUIToolkit
             foreach (var template in document.Commands)
             {
                 if (string.Equals(template.Command, command, StringComparison.Ordinal))
-                    return GameCult.Mesh.CultMesh.OperationInvocation(template.Operation);
+                    return GameCult.Mesh.CultMesh.OperationInvocation(
+                        template.Operation,
+                        idempotencyKey: $"unity-uitoolkit-{Guid.NewGuid():N}");
             }
 
-            return GameCult.Mesh.CultMesh.OperationInvocation(command);
+            return GameCult.Mesh.CultMesh.OperationInvocation(
+                command,
+                idempotencyKey: $"unity-uitoolkit-{Guid.NewGuid():N}");
+        }
+
+        private static VisualElement Select(
+            EveSurfaceComponent component,
+            EveSurfaceDocument document,
+            Action<EveSurfaceCommandRequest>? commandSink)
+        {
+            var options = component.Children
+                .Where(child => NormalizeKind(child.Kind) == "control.option")
+                .Select(child => new
+                {
+                    Label = child.GetProp("label", child.GetProp("value")),
+                    Value = child.GetProp("value")
+                })
+                .Where(option => !string.IsNullOrWhiteSpace(option.Value))
+                .ToArray();
+            var duplicateLabels = options
+                .GroupBy(option => option.Label, StringComparer.Ordinal)
+                .Where(group => group.Count() > 1)
+                .Select(group => group.Key)
+                .ToHashSet(StringComparer.Ordinal);
+            var labels = options
+                .Select(option => duplicateLabels.Contains(option.Label)
+                    ? $"{option.Label} [{option.Value}]"
+                    : option.Label)
+                .ToList();
+            var selectedValue = component.GetProp("value");
+            var selectedIndex = Array.FindIndex(options, option =>
+                string.Equals(option.Value, selectedValue, StringComparison.Ordinal));
+            var field = new DropdownField(component.GetProp("label"), labels, Math.Max(0, selectedIndex));
+            field.RegisterValueChangedCallback(change =>
+            {
+                var index = field.index;
+                if (index < 0 || index >= options.Length)
+                    return;
+                var option = options[index];
+                var payload = new Dictionary<string, string>(component.Props, StringComparer.Ordinal)
+                {
+                    ["value"] = option.Value
+                };
+                EmitCommand(
+                    document,
+                    component,
+                    component.GetProp("command", component.GetProp("operationId")),
+                    GameCult.Mesh.CultMesh.OperationPayload(payload),
+                    commandSink);
+            });
+            return field;
         }
 
         private static Label TitleLabel(string text)
@@ -313,6 +632,26 @@ namespace GameCult.Eve.UnityUIToolkit
                 element.style.display = string.Equals(display, "none", StringComparison.OrdinalIgnoreCase)
                     ? DisplayStyle.None
                     : DisplayStyle.Flex;
+            if (TryGet(layout, "position", out var position))
+                element.style.position = string.Equals(position, "absolute", StringComparison.OrdinalIgnoreCase)
+                    ? Position.Absolute
+                    : Position.Relative;
+            if (TryGet(layout, "inset", out var inset))
+            {
+                var value = ParseLength(inset);
+                element.style.top = value;
+                element.style.right = value;
+                element.style.bottom = value;
+                element.style.left = value;
+            }
+            if (TryGet(layout, "top", out var top))
+                element.style.top = ParseLength(top);
+            if (TryGet(layout, "right", out var right))
+                element.style.right = ParseLength(right);
+            if (TryGet(layout, "bottom", out var bottom))
+                element.style.bottom = ParseLength(bottom);
+            if (TryGet(layout, "left", out var left))
+                element.style.left = ParseLength(left);
             if (TryGet(layout, "direction", out var direction))
             {
                 if (string.Equals(direction, "horizontal", StringComparison.OrdinalIgnoreCase) ||
@@ -328,6 +667,12 @@ namespace GameCult.Eve.UnityUIToolkit
                 element.style.alignItems = align;
             if (TryGet(layout, "justifyContent", out var justifyContent) && TryParseJustify(justifyContent, out var justify))
                 element.style.justifyContent = justify;
+            if (TryGet(layout, "flexGrow", out var flexGrow))
+                element.style.flexGrow = ParseFloat(flexGrow);
+            if (TryGet(layout, "flexShrink", out var flexShrink))
+                element.style.flexShrink = ParseFloat(flexShrink);
+            if (TryGet(layout, "flexBasis", out var flexBasis))
+                element.style.flexBasis = ParseLength(flexBasis);
             if (TryGet(layout, "width", out var width))
                 element.style.width = ParseLength(width);
             if (TryGet(layout, "minWidth", out var minWidth))
@@ -404,6 +749,14 @@ namespace GameCult.Eve.UnityUIToolkit
             return false;
         }
 
+        private static bool IsEnabled(EveSurfaceComponent component)
+        {
+            if (ParseBool(component.GetProp("disabled")))
+                return false;
+            var enabled = component.GetProp("enabled");
+            return string.IsNullOrWhiteSpace(enabled) || ParseBool(enabled);
+        }
+
         private static StyleLength ParseLength(string value)
         {
             value = FirstToken(value);
@@ -428,6 +781,13 @@ namespace GameCult.Eve.UnityUIToolkit
             return float.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var pixels)
                 ? pixels
                 : StyleKeyword.Null;
+        }
+
+        private static float ParseRatio(string value)
+        {
+            return float.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var ratio)
+                ? Mathf.Clamp01(ratio)
+                : 0f;
         }
 
         private static void ApplyBoxLength(string value, Action<StyleLength> apply)
@@ -522,6 +882,21 @@ namespace GameCult.Eve.UnityUIToolkit
                 return "control.text";
 
             return kind;
+        }
+
+        internal static bool IsHidden(EveSurfaceComponent component) =>
+            component.Layout != null &&
+            component.Layout.TryGetValue("display", out var display) &&
+            string.Equals(display, "none", StringComparison.OrdinalIgnoreCase);
+
+        internal static bool IsExternalProjectionRoot(string kind)
+        {
+            kind = NormalizeKind(kind);
+            return string.Equals(kind, "world.scene3d", StringComparison.Ordinal) ||
+                   string.Equals(kind, "world.scene2d", StringComparison.Ordinal) ||
+                   string.Equals(kind, "field.volume3d", StringComparison.Ordinal) ||
+                   string.Equals(kind, "field.particles3d", StringComparison.Ordinal) ||
+                   string.Equals(kind, "layer.reactive", StringComparison.Ordinal);
         }
 
         private static string SafeName(string value)

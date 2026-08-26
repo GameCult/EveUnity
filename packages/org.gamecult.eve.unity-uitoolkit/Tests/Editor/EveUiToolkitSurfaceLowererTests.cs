@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using GameCult.Eve.Surface;
 using GameCult.Mesh;
 using NUnit.Framework;
+using UnityEditor;
 using UnityEngine.UIElements;
 
 #nullable enable
@@ -11,6 +13,108 @@ namespace GameCult.Eve.UnityUIToolkit.Tests
 {
     public sealed class EveUiToolkitSurfaceLowererTests
     {
+        [Test]
+        public void SelectLowersProviderOptionsAndEmitsSelectedTypedValue()
+        {
+            EveSurfaceCommandRequest? emitted = null;
+            var select = Component(
+                "verse",
+                "control.select",
+                new Dictionary<string, string>
+                {
+                    ["label"] = "VERSE",
+                    ["value"] = "local",
+                    ["command"] = "eve.client.verse.select"
+                },
+                new[]
+                {
+                    Component("local", "control.option", new Dictionary<string, string> { ["label"] = "Local", ["value"] = "local" }),
+                    Component("hosted", "control.option", new Dictionary<string, string> { ["label"] = "Hosted", ["value"] = "hosted" })
+                });
+            var root = new EveUiToolkitSurfaceLowerer().Lower(Document(select), request => emitted = request);
+            var field = root.Q<DropdownField>();
+            var window = EditorWindow.CreateInstance<EditorWindow>();
+
+            try
+            {
+                window.rootVisualElement.Add(root);
+                window.Show();
+                Assert.That(field, Is.Not.Null);
+                Assert.That(field.choices, Is.EqualTo(new[] { "Local", "Hosted" }));
+                field.value = "Hosted";
+                Assert.That(emitted, Is.Not.Null);
+                Assert.That(emitted!.Command, Is.EqualTo("eve.client.verse.select"));
+                Assert.That(emitted.PayloadFields["value"], Is.EqualTo("hosted"));
+            }
+            finally
+            {
+                window.Close();
+            }
+        }
+
+        [Test]
+        public void SelectKeepsStableValuesWhenVerseLabelsCollide()
+        {
+            EveSurfaceCommandRequest? emitted = null;
+            var select = Component(
+                "verse",
+                "control.select",
+                new Dictionary<string, string>
+                {
+                    ["label"] = "VERSE",
+                    ["value"] = "verse:a",
+                    ["command"] = "eve.client.verse.select"
+                },
+                new[]
+                {
+                    Component("a", "control.option", new Dictionary<string, string> { ["label"] = "Aetheria", ["value"] = "verse:a" }),
+                    Component("b", "control.option", new Dictionary<string, string> { ["label"] = "Aetheria", ["value"] = "verse:b" })
+                });
+            var root = new EveUiToolkitSurfaceLowerer().Lower(Document(select), request => emitted = request);
+            var field = root.Q<DropdownField>();
+            var window = EditorWindow.CreateInstance<EditorWindow>();
+
+            try
+            {
+                window.rootVisualElement.Add(root);
+                window.Show();
+                Assert.That(field.choices, Is.EqualTo(new[] { "Aetheria [verse:a]", "Aetheria [verse:b]" }));
+                field.index = 1;
+                Assert.That(emitted, Is.Not.Null);
+                Assert.That(emitted!.PayloadFields["value"], Is.EqualTo("verse:b"));
+            }
+            finally
+            {
+                window.Close();
+            }
+        }
+
+        [Test]
+        public void SemanticEnabledStateAndMinMaxFlexLayoutAreLowered()
+        {
+            var button = new EveSurfaceComponent(
+                "launch",
+                "control.button",
+                new Dictionary<string, string> { ["label"] = "LAUNCH", ["disabled"] = "true" },
+                Array.Empty<EveSurfaceComponent>(),
+                Array.Empty<CultMeshStateBindingDescriptor>(),
+                Array.Empty<EveEmbeddedDocumentSlot>(),
+                new Dictionary<string, string>
+                {
+                    ["minWidth"] = "280",
+                    ["maxWidth"] = "360",
+                    ["flexGrow"] = "1"
+                });
+
+            var root = new EveUiToolkitSurfaceLowerer().Lower(Document(button));
+            var lowered = root.Q<Button>();
+
+            Assert.That(lowered.enabledSelf, Is.False);
+            Assert.That(lowered.style.minWidth.value.value, Is.EqualTo(280f));
+            Assert.That(lowered.style.maxWidth.value.value, Is.EqualTo(360f));
+            Assert.That(lowered.style.flexGrow.value, Is.EqualTo(1f));
+        }
+
         [Test]
         public void DefaultOptionsExposeSaiNornAndTeXProjectionAdapters()
         {
@@ -112,6 +216,245 @@ namespace GameCult.Eve.UnityUIToolkit.Tests
             Assert.That(embedded.ClassListContains("eve-embedded-kind-inline"), Is.True);
         }
 
+        [Test]
+        public void ProgressAndAbsoluteLayoutLowerToNativeUiToolkitPrimitives()
+        {
+            var progress = new EveSurfaceComponent(
+                "hull",
+                "progress",
+                new Dictionary<string, string>
+                {
+                    ["label"] = "Hull",
+                    ["ratio"] = "0.625"
+                },
+                Array.Empty<EveSurfaceComponent>(),
+                Array.Empty<CultMeshStateBindingDescriptor>(),
+                Array.Empty<EveEmbeddedDocumentSlot>(),
+                new Dictionary<string, string>
+                {
+                    ["position"] = "absolute",
+                    ["right"] = "24",
+                    ["bottom"] = "32"
+                });
+
+            var root = new EveUiToolkitSurfaceLowerer().Lower(Document(progress));
+
+            Assert.That(root, Is.TypeOf<ProgressBar>());
+            Assert.That(((ProgressBar)root).value, Is.EqualTo(0.625f));
+            Assert.That(root.style.position.value, Is.EqualTo(Position.Absolute));
+            Assert.That(root.style.right.value.value, Is.EqualTo(24f));
+            Assert.That(root.style.bottom.value.value, Is.EqualTo(32f));
+        }
+
+        [Test]
+        public void PresenterUpdatesCockpitValuesWithoutRebuildingTheSurface()
+        {
+            var presenter = new EveUiToolkitSurfacePresenter();
+            var first = CockpitDocument("0.25", "301.5");
+
+            Assert.That(presenter.Present(first), Is.True);
+            var root = presenter.Root;
+            var hull = root!.Q<ProgressBar>("hull");
+            var temperature = root.Q<VisualElement>("temperature").Q<Label>("value");
+            Assert.That(hull.value, Is.EqualTo(0.25f));
+            Assert.That(temperature.text, Is.EqualTo("301.5"));
+            Assert.That(root.Q<VisualElement>("world-metric"), Is.Null,
+                "Scene projection subtrees must not become empty UI hierarchies.");
+
+            Assert.That(presenter.Present(CockpitDocument("0.75", "318")), Is.False);
+            Assert.That(presenter.Root, Is.SameAs(root));
+            Assert.That(hull.value, Is.EqualTo(0.75f));
+            Assert.That(temperature.text, Is.EqualTo("318"));
+        }
+
+        [Test]
+        public void PresenterRebuildsWhenProviderUiStructureChanges()
+        {
+            var presenter = new EveUiToolkitSurfacePresenter();
+            presenter.Present(CockpitDocument("0.25", "301.5"));
+            var firstRoot = presenter.Root;
+            var changedRoot = Component(
+                "root",
+                "surface",
+                children: new[]
+                {
+                    Component("status", "metric", new Dictionary<string, string>
+                    {
+                        ["label"] = "Status",
+                        ["value"] = "Docked"
+                    })
+                });
+
+            Assert.That(presenter.Present(Document(changedRoot)), Is.True);
+            Assert.That(presenter.Root, Is.Not.SameAs(firstRoot));
+            Assert.That(presenter.Root!.Q<VisualElement>("status"), Is.Not.Null);
+        }
+
+        [Test]
+        public void InventoryDropBuildsAdvertisedTypedOperationPayload()
+        {
+            var source = Component("ore", EveInventoryInteraction.ItemKind, new Dictionary<string, string>
+            {
+                ["sourceKind"] = "cargo",
+                ["sourceEntityKey"] = "zone.0.entity.1",
+                ["sourceIndex"] = "2",
+                ["itemKey"] = "ore",
+                ["quantity"] = "4",
+                ["x"] = "3",
+                ["y"] = "5"
+            });
+            var target = Component("equipment", EveInventoryInteraction.GridKind, new Dictionary<string, string>
+            {
+                ["targetKind"] = "equipment",
+                ["targetEntityKey"] = "zone.0.entity.1",
+                ["targetIndex"] = "-1",
+                ["dropCommand.cargo"] = "aetheria.daemon.commands.EquipItem",
+                ["payload.shipId"] = "hangar.ship.1",
+                ["payload.expectedHangarRevision"] = "42"
+            });
+
+            Assert.That(EveInventoryInteraction.TryCreateDropRequest(
+                Document(target), source, target, 7, 9, "unity-test", out var request), Is.True);
+            Assert.That(request, Is.Not.Null);
+            Assert.That(request!.Command, Is.EqualTo("aetheria.daemon.commands.EquipItem"));
+            Assert.That(request.CommandId, Is.Not.Empty);
+            Assert.That(request.Payload.GetString("originEntityKey"), Is.EqualTo("zone.0.entity.1"));
+            Assert.That(request.Payload.GetString("originCargoIndex"), Is.EqualTo("2"));
+            Assert.That(request.Payload.GetString("destinationX"), Is.EqualTo("7"));
+            Assert.That(request.Payload.GetString("destinationY"), Is.EqualTo("9"));
+            Assert.That(request.Payload.GetString("hasDestinationPosition"), Is.EqualTo("true"));
+            Assert.That(request.Payload.GetString("shipId"), Is.EqualTo("hangar.ship.1"));
+            Assert.That(request.Payload.GetString("expectedHangarRevision"), Is.EqualTo("42"));
+        }
+
+        [Test]
+        public void InventoryPlacementPreviewUsesIrregularShapeAndCurrentOccupancy()
+        {
+            var moving = Component("moving", EveInventoryInteraction.ItemKind, new Dictionary<string, string>
+            {
+                ["shapeCells"] = "0,0;1,0;0,1"
+            });
+            var installed = Component("installed", EveInventoryInteraction.ItemKind, new Dictionary<string, string>
+            {
+                ["x"] = "2",
+                ["y"] = "1",
+                ["shapeCells"] = "0,0"
+            });
+            var grid = new EveSurfaceComponent(
+                "grid",
+                EveInventoryInteraction.GridKind,
+                new Dictionary<string, string>
+                {
+                    ["columns"] = "4",
+                    ["rows"] = "3",
+                    ["validCells"] = "0,0;1,0;2,0;3,0;0,1;1,1;2,1;3,1;0,2;1,2;2,2;3,2"
+                },
+                new[] { installed });
+
+            Assert.That(EveInventoryInteraction.TryCreatePlacementPreview(
+                moving, grid, 0, 0, out var valid), Is.True);
+            Assert.That(valid!.IsValid, Is.True);
+            Assert.That(valid.Cells.Select(cell => (cell.X, cell.Y)),
+                Is.EquivalentTo(new[] { (0, 0), (1, 0), (0, 1) }));
+
+            Assert.That(EveInventoryInteraction.TryCreatePlacementPreview(
+                moving, grid, 1, 1, out var occupied), Is.True);
+            Assert.That(occupied!.IsValid, Is.False);
+            Assert.That(occupied.Reason, Is.EqualTo("occupied"));
+
+            Assert.That(EveInventoryInteraction.TryCreatePlacementPreview(
+                moving, grid, 3, 2, out var outside), Is.True);
+            Assert.That(outside!.IsValid, Is.False);
+            Assert.That(outside.Reason, Is.EqualTo("outside-grid"));
+        }
+
+        [Test]
+        public void InvalidLocalPreviewStillEmitsProviderOwnedDrop()
+        {
+            EveSurfaceCommandRequest? emitted = null;
+            var source = Component("moving", EveInventoryInteraction.ItemKind, new Dictionary<string, string>
+            {
+                ["sourceKind"] = "equipment",
+                ["sourceIndex"] = "0",
+                ["itemKey"] = "reactor",
+                ["shapeCells"] = "0,0"
+            });
+            var occupied = Component("stored", EveInventoryInteraction.ItemKind, new Dictionary<string, string>
+            {
+                ["x"] = "0",
+                ["y"] = "0",
+                ["shapeCells"] = "0,0"
+            });
+            var target = new EveSurfaceComponent(
+                "hangar.inventory",
+                EveInventoryInteraction.GridKind,
+                new Dictionary<string, string>
+                {
+                    ["columns"] = "8",
+                    ["rows"] = "2",
+                    ["targetKind"] = "hangar",
+                    ["dropCommand.equipment"] = "aetheria.hangar.remove_item"
+                },
+                new[] { occupied });
+            var method = typeof(EveUiToolkitSurfaceLowerer).GetMethod(
+                "TryEmitInventoryDrop",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+
+            Assert.That(method, Is.Not.Null);
+            var emittedDrop = (bool)method!.Invoke(null, new object[]
+            {
+                Document(target),
+                source,
+                target,
+                new VisualElement(),
+                UnityEngine.Vector2.zero,
+                new Action<EveSurfaceCommandRequest>(request => emitted = request)
+            })!;
+
+            Assert.That(emittedDrop, Is.True);
+            Assert.That(emitted, Is.Not.Null);
+            Assert.That(emitted!.Command, Is.EqualTo("aetheria.hangar.remove_item"));
+        }
+
+        [Test]
+        public void InventoryGridAndItemsLowerToNativeSpatialElements()
+        {
+            var item = Component("ore", EveInventoryInteraction.ItemKind, new Dictionary<string, string>
+            {
+                ["label"] = "Iron Ore",
+                ["sourceKind"] = "cargo",
+                ["x"] = "1",
+                ["y"] = "2",
+                ["shapeWidth"] = "2",
+                ["shapeHeight"] = "3",
+                ["rotation"] = "Clockwise"
+            });
+            var grid = new EveSurfaceComponent(
+                "cargo",
+                EveInventoryInteraction.GridKind,
+                new Dictionary<string, string>
+                {
+                    ["columns"] = "4",
+                    ["rows"] = "3",
+                    ["cellSize"] = "32",
+                    ["cellGap"] = "2"
+                },
+                new[] { item });
+
+            var root = new EveUiToolkitSurfaceLowerer().Lower(Document(grid));
+            var loweredItem = root.Query<Button>(className: "eve-inventory-item").First();
+
+            Assert.That(root.ClassListContains("eve-inventory-grid"), Is.True);
+            Assert.That(root.style.width.value.value, Is.EqualTo(134f));
+            Assert.That(root.style.height.value.value, Is.EqualTo(100f));
+            Assert.That(loweredItem, Is.Not.Null);
+            Assert.That(loweredItem.text, Is.EqualTo("Iron Ore"));
+            Assert.That(loweredItem.style.left.value.value, Is.EqualTo(34f));
+            Assert.That(loweredItem.style.top.value.value, Is.EqualTo(68f));
+            Assert.That(loweredItem.style.width.value.value, Is.EqualTo(100f));
+            Assert.That(loweredItem.style.height.value.value, Is.EqualTo(66f));
+        }
+
         private static EveSurfaceDocument Document(EveSurfaceComponent root, string surfaceId = "test-surface")
         {
             return new EveSurfaceDocument(
@@ -124,16 +467,45 @@ namespace GameCult.Eve.UnityUIToolkit.Tests
                 Array.Empty<EveCommandTemplate>());
         }
 
+        private static EveSurfaceDocument CockpitDocument(string hull, string temperature)
+        {
+            var worldMetric = Component("world-metric", "metric", new Dictionary<string, string>
+            {
+                ["label"] = "Should not mount",
+                ["value"] = "hidden with scene"
+            });
+            var world = Component("world", "world.scene3d", children: new[] { worldMetric });
+            var cockpit = Component(
+                "cockpit",
+                "pane",
+                new Dictionary<string, string> { ["title"] = "Pilot" },
+                new[]
+                {
+                    Component("hull", "progress", new Dictionary<string, string>
+                    {
+                        ["label"] = "Hull",
+                        ["ratio"] = hull
+                    }),
+                    Component("temperature", "metric", new Dictionary<string, string>
+                    {
+                        ["label"] = "Cockpit",
+                        ["value"] = temperature
+                    })
+                });
+            return Document(Component("root", "surface", children: new[] { world, cockpit }));
+        }
+
         private static EveSurfaceComponent Component(
             string id,
             string kind,
-            IReadOnlyDictionary<string, string>? props = null)
+            IReadOnlyDictionary<string, string>? props = null,
+            IReadOnlyList<EveSurfaceComponent>? children = null)
         {
             return new EveSurfaceComponent(
                 id,
                 kind,
                 props ?? EmptyProps(),
-                Array.Empty<EveSurfaceComponent>());
+                children ?? Array.Empty<EveSurfaceComponent>());
         }
 
         private static IReadOnlyDictionary<string, string> EmptyProps()

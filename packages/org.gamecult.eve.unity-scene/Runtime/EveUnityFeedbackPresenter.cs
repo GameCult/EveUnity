@@ -11,10 +11,13 @@ namespace GameCult.Eve.UnityScene
         public EveUnityFeedbackEvent(EveUnitySceneNode node)
         {
             EventId = Get(node, "eventId"); Kind = Get(node, "eventKind"); SubjectKey = Get(node, "subjectKey");
-            ItemKey = Get(node, "itemKey"); Position = Get(node, "position");
+            ItemKey = Get(node, "itemKey"); Position = Get(node, "position"); Reason = Get(node, "reason");
             FrameId = Long(node, "frameId", -1); ZoneIndex = Int(node, "zoneIndex", -1);
             SourceEntityIndex = Int(node, "sourceEntityIndex", -1); TargetEntityIndex = Int(node, "targetEntityIndex", -1);
             PickupIndex = Int(node, "pickupIndex", -1); ScalarValue = Double(node, "scalarValue", 0);
+            AuxiliaryValue = Double(node, "auxiliaryValue", 0);
+            CargoQuantityBefore = Double(node, "cargoQuantityBefore", 0);
+            CargoQuantityAfter = Double(node, "cargoQuantityAfter", 0);
         }
         public string EventId { get; }
         public string Kind { get; }
@@ -26,7 +29,11 @@ namespace GameCult.Eve.UnityScene
         public string SubjectKey { get; }
         public string ItemKey { get; }
         public string Position { get; }
+        public string Reason { get; }
         public double ScalarValue { get; }
+        public double AuxiliaryValue { get; }
+        public double CargoQuantityBefore { get; }
+        public double CargoQuantityAfter { get; }
         private static string Get(EveUnitySceneNode node, string key) => node.Props.TryGetValue(key, out var value) ? value ?? "" : "";
         private static int Int(EveUnitySceneNode node, string key, int fallback) => int.TryParse(Get(node, key), NumberStyles.Integer, CultureInfo.InvariantCulture, out var value) ? value : fallback;
         private static long Long(EveUnitySceneNode node, string key, long fallback) => long.TryParse(Get(node, key), NumberStyles.Integer, CultureInfo.InvariantCulture, out var value) ? value : fallback;

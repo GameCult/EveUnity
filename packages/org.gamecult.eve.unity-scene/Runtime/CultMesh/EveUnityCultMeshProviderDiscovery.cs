@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using GameCult.Eve.Surface;
 using GameCult.Mesh;
@@ -13,21 +14,24 @@ namespace GameCult.Eve.UnityScene
     public sealed class EveUnityCultMeshProviderSelection
     {
         public EveUnityCultMeshProviderSelection(
-            string endpoint,
+            string rendezvousEndpoint,
             string verseId,
+            string authorityRuntimeId,
             string providerId,
             string surfaceId,
             string surfaceKind)
         {
-            Endpoint = endpoint ?? "";
+            RendezvousEndpoint = rendezvousEndpoint ?? "";
             VerseId = verseId ?? "";
+            AuthorityRuntimeId = authorityRuntimeId ?? "";
             ProviderId = providerId ?? "";
             SurfaceId = surfaceId ?? "";
             SurfaceKind = surfaceKind ?? "";
         }
 
-        public string Endpoint { get; }
+        public string RendezvousEndpoint { get; }
         public string VerseId { get; }
+        public string AuthorityRuntimeId { get; }
         public string ProviderId { get; }
         public string SurfaceId { get; }
         public string SurfaceKind { get; }
@@ -35,104 +39,129 @@ namespace GameCult.Eve.UnityScene
 
     public sealed class EveUnityCultMeshProviderDiscovery
     {
-        private static readonly Type[] AdvertisementDocumentTypes =
-        {
-            typeof(EveProviderAdvertisementDocument)
-        };
+        private readonly CultMeshAuthorityTrustPolicy _authorityTrust;
 
-        public EveUnityCultMeshProviderSelection Discover(
+        public EveUnityCultMeshProviderDiscovery(CultMeshAuthorityTrustPolicy? authorityTrust = null)
+        {
+            _authorityTrust = authorityTrust ?? new CultMeshAuthorityTrustPolicy(
+                CultMeshAuthorityTrustMode.AuthenticatedRemote);
+        }
+
+        public async Task<EveUnityCultMeshProviderSelection> DiscoverAsync(
             string rendezvousEndpoint,
             string providerId = "",
             string surfaceId = "",
             string surfaceKind = "interactive-world",
-            string verseId = "")
+            string verseId = "",
+            CancellationToken cancellationToken = default,
+            string requiredAuthorityRuntimeId = "")
         {
             if (string.IsNullOrWhiteSpace(rendezvousEndpoint))
                 throw new ArgumentException("Rendezvous endpoint must be non-empty.", nameof(rendezvousEndpoint));
 
-            var response = RunNetwork(() => CultMesh.CreateVerseDiscoveryClient().FetchAsync(
+            CultMeshVerseCatalogResponseMessage response;
+            try
+            {
+                response = await CultMesh.CreateVerseDiscoveryClient(EveUnityCultMeshConnectivity.Discovery()).FetchAsync(
                     rendezvousEndpoint,
                     new CultMeshVerseCatalogRequestMessage
                     {
                         VerseIds = string.IsNullOrWhiteSpace(verseId) ? null : new[] { verseId },
                         TransportVersion = "cultmesh.v0"
-                    }));
+                    });
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+            catch (Exception error)
+            {
+                throw new InvalidOperationException(
+                    $"Could not query CultMesh rendezvous endpoint '{rendezvousEndpoint}'.",
+                    error);
+            }
 
             var candidates = response.Verses
                 .Where(verse => string.IsNullOrWhiteSpace(verseId) ||
                                 string.Equals(verse.VerseId, verseId, StringComparison.Ordinal))
-                .SelectMany(verse => (verse.DiscoveryEndpoints ?? Array.Empty<string>())
-                    .Select(endpoint => new { Verse = verse, Endpoint = endpoint }))
-                .Where(candidate => !string.IsNullOrWhiteSpace(candidate.Endpoint))
+                .Where(verse => !string.IsNullOrWhiteSpace(verse.VerseId) &&
+                                (verse.DiscoveryEndpoints ?? Array.Empty<string>()).Any(endpoint =>
+                                    !string.IsNullOrWhiteSpace(endpoint)))
+                .GroupBy(verse => verse.VerseId, StringComparer.Ordinal)
+                .Select(group => group.First())
                 .ToArray();
             if (candidates.Length == 0)
                 throw new InvalidOperationException("The rendezvous endpoint advertised no compatible Verse endpoints.");
 
             var failures = new List<string>();
+            var observed = new List<string>();
+            using var mesh = new CultMeshClient(new CultMeshClientOptions
+            {
+                RendezvousEndpoints = new[] { rendezvousEndpoint },
+                Discovery = EveUnityCultMeshConnectivity.Discovery(),
+                Sessions = new CultMeshSessionManagerOptions { Trust = _authorityTrust },
+                Connectors = EveUnityCultMeshConnectivity.SchemaConnectors(),
+                ContentConnectors = EveUnityCultMeshConnectivity.ContentConnectors()
+            });
             foreach (var candidate in candidates)
             {
-                try
+                foreach (var authorityRuntimeId in EligibleAuthorityRuntimeIds(
+                    candidate.AuthorityRuntimeIds,
+                    requiredAuthorityRuntimeId))
                 {
-                    var advertisement = FetchAdvertisements(candidate.Endpoint)
-                        .Where(document => string.IsNullOrWhiteSpace(providerId) ||
-                                           string.Equals(document.ProviderId, providerId, StringComparison.Ordinal))
-                        .Select(document => new
-                        {
-                            Document = document,
-                            Surface = document.Surfaces.FirstOrDefault(surface =>
-                                (string.IsNullOrWhiteSpace(surfaceId) ||
-                                 string.Equals(surface.SurfaceId, surfaceId, StringComparison.Ordinal)) &&
-                                (string.IsNullOrWhiteSpace(surfaceKind) ||
-                                 string.Equals(surface.SurfaceKind, surfaceKind, StringComparison.Ordinal)))
-                        })
-                        .FirstOrDefault(match => match.Surface != null);
-                    if (advertisement?.Surface == null)
-                        continue;
+                    try
+                    {
+                        var target = new CultMeshSessionTarget(candidate.VerseId, authorityRuntimeId);
+                        using var advertisementsLease = await mesh
+                            .LeaseCollectionAsync<EveProviderAdvertisementDocument>(target, cancellationToken)
+                            .ConfigureAwait(false);
+                        var advertisements = await advertisementsLease.Handle.LatestAsync().ConfigureAwait(false);
+                        observed.AddRange(advertisements.Select(document =>
+                            $"{target}: {document.ProviderId}[{string.Join(",", document.Surfaces.Select(surface => $"{surface.SurfaceId}:{surface.SurfaceKind}"))}]"));
+                        var advertisement = advertisements
+                            .Where(document => string.IsNullOrWhiteSpace(providerId) ||
+                                               string.Equals(document.ProviderId, providerId, StringComparison.Ordinal))
+                            .Select(document => new
+                            {
+                                Document = document,
+                                Surface = document.Surfaces.FirstOrDefault(surface =>
+                                    (string.IsNullOrWhiteSpace(surfaceId) ||
+                                     string.Equals(surface.SurfaceId, surfaceId, StringComparison.Ordinal)) &&
+                                    (string.IsNullOrWhiteSpace(surfaceKind) ||
+                                     string.Equals(surface.SurfaceKind, surfaceKind, StringComparison.Ordinal)))
+                            })
+                            .FirstOrDefault(match => match.Surface != null);
+                        if (advertisement?.Surface == null)
+                            continue;
 
-                    return new EveUnityCultMeshProviderSelection(
-                        candidate.Endpoint,
-                        candidate.Verse.VerseId,
-                        advertisement.Document.ProviderId,
-                        advertisement.Surface.SurfaceId,
-                        advertisement.Surface.SurfaceKind);
-                }
-                catch (Exception error)
-                {
-                    failures.Add($"{candidate.Endpoint}: {error.Message}");
+                        return new EveUnityCultMeshProviderSelection(
+                            rendezvousEndpoint,
+                            candidate.VerseId,
+                            authorityRuntimeId,
+                            advertisement.Document.ProviderId,
+                            advertisement.Surface.SurfaceId,
+                            advertisement.Surface.SurfaceKind);
+                    }
+                    catch (Exception error)
+                    {
+                        failures.Add($"{candidate.VerseId}/{authorityRuntimeId}: {error.Message}");
+                    }
                 }
             }
 
-            var filter = $"provider='{providerId}', surface='{surfaceId}', kind='{surfaceKind}'";
+            var filter = $"provider='{providerId}', surface='{surfaceId}', kind='{surfaceKind}', authority='{requiredAuthorityRuntimeId}'";
             var detail = failures.Count == 0 ? "" : $" Endpoint failures: {string.Join(" | ", failures)}";
-            throw new InvalidOperationException($"No advertised Eve surface matched {filter}.{detail}");
+            var observedDetail = observed.Count == 0 ? "" : $" Observed: {string.Join(" | ", observed)}";
+            throw new InvalidOperationException($"No advertised Eve surface matched {filter}.{detail}{observedDetail}");
         }
 
-        private static EveProviderAdvertisementDocument[] FetchAdvertisements(string endpoint)
-        {
-            var cacheRegistry = CultMesh.CreateCultCacheDocumentRegistry(AdvertisementDocumentTypes);
-            var networkRegistry = CultMesh.CreateCultNetDocumentRegistry(AdvertisementDocumentTypes, cacheRegistry);
-            var snapshot = CultMesh.SnapshotEndpoint(
-                endpoint,
-                new CultMeshSnapshotEndpointOptions
-                {
-                    Context = CultMesh.Verse("eve.discovery", "eve-unity").Context,
-                    DocumentRegistry = networkRegistry,
-                    Request = new CultMeshSnapshotRequestOptions
-                    {
-                        ShardId = "provider",
-                        ShardEpoch = 1,
-                        ConnectTimeout = TimeSpan.FromSeconds(5),
-                        ResponseTimeout = TimeSpan.FromSeconds(10),
-                        MessageIdPrefix = "eve-unity-discovery",
-                        RudpRuntimeId = "eve-unity.discovery",
-                        RudpMaxFragmentBytes = 1024
-                    }
-                });
-            return RunNetwork(() => snapshot.FetchDocumentsAsync<EveProviderAdvertisementDocument>())
+        internal static IReadOnlyList<string> EligibleAuthorityRuntimeIds(
+            IEnumerable<string>? authorityRuntimeIds,
+            string requiredAuthorityRuntimeId) =>
+            (authorityRuntimeIds ?? Array.Empty<string>())
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Where(id => string.IsNullOrWhiteSpace(requiredAuthorityRuntimeId) ||
+                             string.Equals(id, requiredAuthorityRuntimeId, StringComparison.Ordinal))
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(id => id, StringComparer.Ordinal)
                 .ToArray();
-        }
 
-        private static T RunNetwork<T>(Func<Task<T>> operation) =>
-            Task.Run(operation).GetAwaiter().GetResult();
     }
 }

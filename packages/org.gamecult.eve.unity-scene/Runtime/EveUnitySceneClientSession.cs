@@ -83,6 +83,26 @@ namespace GameCult.Eve.UnityScene
                 issuedAt);
         }
 
+        public EveSurfaceCommandRequest CreateLookDirectionIntent(
+            string entityId,
+            float directionX,
+            float directionY,
+            float directionZ,
+            DateTimeOffset? issuedAt = null)
+        {
+            var playableWorld = RequirePlayableWorld();
+            return CreatePlayableWorldIntent(
+                playableWorld.LookCommand,
+                new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["entityId"] = entityId ?? "",
+                    ["directionX"] = FormatFloat(directionX),
+                    ["directionY"] = FormatFloat(directionY),
+                    ["directionZ"] = FormatFloat(directionZ)
+                },
+                issuedAt);
+        }
+
         public EveSurfaceCommandRequest CreateFocusIntent(
             string entityId,
             DateTimeOffset? issuedAt = null)

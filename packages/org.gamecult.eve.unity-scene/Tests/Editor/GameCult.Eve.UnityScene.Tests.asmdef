@@ -4,7 +4,11 @@
     "references": [
         "GameCult.Eve.Surface",
         "GameCult.Eve.UnityScene",
-        "GameCult.Eve.PluginFields"
+        "GameCult.Eve.UnityScene.CultMesh",
+        "GameCult.Eve.UnityUIToolkit",
+        "GameCult.Eve.PluginFields",
+        "Unity.RenderPipelines.Core.Runtime",
+        "Unity.RenderPipelines.Universal.Runtime"
     ],
     "includePlatforms": [
         "Editor"

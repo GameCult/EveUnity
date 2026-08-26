@@ -1,52 +1,98 @@
 param(
   [string] $UnityExe = "C:\Program Files\Unity\Hub\Editor\6000.4.2f1\Editor\Unity.exe",
   [string] $AetheriaRoot = "E:\Projects\Aetheria",
+  [string] $CultLibRoot = "E:\Projects\CultLib-release",
+  [string] $EveUnityRoot = "E:\Projects\EveUnity",
+  [string] $YmirRoot = "E:\Projects\Ymir-aetheria-integration",
   [string] $ClientProject = "ReleaseConsumerProject",
   [int] $Port = 3076,
   [string] $OutputDirectory = "artifacts\aetheria-daemon",
+  [string] $AssetCacheDirectory = "",
   [ValidateSet("auto", "cold", "warm")]
-  [string] $CacheState = "auto",
+  [string] $CacheState = "warm",
+  [ValidateSet("released-client-proof", "cargo-capacity-rejection-proof")]
+  [string] $GameplayScenario = "released-client-proof",
+  [switch] $PrimeWarmCacheFromProviderBundle,
   [switch] $SkipAssetBundleBuild
 )
 
 $ErrorActionPreference = "Stop"
+$expectedEveUnityCommit = "ddd2c5871f935978a0640d43cb58e18579523125"
+$expectedEveFieldsCommit = "c5a4a75c1b727499b16c2dae1895f29e2a9f72f0"
+$expectedEveUnityUiToolkitCommit = "44390549775ec535ee31fc60a5bc594f372f4147"
+$expectedCultLibCommit = "f67f5122ed1bd11da016e7b820ed60145ccd0299"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $projectRoot = $ClientProject
 $outputRoot = if ([IO.Path]::IsPathRooted($OutputDirectory)) { $OutputDirectory } else { Join-Path $repoRoot $OutputDirectory }
+$assetCachePath = if ([string]::IsNullOrWhiteSpace($AssetCacheDirectory)) {
+  Join-Path $outputRoot "asset-cache"
+} elseif ([IO.Path]::IsPathRooted($AssetCacheDirectory)) {
+  $AssetCacheDirectory
+} else {
+  Join-Path $repoRoot $AssetCacheDirectory
+}
 $resultsPath = Join-Path $outputRoot "results.xml"
 $unityLogPath = Join-Path $outputRoot "unity.log"
 $bundleBuildLogPath = Join-Path $outputRoot "asset-bundle-build.log"
 $daemonLogPath = Join-Path $outputRoot "aetheria-daemon.log"
 $capturePath = Join-Path $outputRoot "aetheria-daemon-world.png"
+$mapCapturePath = Join-Path $outputRoot "aetheria-daemon-map.png"
 $factsPath = Join-Path $outputRoot "witness-facts.json"
+$providerReadyPath = Join-Path $outputRoot "provider-ready.txt"
 $witnessPath = Join-Path $outputRoot "runtime-witness.json"
-$replicaPath = Join-Path $outputRoot "eve-unity-replica.cc"
-$assetCachePath = Join-Path $outputRoot "asset-cache"
+$clientCachePath = Join-Path $outputRoot "eve-unity-cache"
 $statePath = Join-Path $outputRoot "aetheria-witness-state.cc"
+$providerBundleDirectory = Join-Path $AetheriaRoot "Build\EveAssets\StandaloneWindows64"
 $daemonProject = Join-Path $AetheriaRoot "Aetheria.State.Daemon\Aetheria.State.Daemon.csproj"
 $importProject = Join-Path $AetheriaRoot "Aetheria.State.Import\Aetheria.State.Import.csproj"
 
-foreach ($required in @($UnityExe, (Join-Path $repoRoot $projectRoot), $daemonProject, $importProject)) {
+foreach ($required in @($UnityExe, (Join-Path $repoRoot $projectRoot), $daemonProject, $importProject, (Join-Path $YmirRoot "src\Ymir.Core\Ymir.Core.csproj"))) {
   if (-not (Test-Path -LiteralPath $required)) { throw "Required world witness path not found: $required" }
+}
+$cultLibHead = (& git -C $CultLibRoot rev-parse HEAD 2> $null).Trim()
+if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($cultLibHead)) {
+  throw "Released-package witness CultLibRoot is not a readable Git checkout: $CultLibRoot"
+}
+if ($cultLibHead -ne $expectedCultLibCommit) {
+  throw "Released-package witness CultLibRoot must resolve to $expectedCultLibCommit, but $CultLibRoot is $cultLibHead."
+}
+$canonicalWitnessTest = Join-Path $repoRoot "TestProject\Assets\Tests\PlayMode\GenericWorldCaptureTests.cs"
+$releaseWitnessTest = Join-Path $repoRoot "ReleaseConsumerProject\Assets\Tests\PlayMode\GenericWorldCaptureTests.cs"
+if ((Get-FileHash -LiteralPath $canonicalWitnessTest -Algorithm SHA256).Hash -ne
+    (Get-FileHash -LiteralPath $releaseWitnessTest -Algorithm SHA256).Hash) {
+  throw "Released consumer witness drifted from the canonical generic-client test."
 }
 
 New-Item -ItemType Directory -Force -Path $outputRoot | Out-Null
+foreach ($priorArtifact in @($resultsPath, $capturePath, $mapCapturePath, $factsPath, $providerReadyPath, $witnessPath)) {
+  if (Test-Path -LiteralPath $priorArtifact) { Remove-Item -LiteralPath $priorArtifact -Force }
+}
+Get-ChildItem -LiteralPath $outputRoot -Filter "field-*" -File -ErrorAction SilentlyContinue |
+  Remove-Item -Force
 if ($CacheState -eq "cold" -and (Test-Path -LiteralPath $assetCachePath)) {
   Remove-Item -LiteralPath $assetCachePath -Recurse -Force
 }
-$cacheWasWarm = @(Get-ChildItem -LiteralPath $assetCachePath -Filter *.bundle -File -ErrorAction SilentlyContinue).Count -gt 0
-if ($CacheState -eq "warm" -and -not $cacheWasWarm) {
-  throw "Warm witness requested without an existing verified bundle cache at $assetCachePath"
+$initialBodyCount = @(Get-ChildItem -LiteralPath $assetCachePath -Filter *.body -File -Recurse -ErrorAction SilentlyContinue).Count
+$initialPartialCount = @(Get-ChildItem -LiteralPath $assetCachePath -Filter *.partial -File -Recurse -ErrorAction SilentlyContinue).Count
+if ($CacheState -eq "cold" -and ($initialBodyCount -ne 0 -or $initialPartialCount -ne 0)) {
+  throw "Cold witness cache was not empty before Unity launch. bodies=$initialBodyCount partials=$initialPartialCount"
 }
-$observedCacheState = if ($cacheWasWarm) { "warm" } else { "cold" }
+$cacheWasWarm = @(Get-ChildItem -LiteralPath $assetCachePath -Filter *.body -File -ErrorAction SilentlyContinue).Count -gt 0
+$observedCacheState = if ($CacheState -eq "warm") { "warm" } elseif ($cacheWasWarm) { "warm" } else { "cold" }
+$witnessProfile = if ($observedCacheState -eq "cold") {
+  "cold-start-lowering"
+} else {
+  "full-session-gameplay"
+}
 $witnessStartedAt = [DateTimeOffset]::UtcNow
 foreach ($ephemeralPath in @(
-  $replicaPath,
-  "$replicaPath.records",
-  "$replicaPath.cultmesh",
+  $clientCachePath,
   $statePath,
   "$statePath.records",
-  "$statePath.cultmesh"
+  "$statePath.cultmesh",
+  "$statePath.ymir.cc",
+  "$statePath.ymir.cc.records",
+  "$statePath.ymir.cc.cultmesh"
 )) {
   $resolved = [IO.Path]::GetFullPath($ephemeralPath)
   if (-not $resolved.StartsWith([IO.Path]::GetFullPath($outputRoot), [StringComparison]::OrdinalIgnoreCase)) {
@@ -55,13 +101,24 @@ foreach ($ephemeralPath in @(
   if (Test-Path -LiteralPath $resolved) { Remove-Item -LiteralPath $resolved -Recurse -Force }
 }
 
-$import = Start-Process -FilePath "dotnet" -ArgumentList @(
-  "run", "--project", $importProject, "--", $AetheriaRoot, $statePath
-) -PassThru -WindowStyle Hidden -Wait `
-  -RedirectStandardOutput (Join-Path $outputRoot "aetheria-import.log") `
-  -RedirectStandardError (Join-Path $outputRoot "aetheria-import.error.log")
-if ($import.ExitCode -ne 0) {
-  throw "Aetheria state import failed with exit code $($import.ExitCode). See $outputRoot\aetheria-import.error.log"
+$importArguments = @(
+  "run", "--project", $importProject,
+  "-p:CultLibRoot=$CultLibRoot", "-p:EveUnityRoot=$EveUnityRoot", "-p:YmirRoot=$YmirRoot",
+  "--", $AetheriaRoot, $statePath
+)
+$importLogPath = Join-Path $outputRoot "aetheria-import.log"
+$importErrorLogPath = Join-Path $outputRoot "aetheria-import.error.log"
+$previousErrorActionPreference = $ErrorActionPreference
+try {
+  $ErrorActionPreference = "Continue"
+  & dotnet @importArguments 1> $importLogPath 2> $importErrorLogPath
+  $importExitCode = $LASTEXITCODE
+}
+finally {
+  $ErrorActionPreference = $previousErrorActionPreference
+}
+if ($importExitCode -ne 0) {
+  throw "Aetheria state import failed with exit code $importExitCode. See $importErrorLogPath"
 }
 if (-not $SkipAssetBundleBuild) {
   $bundleBuilder = Start-Process -FilePath $UnityExe -ArgumentList @(
@@ -72,60 +129,132 @@ if (-not $SkipAssetBundleBuild) {
   Write-Host "AssetBundle builder PID: $($bundleBuilder.Id)"
   Write-Host "AssetBundle build log: $bundleBuildLogPath"
   Write-Host "Poll: Get-Content '$bundleBuildLogPath' -Tail 20"
-  if (-not $bundleBuilder.WaitForExit(240000)) {
+  if (-not $bundleBuilder.WaitForExit(360000)) {
     Stop-Process -Id $bundleBuilder.Id -Force -ErrorAction SilentlyContinue
-    throw "Aetheria AssetBundle build exceeded 240 seconds. See $bundleBuildLogPath"
+    throw "Aetheria AssetBundle build exceeded 360 seconds. See $bundleBuildLogPath"
   }
   if ($bundleBuilder.ExitCode -ne 0) {
     Get-Content $bundleBuildLogPath -Tail 160
     throw "Aetheria AssetBundle build failed with exit code $($bundleBuilder.ExitCode)"
   }
 }
+$providerBundlePaths = @(Get-ChildItem -LiteralPath $providerBundleDirectory -Filter "aetheria-*" -File -ErrorAction SilentlyContinue |
+  Where-Object { $_.Extension -ne ".manifest" } | Select-Object -ExpandProperty FullName)
+if ($providerBundlePaths.Count -eq 0) {
+  throw "Provider-owned Aetheria bundles are missing: $providerBundleDirectory"
+}
+if ($PrimeWarmCacheFromProviderBundle) {
+  if ($CacheState -ne "warm") {
+    throw "Local provider-bundle priming is only valid for an explicitly warm witness."
+  }
+  New-Item -ItemType Directory -Force -Path $assetCachePath | Out-Null
+  foreach ($providerBundlePath in $providerBundlePaths) {
+    $primeHash = (Get-FileHash -LiteralPath $providerBundlePath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $primeTarget = Join-Path $assetCachePath "$primeHash.body"
+    if (-not (Test-Path -LiteralPath $primeTarget)) {
+      $primePartial = Join-Path $assetCachePath "$primeHash.partial.local-prime"
+      Copy-Item -LiteralPath $providerBundlePath -Destination $primePartial -Force
+      if ((Get-FileHash -LiteralPath $primePartial -Algorithm SHA256).Hash.ToLowerInvariant() -ne $primeHash) {
+        Remove-Item -LiteralPath $primePartial -Force -ErrorAction SilentlyContinue
+        throw "Locally primed provider bundle failed its content-hash check."
+      }
+      Move-Item -LiteralPath $primePartial -Destination $primeTarget -Force
+    }
+  }
+  Write-Host "Warm cache primed locally from $($providerBundlePaths.Count) provider bundles; this is not CDN-transfer evidence: $assetCachePath"
+}
+if ($CacheState -eq "warm") {
+  $currentWarmBodies = @(Get-ChildItem -LiteralPath $assetCachePath -Filter *.body -File -Recurse -ErrorAction SilentlyContinue)
+  if ($currentWarmBodies.Count -eq 0) {
+    throw "Warm witness cache contains no promoted provider bodies: $assetCachePath"
+  }
+}
+
+$daemonBuildLogPath = Join-Path $outputRoot "aetheria-daemon-build.log"
+$daemonBuildErrorLogPath = Join-Path $outputRoot "aetheria-daemon-build.error.log"
+$daemonBuildArguments = @(
+  "build", $daemonProject,
+  "-p:CultLibRoot=$CultLibRoot", "-p:EveUnityRoot=$EveUnityRoot", "-p:YmirRoot=$YmirRoot"
+)
+$previousErrorActionPreference = $ErrorActionPreference
+try {
+  $ErrorActionPreference = "Continue"
+  & dotnet @daemonBuildArguments 1> $daemonBuildLogPath 2> $daemonBuildErrorLogPath
+  $daemonBuildExitCode = $LASTEXITCODE
+}
+finally {
+  $ErrorActionPreference = $previousErrorActionPreference
+}
+if ($daemonBuildExitCode -ne 0) {
+  throw "Aetheria daemon prebuild failed with exit code $daemonBuildExitCode. See $daemonBuildErrorLogPath"
+}
 
 $daemonArguments = @(
-  "run", "--project", $daemonProject, "--",
+  "run", "--project", $daemonProject, "--no-build",
+  "-p:CultLibRoot=$CultLibRoot", "-p:EveUnityRoot=$EveUnityRoot", "-p:YmirRoot=$YmirRoot",
+  "--",
   "--root", $AetheriaRoot,
   "--state", $statePath,
   "--client-cultmesh-host", "127.0.0.1",
   "--client-cultmesh-advertise-host", "127.0.0.1",
   "--client-cultmesh-port", $Port,
-  "--tick-interval-ms", 250,
+  "--tick-interval-ms", 20,
   "--fixed-delta-ms", 20,
+  "--terminus-scenario", $GameplayScenario,
   "--no-odin-announcements"
 )
 $env:AETHERIA_TRACE_EVE_SNAPSHOTS = "1"
-$env:AETHERIA_TRACE_CLIENT_RUDP = "1"
-$daemon = Start-Process -FilePath "dotnet" -ArgumentList $daemonArguments -PassThru -WindowStyle Hidden `
-  -RedirectStandardOutput $daemonLogPath -RedirectStandardError (Join-Path $outputRoot "aetheria-daemon.error.log")
-Write-Host "Aetheria daemon PID: $($daemon.Id)"
-Write-Host "Daemon log: $daemonLogPath"
-Write-Host "Poll: Select-String -Path '$daemonLogPath' -Pattern 'Aetheria client CultMesh endpoint'"
-
+$env:AETHERIA_TRACE_CLIENT_TRANSPORT = "1"
+$env:AETHERIA_TRACE_STARTUP_PHASES = "1"
+$env:EVEUNITY_RENDEZVOUS_ENDPOINT = "cultnet+tcp://127.0.0.1:$Port"
+$env:EVEUNITY_PROVIDER_ID = "aetheria"
+Remove-Item Env:EVEUNITY_SURFACE_ID -ErrorAction SilentlyContinue
+$env:EVEUNITY_CACHE_DIRECTORY = $clientCachePath
+$env:EVEUNITY_AETHERIA_CAPTURE_PATH = $capturePath
+$env:EVEUNITY_AETHERIA_MAP_CAPTURE_PATH = $mapCapturePath
+$env:EVEUNITY_DISABLE_AUTO_LAUNCHER = "1"
+$env:EVEUNITY_ASSET_CACHE_PATH = $assetCachePath
+$env:EVEUNITY_WITNESS_FACTS_PATH = $factsPath
+$env:EVEUNITY_PROVIDER_READY_PATH = $providerReadyPath
+$env:EVEUNITY_WITNESS_PROFILE = $witnessProfile
+$env:EVEUNITY_WITNESS_GAMEPLAY_SCENARIO = $GameplayScenario
+$env:EVEUNITY_TRACE_STARTUP_PHASES = "1"
+$arguments = @(
+  "-batchmode", "-projectPath", $projectRoot,
+  "-runTests", "-testPlatform", "PlayMode",
+  "-assemblyNames", "GameCult.EveUnity.GenericClient.PlayModeTests",
+  "-testFilter", "GenericCultMeshClientLowersAndMovesAdvertisedWorld",
+  "-testResults", $resultsPath, "-logFile", $unityLogPath
+)
+$daemon = $null
+$unity = $null
 try {
-  $ready = $false
-  for ($attempt = 0; $attempt -lt 60; $attempt++) {
-    if ($daemon.HasExited) { throw "Aetheria daemon exited before publishing CultMesh. See $daemonLogPath" }
-    if ((Test-Path $daemonLogPath) -and
-        (Select-String -Path $daemonLogPath -Pattern "Aetheria client CultMesh endpoint: rudp://127.0.0.1:$Port" -Quiet)) { $ready = $true; break }
+  $unity = Start-Process -FilePath $UnityExe -ArgumentList $arguments -WorkingDirectory $repoRoot -PassThru -WindowStyle Hidden
+  Write-Host "Unity witness PID: $($unity.Id)"
+  Write-Host "Unity log: $unityLogPath"
+  $clientReady = $false
+  for ($attempt = 0; $attempt -lt 240; $attempt++) {
+    if ($unity.HasExited) { throw "Unity exited before reaching provider preparation. See $unityLogPath" }
+    if (Test-Path -LiteralPath $providerReadyPath) { $clientReady = $true; break }
     Start-Sleep -Milliseconds 500
   }
-  if (-not $ready) { throw "Aetheria daemon did not open CultMesh port $Port. See $daemonLogPath" }
+  if (-not $clientReady) { throw "Unity did not reach provider preparation within 120 seconds. See $unityLogPath" }
 
-  $env:EVEUNITY_RENDEZVOUS_ENDPOINT = "rudp://127.0.0.1:$Port"
-  Remove-Item Env:EVEUNITY_PROVIDER_ID -ErrorAction SilentlyContinue
-  Remove-Item Env:EVEUNITY_SURFACE_ID -ErrorAction SilentlyContinue
-  $env:EVEUNITY_REPLICA_PATH = $replicaPath
-  $env:EVEUNITY_AETHERIA_CAPTURE_PATH = $capturePath
-  $env:EVEUNITY_ASSET_CACHE_PATH = $assetCachePath
-  $env:EVEUNITY_WITNESS_FACTS_PATH = $factsPath
-  $arguments = @(
-    "-batchmode", "-projectPath", $projectRoot,
-    "-runTests", "-testPlatform", "PlayMode",
-    "-assemblyNames", "GameCult.EveUnity.GenericClient.PlayModeTests",
-    "-testFilter", "GenericCultMeshClientLowersAndMovesAdvertisedWorld",
-    "-testResults", $resultsPath, "-logFile", $unityLogPath
-  )
-  $unity = Start-Process -FilePath $UnityExe -ArgumentList $arguments -WorkingDirectory $repoRoot -PassThru -WindowStyle Hidden
+  $daemon = Start-Process -FilePath "dotnet" -ArgumentList $daemonArguments -PassThru -WindowStyle Hidden `
+    -RedirectStandardOutput $daemonLogPath -RedirectStandardError (Join-Path $outputRoot "aetheria-daemon.error.log")
+  Write-Host "Aetheria daemon PID: $($daemon.Id)"
+  Write-Host "Daemon log: $daemonLogPath"
+  Write-Host "Poll: Select-String -Path '$daemonLogPath' -Pattern 'Aetheria client CultMesh endpoint'"
+
+  $ready = $false
+  for ($attempt = 0; $attempt -lt 240; $attempt++) {
+    if ($daemon.HasExited) { throw "Aetheria daemon exited before publishing CultMesh. See $daemonLogPath" }
+    if ((Test-Path $daemonLogPath) -and
+        (Select-String -Path $daemonLogPath -Pattern "Aetheria client CultMesh endpoint: cultnet\+tcp://127.0.0.1:$Port" -Quiet)) { $ready = $true; break }
+    Start-Sleep -Milliseconds 500
+  }
+  if (-not $ready) { throw "Aetheria daemon did not open CultMesh port $Port within 120 seconds. See $daemonLogPath" }
+
   if (-not $unity.WaitForExit(300000)) {
     Stop-Process -Id $unity.Id -Force -ErrorAction SilentlyContinue
     throw "Unity witness exceeded 300 seconds. See $unityLogPath"
@@ -135,15 +264,138 @@ try {
   $run = $results.SelectSingleNode("//test-run")
   if ($null -eq $run -or [int]$run.passed -ne 1 -or [int]$run.failed -ne 0) { throw "Live world witness did not pass: $resultsPath" }
   if (-not (Test-Path $capturePath) -or (Get-Item $capturePath).Length -lt 1024) { throw "Live world capture is missing: $capturePath" }
+  if (-not (Test-Path $mapCapturePath) -or (Get-Item $mapCapturePath).Length -lt 1024) { throw "Live map-channel capture is missing: $mapCapturePath" }
   if (-not (Test-Path $factsPath)) { throw "Live world witness facts are missing: $factsPath" }
+  foreach ($freshArtifact in @($resultsPath, $capturePath, $mapCapturePath, $factsPath)) {
+    if ((Get-Item -LiteralPath $freshArtifact).LastWriteTimeUtc -lt $witnessStartedAt.UtcDateTime) {
+      throw "Live witness artifact predates this run: $freshArtifact"
+    }
+  }
   $facts = Get-Content -LiteralPath $factsPath -Raw | ConvertFrom-Json
+  if ($facts.witnessProfile -ne $witnessProfile) {
+    throw "Live witness ran the wrong proof profile. expected=$witnessProfile actual=$($facts.witnessProfile)"
+  }
+  if (-not $facts.providerAssets -or -not $facts.environmentPresentation -or
+      -not $facts.pilotCameraExcludesMapChannel -or
+      -not $facts.mapCameraIncludesMapChannel -or [int]$facts.fieldVolumeLayerCount -le 0 -or
+      [long]$facts.fieldVolumeCompositeCount -le 0 -or
+      [int]$facts.fieldParticleCount -ne 65536 -or
+      [int]$facts.fieldParticleDispatchCount -le 0 -or
+      [int]$facts.fieldParticleDrawCount -le 0 -or
+      -not $facts.fieldParticleMapCameraIsolated) {
+    throw "Live witness did not prove provider assets, Fields lowering, Stardust dispatch/draw, and camera-channel separation."
+  }
+  $gridCenterXCells = [double]$facts.fieldParticleGridCenter.x / 6.0
+  $gridCenterYCells = [double]$facts.fieldParticleGridCenter.y / 6.0
+  if ([math]::Abs($gridCenterXCells - [math]::Truncate($gridCenterXCells)) -gt 0.000001 -or
+      [math]::Abs($gridCenterYCells - [math]::Truncate($gridCenterYCells)) -gt 0.000001) {
+    throw "Live Stardust grid center was not snapped to its six-unit spatial lattice. center=$($facts.fieldParticleGridCenter.x),$($facts.fieldParticleGridCenter.y)"
+  }
+  $presentedCelestials = @($facts.presentedEntities | Where-Object { $_.entityKind -like "celestial.*" })
+  $presentedBodies = @($presentedCelestials | Where-Object {
+    $_.entityKind -in @("celestial.sun", "celestial.planet", "celestial.gas-giant")
+  })
+  $presentedAsteroids = @($presentedCelestials | Where-Object { $_.entityKind -eq "celestial.asteroid" })
+  $invalidCelestials = @($presentedCelestials | Where-Object {
+    [string]::IsNullOrWhiteSpace($_.assetRef) -or
+    [int]$_.rendererCount -le 0 -or
+    [int]$_.enabledRendererCount -le 0
+  })
+  if ($presentedBodies.Count -le 0 -or $presentedAsteroids.Count -le 0 -or
+      $invalidCelestials.Count -ne 0 -or
+      @($presentedCelestials | Where-Object { $_.intersectsPilotFrustum }).Count -le 0) {
+    throw "Live witness did not prove provider-owned celestial bodies and asteroids reached the generic scene and intersected the pilot frustum. bodies=$($presentedBodies.Count) asteroids=$($presentedAsteroids.Count) invalid=$($invalidCelestials.Count)"
+  }
+  if ($witnessProfile -eq "full-session-gameplay") {
+    if (-not $facts.movement) {
+      throw "Full-session witness did not prove authoritative movement and its receipt."
+    }
+    if (-not $facts.tradeRoundTrip -or [string]::IsNullOrWhiteSpace($facts.tradeItemKey)) {
+      throw "Full-session witness did not prove docked purchase and sale through provider-advertised generic actions."
+    }
+    if (-not $facts.combatPresentation -or [string]::IsNullOrWhiteSpace($facts.shotId) -or
+        [double]$facts.lockProgress -le 0.99 -or -not $facts.destructionLoot) {
+      throw "Full-session witness did not prove combat and daemon-proximity destruction loot."
+    }
+    if ($GameplayScenario -eq "cargo-capacity-rejection-proof") {
+      if ($facts.gameplayScenario -ne $GameplayScenario -or -not $facts.pickupRejection -or
+          [int]$facts.pickupRejectionEventCount -lt 1 -or [int]$facts.pickupCollectionEventCount -ne 0 -or
+          $facts.pickupRejectionReason -ne "cargo-capacity" -or
+          [double]$facts.cargoQuantityBeforeRejection -ne [double]$facts.cargoQuantityAfterRejection) {
+        throw "Full-session rejection witness did not prove player cargo-capacity refusal at daemon pickup proximity."
+      }
+    } elseif (-not $facts.pickupCollection -or [int]$facts.pickupCollectionEventCount -ne 1) {
+      throw "Full-session collection witness did not prove exactly-once player destruction-loot collection at daemon pickup proximity."
+    }
+  }
   $releaseLock = Get-Content -LiteralPath (Join-Path $repoRoot "ReleaseConsumerProject\Packages\packages-lock.json") -Raw | ConvertFrom-Json
   $releasedPackageClient = $projectRoot -eq "ReleaseConsumerProject"
+  $sceneLock = $releaseLock.dependencies.'org.gamecult.eve.unity-scene'
+  $fieldsLock = $releaseLock.dependencies.'org.gamecult.eve.plugin-fields'
+  $uiToolkitLock = $releaseLock.dependencies.'org.gamecult.eve.unity-uitoolkit'
+  $cultLibLock = $releaseLock.dependencies.'org.gamecult.cultlib'
+  if (-not $releasedPackageClient) { throw "Released witness must run ReleaseConsumerProject, got '$projectRoot'." }
+  if ($sceneLock.source -ne "git" -or $fieldsLock.source -ne "git" -or $uiToolkitLock.source -ne "git" -or $cultLibLock.source -ne "git" -or
+      $sceneLock.version -like "file:*" -or $fieldsLock.version -like "file:*" -or $uiToolkitLock.version -like "file:*" -or $cultLibLock.version -like "file:*") {
+    throw "Released witness resolved a non-git/local package dependency."
+  }
+  if ($sceneLock.hash -ne $expectedEveUnityCommit -or
+      $fieldsLock.hash -ne $expectedEveFieldsCommit -or
+      $uiToolkitLock.hash -ne $expectedEveUnityUiToolkitCommit -or
+      $cultLibLock.hash -ne $expectedCultLibCommit) {
+    throw "Released package commits do not match the witnessed releases. scene=$($sceneLock.hash) fields=$($fieldsLock.hash) uitoolkit=$($uiToolkitLock.hash) cultlib=$($cultLibLock.hash)"
+  }
+  $finalBodies = @(Get-ChildItem -LiteralPath $assetCachePath -Filter *.body -File -Recurse -ErrorAction SilentlyContinue)
+  $finalPartials = @(Get-ChildItem -LiteralPath $assetCachePath -Filter *.partial -File -Recurse -ErrorAction SilentlyContinue)
+  if ($finalPartials.Count -ne 0) {
+    throw "Provider bundle promotion left partial bodies behind. bodies=$($finalBodies.Count) partials=$($finalPartials.Count)"
+  }
+  $providerBundlesByHash = @{}
+  foreach ($providerBundlePath in $providerBundlePaths) {
+    $providerBundle = Get-Item -LiteralPath $providerBundlePath
+    $bodyHash = (Get-FileHash -LiteralPath $providerBundle.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+    $providerBundlesByHash[$bodyHash] = $providerBundle
+  }
+  $contentArtifacts = @()
+  foreach ($body in $finalBodies) {
+    $bodyHash = $body.BaseName.ToLowerInvariant()
+    if (-not $providerBundlesByHash.ContainsKey($bodyHash)) {
+      throw "Asset cache contains a body not owned by the current Aetheria bundle set. body=$($body.FullName) hash=$bodyHash"
+    }
+    $providerBundle = $providerBundlesByHash[$bodyHash]
+    $promotedBodyHash = (Get-FileHash -LiteralPath $body.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($promotedBodyHash -ne $bodyHash -or $body.Length -ne $providerBundle.Length) {
+      throw "Promoted provider bundle does not match its authoritative body. bundle=$($providerBundle.Name) expected=$bodyHash actual=$promotedBodyHash"
+    }
+    $contentArtifacts += [pscustomobject][ordered]@{
+      name = $providerBundle.Name
+      contentHash = $bodyHash
+      sizeBytes = $providerBundle.Length
+    }
+  }
+  $requiredFoundationBundles = @('aetheria-shaders', 'aetheria-core', 'aetheria-ui')
+  $promotedBundleNames = @($contentArtifacts | ForEach-Object { $_.name })
+  $missingFoundationBundles = @($requiredFoundationBundles | Where-Object { $_ -notin $promotedBundleNames })
+  if ($missingFoundationBundles.Count -ne 0) {
+    throw "The generic client did not materialize every provider foundation bundle. missing=[$($missingFoundationBundles -join ',')] promoted=[$($promotedBundleNames -join ',')]"
+  }
   $facts | Add-Member -NotePropertyName releasedPackageClient -NotePropertyValue $releasedPackageClient
   $facts | Add-Member -NotePropertyName clientProject -NotePropertyValue $projectRoot
-  $facts | Add-Member -NotePropertyName eveUnityPackageCommit -NotePropertyValue $releaseLock.dependencies.'org.gamecult.eve.unity-scene'.hash
-  $facts | Add-Member -NotePropertyName cultLibPackageCommit -NotePropertyValue $releaseLock.dependencies.'org.gamecult.cultlib'.hash
+  $facts | Add-Member -NotePropertyName eveUnityPackageCommit -NotePropertyValue $sceneLock.hash
+  $facts | Add-Member -NotePropertyName eveFieldsPackageCommit -NotePropertyValue $fieldsLock.hash
+  $facts | Add-Member -NotePropertyName eveUnityUiToolkitPackageCommit -NotePropertyValue $uiToolkitLock.hash
+  $facts | Add-Member -NotePropertyName cultLibPackageCommit -NotePropertyValue $cultLibLock.hash
+  $facts | Add-Member -NotePropertyName contentDelivery -NotePropertyValue ([ordered]@{
+    initialBodyCount = $initialBodyCount
+    initialPartialCount = $initialPartialCount
+    finalBodyCount = $finalBodies.Count
+    finalPartialCount = $finalPartials.Count
+    bundleCount = $contentArtifacts.Count
+    sizeBytes = ($contentArtifacts | Measure-Object -Property sizeBytes -Sum).Sum
+    artifacts = $contentArtifacts
+  })
   $capture = Get-Item -LiteralPath $capturePath
+  $mapCapture = Get-Item -LiteralPath $mapCapturePath
   $resultsArtifact = Get-Item -LiteralPath $resultsPath
   $durationMs = [Math]::Round(([DateTimeOffset]::UtcNow - $witnessStartedAt).TotalMilliseconds, 3)
   $testDurationMs = [Math]::Round(([double]$run.duration) * 1000, 3)
@@ -152,23 +404,27 @@ try {
     witnessId = "eveunity.aetheria.game.$observedCacheState"
     runtimeId = "unity-scene"
     runtimeOwnerRepo = "EveUnity"
-    providerId = "aetheria.daemon"
+    providerId = "aetheria"
     surfaceId = "aetheria.game"
     projectionKind = "provider-authored-world-surface"
     status = "pass"
     generatedAtUtc = [DateTimeOffset]::UtcNow.ToString("O")
     execution = [ordered]@{
       cacheState = $observedCacheState
+      profile = $witnessProfile
       durationMs = $durationMs
       testDurationMs = $testDurationMs
     }
     assertions = $facts
     receipts = @($facts.receipts)
     screenshotMetrics = [ordered]@{
-      width = 640
-      height = 360
+      width = 1280
+      height = 720
       encodedSizeBytes = $capture.Length
       sha256 = (Get-FileHash -LiteralPath $capture.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+      mapEncodedSizeBytes = $mapCapture.Length
+      mapSha256 = (Get-FileHash -LiteralPath $mapCapture.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+      mapChangedPixels = $facts.mapChangedPixels
     }
     artifacts = @(
       [ordered]@{
@@ -176,8 +432,16 @@ try {
         path = $capture.Name
         sha256 = (Get-FileHash -LiteralPath $capture.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
         sizeBytes = $capture.Length
-        width = 640
-        height = 360
+        width = 1280
+        height = 720
+      },
+      [ordered]@{
+        kind = "unity-map-channel-png"
+        path = $mapCapture.Name
+        sha256 = (Get-FileHash -LiteralPath $mapCapture.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+        sizeBytes = $mapCapture.Length
+        width = 1280
+        height = 720
       },
       [ordered]@{
         kind = "unity-test-results"
@@ -186,18 +450,28 @@ try {
         sizeBytes = $resultsArtifact.Length
       }
     )
-    authority = "released-generic-runtime-observes-provider-advertisement-assets-command-receipts-and-republished-surface-versions"
+    authority = if ($witnessProfile -eq "full-session-gameplay") {
+      if ($GameplayScenario -eq "cargo-capacity-rejection-proof") {
+        "released-generic-runtime-observes-provider-assets-authoritative-trade-gameplay-receipts-daemon-proximity-capacity-rejection-and-camera-channel-separation"
+      } else {
+        "released-generic-runtime-observes-provider-assets-authoritative-trade-gameplay-receipts-daemon-proximity-collection-and-camera-channel-separation"
+      }
+    } else {
+      "released-generic-runtime-cold-loads-provider-assets-lowers-playable-world-and-preserves-camera-channel-separation"
+    }
   }
   $witness | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $witnessPath -Encoding UTF8
   $stateWitnessPath = Join-Path $outputRoot "runtime-witness.$observedCacheState.json"
   $witness | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $stateWitnessPath -Encoding UTF8
   Write-Host "Aetheria daemon world witness: passed"
   Write-Host "Capture: $capturePath"
+  Write-Host "Map capture: $mapCapturePath"
   Write-Host "Runtime witness: $witnessPath"
   Write-Host "Cache-state witness: $stateWitnessPath"
 }
 finally {
+  if ($null -ne $unity -and -not $unity.HasExited) { Stop-Process -Id $unity.Id -Force -ErrorAction SilentlyContinue }
   if ($null -ne $daemon -and -not $daemon.HasExited) { Stop-Process -Id $daemon.Id -Force }
-  Remove-Item Env:EVEUNITY_RENDEZVOUS_ENDPOINT, Env:EVEUNITY_PROVIDER_ENDPOINT, Env:EVEUNITY_PROVIDER_ID, Env:EVEUNITY_SURFACE_ID, Env:EVEUNITY_REPLICA_PATH, Env:EVEUNITY_AETHERIA_CAPTURE_PATH, Env:EVEUNITY_ASSET_CACHE_PATH, Env:EVEUNITY_WITNESS_FACTS_PATH -ErrorAction SilentlyContinue
-  Remove-Item Env:AETHERIA_TRACE_EVE_SNAPSHOTS -ErrorAction SilentlyContinue
+  Remove-Item Env:EVEUNITY_RENDEZVOUS_ENDPOINT, Env:EVEUNITY_PROVIDER_ENDPOINT, Env:EVEUNITY_PROVIDER_ID, Env:EVEUNITY_SURFACE_ID, Env:EVEUNITY_CACHE_DIRECTORY, Env:EVEUNITY_AETHERIA_CAPTURE_PATH, Env:EVEUNITY_AETHERIA_MAP_CAPTURE_PATH, Env:EVEUNITY_DISABLE_AUTO_LAUNCHER, Env:EVEUNITY_ASSET_CACHE_PATH, Env:EVEUNITY_WITNESS_FACTS_PATH, Env:EVEUNITY_PROVIDER_READY_PATH, Env:EVEUNITY_WITNESS_PROFILE, Env:EVEUNITY_WITNESS_GAMEPLAY_SCENARIO -ErrorAction SilentlyContinue
+  Remove-Item Env:AETHERIA_TRACE_EVE_SNAPSHOTS, Env:AETHERIA_TRACE_CLIENT_TRANSPORT -ErrorAction SilentlyContinue
 }

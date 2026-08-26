@@ -27,6 +27,13 @@ Nested CultUI regions use component `EmbeddedDocuments`. Pass an
 mounts the resolved child surface under the slot while preserving the child
 document's command surface id.
 
+`progress` components lower to native UI Toolkit `ProgressBar` elements. The
+provider supplies a normalized `ratio` (falling back to `value`), label, and
+layout; Unity clamps the native visual to `[0,1]` without becoming the value
+authority. Generated layout supports relative or absolute positioning plus
+`inset`, `top`, `right`, `bottom`, and `left`, so provider-authored overlays
+can compose over scene lowerers without consumer-specific HUD code.
+
 Discovery and test coverage for this feature live in the shared Eve parity
 matrix: `../../tools/parity/parity-manifest.json` names `embeddedDocuments` and
 `../../web/fixtures/cultui-embedded-surface.json` is the canonical fixture.

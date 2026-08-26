@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using GameCult.Eve.Surface;
 using UnityEngine;
 
@@ -14,6 +15,8 @@ namespace GameCult.Eve.UnityScene
         private readonly EveUnityPlayableWorldAssetManifestDocumentSource? _assetManifestSource;
         private readonly IEveUnityEntitySoaViewDocumentSource? _entityViews;
         private readonly EveUnityEntitySoaPresenter _entityPresenter;
+        private readonly IEveUnityPresentedEntityRegistry? _presentedEntities;
+        private IDisposable? _ownedSceneSink;
         private bool _entityViewsConnected;
         private bool _assetManifestConnected;
 
@@ -33,6 +36,7 @@ namespace GameCult.Eve.UnityScene
             AssetManifests = assetManifests ?? new EveUnityPlayableWorldAssetManifestCache();
             _surfaceSource = new EveUnitySceneProviderSurfaceDocumentSource(surfaceDocuments);
             _entityViews = surfaceDocuments as IEveUnityEntitySoaViewDocumentSource;
+            _presentedEntities = sceneSink as IEveUnityPresentedEntityRegistry;
             _entityPresenter = new EveUnityEntitySoaPresenter(sceneSink);
             _connection = new EveUnitySceneProviderConnection(_surfaceSource, commandSink);
             _client = new EveUnityPlayableWorldLiveClient(
@@ -47,6 +51,7 @@ namespace GameCult.Eve.UnityScene
         public EveUnityPlayableWorldAssetManifestCache AssetManifests { get; }
 
         public IEveUnityGameObjectAssetProvider? GameObjectAssetProvider { get; private set; }
+        public IEveUnityPresentedEntityRegistry? PresentedEntities => _presentedEntities;
 
         public EveUnityPlayableWorldProjection? ActiveWorld => _client.ActiveWorld;
 
@@ -103,6 +108,7 @@ namespace GameCult.Eve.UnityScene
                 new EveUnityAssetRefResolver(),
                 assetManifests);
             runtime.GameObjectAssetProvider = liveAssetProvider;
+            runtime._ownedSceneSink = sceneSink;
             return runtime;
         }
 
@@ -140,6 +146,16 @@ namespace GameCult.Eve.UnityScene
             return _client.SubmitMoveVectorIntent(entityId, directionX, directionY, scalarValue, issuedAt);
         }
 
+        public EveSurfaceCommandRequest SubmitLookDirectionIntent(
+            string entityId,
+            float directionX,
+            float directionY,
+            float directionZ,
+            DateTimeOffset? issuedAt = null)
+        {
+            return _client.SubmitLookDirectionIntent(entityId, directionX, directionY, directionZ, issuedAt);
+        }
+
         public EveSurfaceCommandRequest SubmitFocusIntent(
             string entityId,
             DateTimeOffset? issuedAt = null)
@@ -161,6 +177,14 @@ namespace GameCult.Eve.UnityScene
             DateTimeOffset? issuedAt = null)
         {
             return _client.SubmitActionIntent(entityId, actionId, issuedAt);
+        }
+
+        public EveSurfaceCommandRequest SubmitCommandIntent(
+            string commandId,
+            IReadOnlyDictionary<string, string>? payload = null,
+            DateTimeOffset? issuedAt = null)
+        {
+            return _client.SubmitCommandIntent(commandId, payload, issuedAt);
         }
 
         public void Disconnect()
@@ -185,6 +209,8 @@ namespace GameCult.Eve.UnityScene
             Disconnect();
             _client.Dispose();
             _assetManifestSource?.Dispose();
+            _ownedSceneSink?.Dispose();
+            _ownedSceneSink = null;
         }
 
         private void EnsureAssetManifestConnected()
@@ -202,14 +228,18 @@ namespace GameCult.Eve.UnityScene
             if (_entityViewsConnected || _entityViews == null) return;
             _entityViews.EntityViewAvailable += OnEntityViewAvailable;
             _entityViewsConnected = true;
-            if (_entityViews.CurrentEntityView != null)
-                _entityPresenter.Apply(_entityViews.CurrentEntityView);
         }
 
-        private void OnEntityViewAvailable(EveEntitySoaViewDocument document) => _entityPresenter.Apply(document);
+        private void OnEntityViewAvailable(EveEntitySoaViewDocument document, GameCult.Mesh.ICultMeshBodyReadLease lease)
+        {
+            _client.AdvanceStateVersion(document.FrameId);
+            _entityPresenter.Apply(document, lease);
+        }
     }
 
-    public sealed class EveUnityLivePlayableWorldAssetProvider : IEveUnityNativeAssetProvider
+    public sealed class EveUnityLivePlayableWorldAssetProvider :
+        IEveUnityNativeAssetProvider,
+        IEveUnityNativeAssetMetadataProvider
     {
         private readonly EveUnityPlayableWorldAssetManifestCache _assetManifests;
         private readonly Func<EveUnityPlayableWorldProjection?> _activeWorld;
@@ -255,6 +285,17 @@ namespace GameCult.Eve.UnityScene
                 if (value != null) return value;
             }
             return (_fallback as IEveUnityNativeAssetProvider)?.ResolveAsset(asset, assetType);
+        }
+
+        public bool TryResolveAssetMetadata(
+            EveUnityPlayableWorldAssetBinding asset,
+            out IReadOnlyDictionary<string, string> metadata)
+        {
+            if (asset == null) throw new ArgumentNullException(nameof(asset));
+            if (_fallback is IEveUnityNativeAssetMetadataProvider provider)
+                return provider.TryResolveAssetMetadata(asset, out metadata);
+            metadata = new Dictionary<string, string>(StringComparer.Ordinal);
+            return false;
         }
     }
 }

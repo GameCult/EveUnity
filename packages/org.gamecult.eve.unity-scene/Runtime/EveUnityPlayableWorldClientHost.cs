@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using GameCult.Eve.Surface;
+using GameCult.Eve.UnityScene.Fields;
 using UnityEngine;
 
 #nullable enable
@@ -21,6 +22,7 @@ namespace GameCult.Eve.UnityScene
         [SerializeField] private bool renderShotTrajectories = true;
 
         private float _nextRefreshAt;
+        private object? _cameraOwner;
 
         public EveUnityPlayableWorldRuntime? Runtime { get; private set; }
 
@@ -31,8 +33,16 @@ namespace GameCult.Eve.UnityScene
         public EveUnityPlayableWorldPresentation? LastPresentation => Runtime?.LastPresentation;
 
         public EveUnitySceneCommandReceipt? LastReceipt => Runtime?.LastReceipt;
+        public IEveUnityPresentedEntityRegistry? PresentedEntities => Runtime?.PresentedEntities;
+
+        public EveInputCapabilityDocument? InputCapability =>
+            (providerSurfaceDocuments as IEveUnityInputCapabilitySource)?.CurrentInputCapability;
 
         public long ActiveVersion => Runtime?.ActiveVersion ?? 0;
+        public int ConnectionEpoch { get; private set; }
+        public Transform? ActiveCameraTransform { get; private set; }
+        public IEveUnityNativeAssetProvider? NativeAssetProvider =>
+            Runtime?.GameObjectAssetProvider as IEveUnityNativeAssetProvider;
 
         public event Action<EveUnityFeedbackEvent>? FeedbackAvailable;
         public event Action<EveUnityShotReceipt>? ShotAvailable;
@@ -88,15 +98,55 @@ namespace GameCult.Eve.UnityScene
             var feedbackEffects = GetComponent<EveUnityFeedbackEffectRenderer>();
             if (feedbackEffects == null) feedbackEffects = gameObject.AddComponent<EveUnityFeedbackEffectRenderer>();
             feedbackEffects.Bind(this, Runtime.GameObjectAssetProvider);
+            var combatPresentation = GetComponent<EveUnityCombatPresentationRenderer>();
+            if (combatPresentation == null) combatPresentation = gameObject.AddComponent<EveUnityCombatPresentationRenderer>();
+            combatPresentation.Bind(this);
+            var aimPresentation = GetComponent<EveUnityAimPresentationRenderer>();
+            if (aimPresentation == null) aimPresentation = gameObject.AddComponent<EveUnityAimPresentationRenderer>();
+            aimPresentation.Bind(this);
+            var beamPresentation = GetComponent<EveUnityBeamPresentationRenderer>();
+            if (beamPresentation == null) beamPresentation = gameObject.AddComponent<EveUnityBeamPresentationRenderer>();
+            beamPresentation.Bind(this, Runtime.GameObjectAssetProvider);
             var thermal = GetComponent<EveUnityThermalPresenter>();
             var thermalHud = GetComponent<EveUnityThermalHudSink>();
             if (thermalHud == null) thermalHud = gameObject.AddComponent<EveUnityThermalHudSink>();
             if (thermal == null) thermal = gameObject.AddComponent<EveUnityThermalPresenter>();
             thermal.Bind(this, Runtime.GameObjectAssetProvider as IEveUnityNativeAssetProvider);
+            var fieldVolume = GetComponent<EveUnityFieldsVolumeRenderer>();
+            if (fieldVolume == null) fieldVolume = gameObject.AddComponent<EveUnityFieldsVolumeRenderer>();
+            fieldVolume.Bind(this, providerSurfaceDocuments as IEveUnityFieldsSplatsDocumentSource);
+            var fieldParticles = GetComponent<EveUnityFieldsParticleRenderer>();
+            if (fieldParticles == null) fieldParticles = gameObject.AddComponent<EveUnityFieldsParticleRenderer>();
+            fieldParticles.Bind(this, providerSurfaceDocuments as IEveUnityFieldsSplatsDocumentSource);
+            var actionBar = GetComponent<EveUnityInputActionBar>();
+            if (actionBar == null) actionBar = gameObject.AddComponent<EveUnityInputActionBar>();
+            actionBar.Bind(this);
+            var uiOverlay = GetComponent<EveUnityUiToolkitOverlay>();
+            if (uiOverlay == null) uiOverlay = gameObject.AddComponent<EveUnityUiToolkitOverlay>();
+            uiOverlay.Bind(providerSurfaceDocuments!, commandSink!);
 
             var presentation = Runtime.Connect();
+            ConnectionEpoch++;
             _nextRefreshAt = Time.unscaledTime + Math.Max(0.01f, refreshIntervalSeconds);
             return presentation;
+        }
+
+        internal bool TryClaimWorldCamera(object owner, Transform camera)
+        {
+            if (owner == null) throw new ArgumentNullException(nameof(owner));
+            if (camera == null) throw new ArgumentNullException(nameof(camera));
+            if (_cameraOwner != null && !ReferenceEquals(_cameraOwner, owner))
+                return false;
+            _cameraOwner = owner;
+            ActiveCameraTransform = camera;
+            return true;
+        }
+
+        internal void ReleaseWorldCamera(object owner)
+        {
+            if (!ReferenceEquals(_cameraOwner, owner)) return;
+            _cameraOwner = null;
+            ActiveCameraTransform = null;
         }
 
         public EveUnityPlayableWorldPresentation Refresh()
@@ -128,6 +178,16 @@ namespace GameCult.Eve.UnityScene
             return RequireRuntime().SubmitMoveVectorIntent(entityId, directionX, directionY, scalarValue, issuedAt);
         }
 
+        public EveSurfaceCommandRequest SubmitLookDirectionIntent(
+            string entityId,
+            float directionX,
+            float directionY,
+            float directionZ,
+            DateTimeOffset? issuedAt = null)
+        {
+            return RequireRuntime().SubmitLookDirectionIntent(entityId, directionX, directionY, directionZ, issuedAt);
+        }
+
         public EveSurfaceCommandRequest SubmitFocusIntent(
             string entityId,
             DateTimeOffset? issuedAt = null)
@@ -151,8 +211,63 @@ namespace GameCult.Eve.UnityScene
             return RequireRuntime().SubmitActionIntent(entityId, actionId, issuedAt);
         }
 
+        public EveSurfaceCommandRequest SubmitAdvertisedActionIntent(
+            string entityId,
+            string actionId,
+            DateTimeOffset? issuedAt = null)
+        {
+            var action = EveUnityAdvertisedInputAction.Resolve(InputCapability, actionId);
+            return RequireRuntime().SubmitCommandIntent(action.Operation, action.BuildPayload(entityId), issuedAt);
+        }
+
+        public EveSurfaceCommandRequest SubmitAdvertisedActionValueIntent(
+            string entityId,
+            string actionId,
+            float inputValue,
+            DateTimeOffset? issuedAt = null)
+        {
+            var action = EveUnityAdvertisedInputAction.Resolve(
+                InputCapability,
+                actionId,
+                requireAvailable: inputValue != 0f);
+            return RequireRuntime().SubmitCommandIntent(
+                action.Operation,
+                action.BuildPayload(entityId, inputValue),
+                issuedAt);
+        }
+
+        public EveSurfaceCommandRequest SubmitAdvertisedActionViewDirectionIntent(
+            string entityId,
+            string actionId,
+            float directionX,
+            float directionY,
+            float directionZ,
+            DateTimeOffset? issuedAt = null)
+        {
+            var action = EveUnityAdvertisedInputAction.Resolve(InputCapability, actionId);
+            return RequireRuntime().SubmitCommandIntent(
+                action.Operation,
+                action.BuildViewDirectionPayload(entityId, directionX, directionY, directionZ),
+                issuedAt);
+        }
+
+        public EveSurfaceCommandRequest SubmitAdvertisedActionScalarIntent(
+            string entityId,
+            string actionId,
+            double value,
+            DateTimeOffset? issuedAt = null)
+        {
+            var action = EveUnityAdvertisedInputAction.Resolve(InputCapability, actionId);
+            return RequireRuntime().SubmitCommandIntent(
+                action.Operation,
+                action.BuildScalarPayload(entityId, value),
+                issuedAt);
+        }
+
         public void Disconnect()
         {
+            if (_cameraOwner is EveUnityPlayableWorldCameraRig rig)
+                rig.ReleaseRig();
             if (Runtime != null)
             {
                 Runtime.FeedbackAvailable -= OnFeedbackAvailable;
@@ -160,6 +275,8 @@ namespace GameCult.Eve.UnityScene
             }
             Runtime?.Dispose();
             Runtime = null;
+            _cameraOwner = null;
+            ActiveCameraTransform = null;
         }
 
         private void OnFeedbackAvailable(EveUnityFeedbackEvent value) => FeedbackAvailable?.Invoke(value);

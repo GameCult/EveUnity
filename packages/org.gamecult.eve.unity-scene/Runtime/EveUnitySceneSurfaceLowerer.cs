@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using GameCult.Eve.PluginFields;
 using GameCult.Eve.Surface;
 using GameCult.Mesh;
 
@@ -102,10 +104,16 @@ namespace GameCult.Eve.UnityScene
                 return null;
 
             var entities = new List<EveUnityPlayableWorldEntity>();
+            var fieldVolumes = new List<EveUnityFieldVolumeProjection>();
+            var fieldParticles = new List<EveUnityFieldParticlesProjection>();
             foreach (var component in Flatten(worldRoot))
             {
                 if (string.Equals(component.Kind, "world.entity3d", StringComparison.Ordinal))
                     entities.Add(BuildPlayableEntity(component));
+                else if (string.Equals(component.Kind, "field.volume3d", StringComparison.Ordinal))
+                    fieldVolumes.Add(BuildFieldVolume(component));
+                else if (string.Equals(component.Kind, "field.particles3d", StringComparison.Ordinal))
+                    fieldParticles.Add(BuildFieldParticles(component));
             }
 
             return new EveUnityPlayableWorldProjection(
@@ -123,9 +131,74 @@ namespace GameCult.Eve.UnityScene
                 entities,
                 worldRoot.GetProp("entityViewPointerId"),
                 worldRoot.GetProp("entityViewSchema"),
+                worldRoot.GetProp("entityBodyId"),
                 worldRoot.GetProp("zoneRenderPointerId"),
-                worldRoot.GetProp("zoneRenderSchema"));
+                worldRoot.GetProp("zoneRenderSchema"),
+                ParseStringList(worldRoot.GetProp("excludedRenderChannels")),
+                worldRoot.GetProp("cameraTargetEntityId"),
+                ParseFloat(worldRoot.GetProp("cameraDistance"), 0f),
+                ParseFloat(worldRoot.GetProp("cameraVerticalFieldOfViewDegrees"), 0f),
+                ParseFloat(worldRoot.GetProp("cameraTargetScreenX"), 0.5f),
+                ParseFloat(worldRoot.GetProp("cameraTargetScreenY"), 0.5f),
+                ParseFloat(worldRoot.GetProp("cameraPositionDamping"), 0f),
+                ParseVector3(worldRoot.GetProp("ambientLightColor")),
+                ParseFloat(worldRoot.GetProp("ambientLightIntensity"), 1f),
+                ParseFloat(worldRoot.GetProp("cameraNearClipPlane"), 0f),
+                ParseFloat(worldRoot.GetProp("cameraFarClipPlane"), 0f),
+                worldRoot.GetProp("lookCommand"),
+                ParseFloat(worldRoot.GetProp("lookSensitivityRadians"), 0f),
+                worldRoot.GetProp("lookModel"),
+                worldRoot.GetProp("skyboxAssetRef"),
+                worldRoot.GetProp("reflectionAssetRef"),
+                ParseFloat(worldRoot.GetProp("reflectionIntensity"), 1f),
+                worldRoot.GetProp("postProcessProfileAssetRef"),
+                ParseVector3(worldRoot.GetProp("keyLightDirection")),
+                ParseVector3(worldRoot.GetProp("keyLightColor")),
+                ParseFloat(worldRoot.GetProp("keyLightIntensity"), 0f),
+                fieldVolumes,
+                worldRoot.GetProp("cameraLookAt"),
+                fieldParticles,
+                worldRoot.GetProp("cameraReconstruction"),
+                worldRoot.GetProp("temporalQuality", "high"),
+                ParseFloat(worldRoot.GetProp("temporalHistoryBlend"), 0f),
+                ParseFloat(worldRoot.GetProp("temporalJitterScale"), 0f),
+                ParseFloat(worldRoot.GetProp("temporalSharpening"), 0f),
+                worldRoot.GetProp("exposureMode"),
+                ParseFloat(worldRoot.GetProp("exposureLowPercent"), 50f),
+                ParseFloat(worldRoot.GetProp("exposureHighPercent"), 95f),
+                ParseFloat(worldRoot.GetProp("exposureMinimumEv"), 0f),
+                ParseFloat(worldRoot.GetProp("exposureMaximumEv"), 0f),
+                ParseFloat(worldRoot.GetProp("exposureKeyValue"), 1f),
+                worldRoot.GetProp("exposureAdaptation", "progressive"),
+                ParseFloat(worldRoot.GetProp("exposureSpeedUp"), 2f),
+                ParseFloat(worldRoot.GetProp("exposureSpeedDown"), 1f),
+                worldRoot.GetProp("colorGradingSpace"),
+                worldRoot.GetProp("assetProviderId"),
+                worldRoot.GetProp("assetVerseId"),
+                worldRoot.GetProp("assetAuthorityRuntimeId"),
+                ParseStringList(worldRoot.GetProp("assetRendezvousEndpoints")));
         }
+
+        private static EveUnityFieldVolumeProjection BuildFieldVolume(EveSurfaceComponent component) =>
+            new EveUnityFieldVolumeProjection(
+                component.Id,
+                component.GetProp("documentRef"),
+                component.GetProp("documentSchema", EveFieldsSchemas.Splats),
+                component.GetProp("materialAssetRef"),
+                component.GetProp("renderChannel", "world.transparent"),
+                component.GetProp("compositeMode", "premultiplied-alpha"),
+                component.GetProp("quality", "normal"),
+                component.Props);
+
+        private static EveUnityFieldParticlesProjection BuildFieldParticles(EveSurfaceComponent component) =>
+            new EveUnityFieldParticlesProjection(
+                component.Id,
+                component.GetProp("documentRef"),
+                component.GetProp("documentSchema", EveFieldsSchemas.Splats),
+                component.GetProp("computeProgramAssetRef"),
+                component.GetProp("materialAssetRef"),
+                component.GetProp("renderChannel", "world.transparent"),
+                component.Props);
 
         private static EveUnityPlayableWorldEntity BuildPlayableEntity(EveSurfaceComponent component)
         {
@@ -196,6 +269,16 @@ namespace GameCult.Eve.UnityScene
         {
             return string.Equals(value, "true", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(value, "1", StringComparison.Ordinal);
+        }
+
+        private static IReadOnlyList<string> ParseStringList(string value)
+        {
+            return (value ?? "")
+                .Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries)
+                .Select(part => part.Trim())
+                .Where(part => !string.IsNullOrWhiteSpace(part))
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
         }
 
         private static EveUnityScenePluginProjection? BuildPluginProjection(EveSurfaceComponent component)
@@ -323,8 +406,52 @@ namespace GameCult.Eve.UnityScene
             IReadOnlyList<EveUnityPlayableWorldEntity> entities,
             string entityViewPointerId = "",
             string entityViewSchema = "",
+            string entityBodyId = "",
             string zoneRenderPointerId = "",
-            string zoneRenderSchema = "")
+            string zoneRenderSchema = "",
+            IReadOnlyList<string>? excludedRenderChannels = null,
+            string cameraTargetEntityId = "",
+            float cameraDistance = 0f,
+            float cameraVerticalFieldOfViewDegrees = 0f,
+            float cameraTargetScreenX = 0.5f,
+            float cameraTargetScreenY = 0.5f,
+            float cameraPositionDamping = 0f,
+            (float r, float g, float b) ambientLightColor = default,
+            float ambientLightIntensity = 1f,
+            float cameraNearClipPlane = 0f,
+            float cameraFarClipPlane = 0f,
+            string lookCommand = "",
+            float lookSensitivityRadians = 0f,
+            string lookModel = "",
+            string skyboxAssetRef = "",
+            string reflectionAssetRef = "",
+            float reflectionIntensity = 1f,
+            string postProcessProfileAssetRef = "",
+            (float x, float y, float z) keyLightDirection = default,
+            (float r, float g, float b) keyLightColor = default,
+            float keyLightIntensity = 0f,
+            IReadOnlyList<EveUnityFieldVolumeProjection>? fieldVolumes = null,
+            string cameraLookAt = "",
+            IReadOnlyList<EveUnityFieldParticlesProjection>? fieldParticles = null,
+            string cameraReconstruction = "",
+            string temporalQuality = "high",
+            float temporalHistoryBlend = 0f,
+            float temporalJitterScale = 0f,
+            float temporalSharpening = 0f,
+            string exposureMode = "",
+            float exposureLowPercent = 50f,
+            float exposureHighPercent = 95f,
+            float exposureMinimumEv = 0f,
+            float exposureMaximumEv = 0f,
+            float exposureKeyValue = 1f,
+            string exposureAdaptation = "progressive",
+            float exposureSpeedUp = 2f,
+            float exposureSpeedDown = 1f,
+            string colorGradingSpace = "",
+            string assetProviderId = "",
+            string assetVerseId = "",
+            string assetAuthorityRuntimeId = "",
+            IReadOnlyList<string>? assetRendezvousEndpoints = null)
         {
             WorldRootId = worldRootId ?? "";
             StatePointerId = statePointerId ?? "";
@@ -340,8 +467,58 @@ namespace GameCult.Eve.UnityScene
             Entities = entities ?? Array.Empty<EveUnityPlayableWorldEntity>();
             EntityViewPointerId = entityViewPointerId ?? "";
             EntityViewSchema = entityViewSchema ?? "";
+            EntityBodyId = entityBodyId ?? "";
             ZoneRenderPointerId = zoneRenderPointerId ?? "";
             ZoneRenderSchema = zoneRenderSchema ?? "";
+            ExcludedRenderChannels = excludedRenderChannels ?? Array.Empty<string>();
+            CameraTargetEntityId = cameraTargetEntityId ?? "";
+            CameraDistance = cameraDistance;
+            CameraVerticalFieldOfViewDegrees = cameraVerticalFieldOfViewDegrees;
+            CameraTargetScreenX = cameraTargetScreenX;
+            CameraTargetScreenY = cameraTargetScreenY;
+            CameraPositionDamping = cameraPositionDamping;
+            AmbientLightR = ambientLightColor.r;
+            AmbientLightG = ambientLightColor.g;
+            AmbientLightB = ambientLightColor.b;
+            AmbientLightIntensity = ambientLightIntensity;
+            CameraNearClipPlane = cameraNearClipPlane;
+            CameraFarClipPlane = cameraFarClipPlane;
+            LookCommand = lookCommand ?? "";
+            LookSensitivityRadians = lookSensitivityRadians;
+            LookModel = lookModel ?? "";
+            SkyboxAssetRef = skyboxAssetRef ?? "";
+            ReflectionAssetRef = reflectionAssetRef ?? "";
+            ReflectionIntensity = reflectionIntensity;
+            PostProcessProfileAssetRef = postProcessProfileAssetRef ?? "";
+            KeyLightDirectionX = keyLightDirection.x;
+            KeyLightDirectionY = keyLightDirection.y;
+            KeyLightDirectionZ = keyLightDirection.z;
+            KeyLightColorR = keyLightColor.r;
+            KeyLightColorG = keyLightColor.g;
+            KeyLightColorB = keyLightColor.b;
+            KeyLightIntensity = keyLightIntensity;
+            FieldVolumes = fieldVolumes ?? Array.Empty<EveUnityFieldVolumeProjection>();
+            FieldParticles = fieldParticles ?? Array.Empty<EveUnityFieldParticlesProjection>();
+            CameraLookAt = cameraLookAt ?? "";
+            CameraReconstruction = cameraReconstruction ?? "";
+            TemporalQuality = temporalQuality ?? "";
+            TemporalHistoryBlend = temporalHistoryBlend;
+            TemporalJitterScale = temporalJitterScale;
+            TemporalSharpening = temporalSharpening;
+            ExposureMode = exposureMode ?? "";
+            ExposureLowPercent = exposureLowPercent;
+            ExposureHighPercent = exposureHighPercent;
+            ExposureMinimumEv = exposureMinimumEv;
+            ExposureMaximumEv = exposureMaximumEv;
+            ExposureKeyValue = exposureKeyValue;
+            ExposureAdaptation = exposureAdaptation ?? "";
+            ExposureSpeedUp = exposureSpeedUp;
+            ExposureSpeedDown = exposureSpeedDown;
+            ColorGradingSpace = colorGradingSpace ?? "";
+            AssetProviderId = assetProviderId ?? "";
+            AssetVerseId = assetVerseId ?? "";
+            AssetAuthorityRuntimeId = assetAuthorityRuntimeId ?? "";
+            AssetRendezvousEndpoints = assetRendezvousEndpoints ?? Array.Empty<string>();
         }
 
         public string WorldRootId { get; }
@@ -352,15 +529,81 @@ namespace GameCult.Eve.UnityScene
 
         public string EntityViewSchema { get; }
 
+        public string EntityBodyId { get; }
+
         public string ZoneRenderPointerId { get; }
 
         public string ZoneRenderSchema { get; }
 
         public string AssetManifest { get; }
 
+        public string AssetProviderId { get; }
+
+        public string AssetVerseId { get; }
+
+        public string AssetAuthorityRuntimeId { get; }
+
+        public IReadOnlyList<string> AssetRendezvousEndpoints { get; }
+
         public string InputProfile { get; }
 
         public string CameraRig { get; }
+
+        public string CameraTargetEntityId { get; }
+
+        public string CameraLookAt { get; }
+
+        public string CameraReconstruction { get; }
+
+        public string TemporalQuality { get; }
+
+        public float TemporalHistoryBlend { get; }
+
+        public float TemporalJitterScale { get; }
+
+        public float TemporalSharpening { get; }
+
+        public string ExposureMode { get; }
+
+        public string ColorGradingSpace { get; }
+
+        public float ExposureLowPercent { get; }
+
+        public float ExposureHighPercent { get; }
+
+        public float ExposureMinimumEv { get; }
+
+        public float ExposureMaximumEv { get; }
+
+        public float ExposureKeyValue { get; }
+
+        public string ExposureAdaptation { get; }
+
+        public float ExposureSpeedUp { get; }
+
+        public float ExposureSpeedDown { get; }
+
+        public float CameraDistance { get; }
+
+        public float CameraVerticalFieldOfViewDegrees { get; }
+
+        public float CameraTargetScreenX { get; }
+
+        public float CameraTargetScreenY { get; }
+
+        public float CameraPositionDamping { get; }
+
+        public float CameraNearClipPlane { get; }
+
+        public float CameraFarClipPlane { get; }
+
+        public float AmbientLightR { get; }
+
+        public float AmbientLightG { get; }
+
+        public float AmbientLightB { get; }
+
+        public float AmbientLightIntensity { get; }
 
         public string ViewId { get; }
 
@@ -368,15 +611,109 @@ namespace GameCult.Eve.UnityScene
 
         public string MovementCommand { get; }
 
+        public string LookCommand { get; }
+
+        public float LookSensitivityRadians { get; }
+
+        public string LookModel { get; }
+
+        public string SkyboxAssetRef { get; }
+
+        public string ReflectionAssetRef { get; }
+
+        public float ReflectionIntensity { get; }
+
+        public string PostProcessProfileAssetRef { get; }
+
+        public float KeyLightDirectionX { get; }
+
+        public float KeyLightDirectionY { get; }
+
+        public float KeyLightDirectionZ { get; }
+
+        public float KeyLightColorR { get; }
+
+        public float KeyLightColorG { get; }
+
+        public float KeyLightColorB { get; }
+
+        public float KeyLightIntensity { get; }
+
         public string FocusCommand { get; }
 
         public string TargetCommand { get; }
 
         public string ActionCommand { get; }
 
+        public IReadOnlyList<string> ExcludedRenderChannels { get; }
+
         public int EntityCount => Entities.Count;
 
         public IReadOnlyList<EveUnityPlayableWorldEntity> Entities { get; }
+
+        public IReadOnlyList<EveUnityFieldVolumeProjection> FieldVolumes { get; }
+        public IReadOnlyList<EveUnityFieldParticlesProjection> FieldParticles { get; }
+    }
+
+    public sealed class EveUnityFieldVolumeProjection
+    {
+        public EveUnityFieldVolumeProjection(
+            string nodeId,
+            string documentRef,
+            string documentSchema,
+            string materialAssetRef,
+            string renderChannel,
+            string compositeMode,
+            string quality,
+            IReadOnlyDictionary<string, string>? props = null)
+        {
+            NodeId = nodeId ?? "";
+            DocumentRef = documentRef ?? "";
+            DocumentSchema = documentSchema ?? "";
+            MaterialAssetRef = materialAssetRef ?? "";
+            RenderChannel = renderChannel ?? "";
+            CompositeMode = compositeMode ?? "";
+            Quality = quality ?? "";
+            Props = props ?? new Dictionary<string, string>(StringComparer.Ordinal);
+        }
+
+        public string NodeId { get; }
+        public string DocumentRef { get; }
+        public string DocumentSchema { get; }
+        public string MaterialAssetRef { get; }
+        public string RenderChannel { get; }
+        public string CompositeMode { get; }
+        public string Quality { get; }
+        public IReadOnlyDictionary<string, string> Props { get; }
+    }
+
+    public sealed class EveUnityFieldParticlesProjection
+    {
+        public EveUnityFieldParticlesProjection(
+            string nodeId,
+            string documentRef,
+            string documentSchema,
+            string computeProgramAssetRef,
+            string materialAssetRef,
+            string renderChannel,
+            IReadOnlyDictionary<string, string>? props = null)
+        {
+            NodeId = nodeId ?? "";
+            DocumentRef = documentRef ?? "";
+            DocumentSchema = documentSchema ?? "";
+            ComputeProgramAssetRef = computeProgramAssetRef ?? "";
+            MaterialAssetRef = materialAssetRef ?? "";
+            RenderChannel = renderChannel ?? "";
+            Props = props ?? new Dictionary<string, string>(StringComparer.Ordinal);
+        }
+
+        public string NodeId { get; }
+        public string DocumentRef { get; }
+        public string DocumentSchema { get; }
+        public string ComputeProgramAssetRef { get; }
+        public string MaterialAssetRef { get; }
+        public string RenderChannel { get; }
+        public IReadOnlyDictionary<string, string> Props { get; }
     }
 
     public sealed class EveUnityPlayableWorldEntity

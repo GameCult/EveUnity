@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using GameCult.Eve.Surface;
 
 #nullable enable
@@ -15,6 +16,7 @@ namespace GameCult.Eve.UnityScene
         private readonly EveUnityShotReceiptPresenter _shots = new EveUnityShotReceiptPresenter();
         private readonly List<EveUnitySceneCommandReceipt> _pendingReceipts =
             new List<EveUnitySceneCommandReceipt>();
+        private long _activeStateVersion;
         private bool _connected;
         private bool _receiptConnected;
 
@@ -36,7 +38,14 @@ namespace GameCult.Eve.UnityScene
 
         public EveUnitySceneCommandReceipt? LastReceipt { get; private set; }
 
-        public long ActiveVersion => _connection.ActiveVersion;
+        public long ActiveVersion => Math.Max(_connection.ActiveVersion, _activeStateVersion);
+
+        public void AdvanceStateVersion(long version)
+        {
+            if (version <= _activeStateVersion) return;
+            _activeStateVersion = version;
+            PublishReceiptsWhoseStateIsVisible();
+        }
 
         public string SourcePointer => _connection.SourcePointer;
 
@@ -88,6 +97,16 @@ namespace GameCult.Eve.UnityScene
             return _connection.SubmitMoveVectorIntent(entityId, directionX, directionY, scalarValue, issuedAt);
         }
 
+        public EveSurfaceCommandRequest SubmitLookDirectionIntent(
+            string entityId,
+            float directionX,
+            float directionY,
+            float directionZ,
+            DateTimeOffset? issuedAt = null)
+        {
+            return _connection.SubmitLookDirectionIntent(entityId, directionX, directionY, directionZ, issuedAt);
+        }
+
         public EveSurfaceCommandRequest SubmitFocusIntent(
             string entityId,
             DateTimeOffset? issuedAt = null)
@@ -109,6 +128,14 @@ namespace GameCult.Eve.UnityScene
             DateTimeOffset? issuedAt = null)
         {
             return _connection.SubmitActionIntent(entityId, actionId, issuedAt);
+        }
+
+        public EveSurfaceCommandRequest SubmitCommandIntent(
+            string commandId,
+            IReadOnlyDictionary<string, string>? payload = null,
+            DateTimeOffset? issuedAt = null)
+        {
+            return _connection.SubmitCommandIntent(commandId, payload, issuedAt);
         }
 
         public void Disconnect()
@@ -208,6 +235,43 @@ namespace GameCult.Eve.UnityScene
         event Action<EveUnitySceneCommandReceipt> ReceiptAvailable;
     }
 
+    public interface IEveUnityNavigableProvider
+    {
+        Task NavigateAsync(EveUnitySceneNavigationTarget target);
+
+        void CommitNavigation();
+
+        void FinalizeNavigation();
+
+        void RollbackNavigation();
+    }
+
+    public sealed class EveUnitySceneNavigationTarget
+    {
+        public EveUnitySceneNavigationTarget(
+            string verseId,
+            string providerId,
+            string surfaceId,
+            string surfaceKind,
+            IReadOnlyList<string>? rendezvousEndpoints = null,
+            string authorityRuntimeId = "")
+        {
+            VerseId = verseId ?? "";
+            AuthorityRuntimeId = authorityRuntimeId ?? "";
+            ProviderId = providerId ?? "";
+            SurfaceId = surfaceId ?? "";
+            SurfaceKind = surfaceKind ?? "";
+            RendezvousEndpoints = rendezvousEndpoints ?? Array.Empty<string>();
+        }
+
+        public string VerseId { get; }
+        public string AuthorityRuntimeId { get; }
+        public string ProviderId { get; }
+        public string SurfaceId { get; }
+        public string SurfaceKind { get; }
+        public IReadOnlyList<string> RendezvousEndpoints { get; }
+    }
+
     public sealed class EveUnitySceneCommandReceipt
     {
         public EveUnitySceneCommandReceipt(
@@ -222,7 +286,8 @@ namespace GameCult.Eve.UnityScene
             string surfaceId = "",
             string message = "",
             DateTimeOffset? issuedAtUtc = null,
-            long sourceVersion = 0)
+            long sourceVersion = 0,
+            EveUnitySceneNavigationTarget? navigation = null)
         {
             ReceiptId = receiptId ?? "";
             Command = command ?? "";
@@ -236,6 +301,7 @@ namespace GameCult.Eve.UnityScene
             Message = message ?? "";
             IssuedAtUtc = issuedAtUtc;
             SourceVersion = sourceVersion;
+            Navigation = navigation;
         }
 
         public string Schema { get; }
@@ -261,6 +327,8 @@ namespace GameCult.Eve.UnityScene
         public DateTimeOffset? IssuedAtUtc { get; }
 
         public long SourceVersion { get; }
+
+        public EveUnitySceneNavigationTarget? Navigation { get; }
 
         public bool IsProviderOwned => !string.IsNullOrWhiteSpace(OwnerRepo) && !string.Equals(OwnerRepo, "EveUnity", StringComparison.Ordinal);
 

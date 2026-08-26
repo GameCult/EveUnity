@@ -4,6 +4,7 @@
   "references": [
     "GameCult.Eve.Surface",
     "GameCult.Eve.UnityScene",
+    "GameCult.Eve.PluginFields",
     "UnityEngine.AssetBundleModule"
   ],
   "includePlatforms": [],
@@ -14,7 +15,9 @@
     "GameCult.Caching.dll",
     "GameCult.Caching.MessagePack.dll",
     "GameCult.Mesh.dll",
-    "GameCult.Networking.dll"
+    "GameCult.Mesh.Quic.Native.dll",
+    "GameCult.Networking.dll",
+    "GameCult.Networking.WebSockets.dll"
   ],
   "autoReferenced": true,
   "defineConstraints": [],

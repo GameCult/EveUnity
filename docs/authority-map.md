@@ -9,6 +9,9 @@ importing provider product code into the generic runtime.
 
 EveUnity owns Unity scene projection, `GameObject` lifecycle, camera and input
 drivers, asset-provider hooks, package release, runtime tests, and captures.
+`CultMeshClient` owns physical route selection, reconnection, shared typed
+resource sessions, and their lease lifetime. Unity receives stable Verse and
+provider identities and cannot preserve a physical route as gameplay authority.
 
 ## Inputs
 
@@ -17,7 +20,11 @@ drivers, asset-provider hooks, package release, runtime tests, and captures.
 - `gamecult.eve.provider_advertisement.v1`
 - `gamecult.eve.surface.v1`
 - provider asset-manifest documents
+- runtime-selected asset-variant metadata, including native rendering-program bindings
+- generic field-volume lifecycle declarations and logical texture/scalar/matrix ports
+- generic viewport-to-texture scale bindings between logical vector and texture ports
 - provider command receipts
+- semantic render-channel inclusion and exclusion policy
 - Unity input and local presentation assets
 
 ## Outputs
@@ -29,23 +36,83 @@ drivers, asset-provider hooks, package release, runtime tests, and captures.
 
 ## Derived State
 
-`ActiveWorld`, scene objects, transforms, markers, camera pose, asset caches,
+`ActiveWorld`, scene objects, transforms, markers, camera pose, native
+render-channel layer mappings, resolved native shader ports/passes, asset caches,
+per-volume raymarch targets, temporal-history targets, previous camera matrices,
 presentation counters, and receipt display state are projections. They are not
-world truth.
+world truth. Temporal targets reset when the volume program, node, or render size
+changes and can never become provider state.
+
+The optional Unity cache directory contains verified content-transfer state and
+mapped body bytes only. It is disposable derived data, not a CultCache replica
+of provider gameplay documents.
+
+Camera-relative field viewports have one generic resolver. The advertised
+viewport frame owns its extent, spatial-cell scale, raster texels per cell, and
+snap policy; fog volumes and stateless particle programs consume the identical
+projected `EveFieldsViewport`. URP TAA state is likewise derived from the
+world's neutral `temporal-reprojection.v1` camera contract and is restored on
+release.
+
+Particle materials may consume advertised presentation-only inputs through
+logical native metadata: provider-owned textures, viewport-to-texture scale,
+and the current render-frame index. The runtime frame index owns temporal
+coverage only; it cannot drive particle identity, phase, position, or any
+daemon-visible state.
 
 ## Forbidden Writers
 
 Unity transforms, input drivers, camera rigs, scene sinks, asset caches, and
 pending receipts may not mutate or simulate provider world state. Plugin
-projection shells may not implement Sai, Norn, or TeX semantics.
+projection shells may not implement Sai, Norn, or TeX semantics. Portable
+surfaces may not carry Unity layer numbers, camera culling masks, shader property
+names, shader keywords, or native pass indices. Those bindings belong to the
+selected runtime asset variant. A native volume program that advertises a
+temporal pass must also advertise its current-sample, history,
+previous-view-projection, and reset-history ports; partial temporal programs fail
+closed.
+
+Unity code may not open provider snapshot sessions, schema clients, write
+forwarders, subscriptions, or replica shards against a discovered physical
+route. Reads, watches, content/body transfer, realtime frames, and command
+submissions share the same stable-identity `CultMeshClient` owner.
+Remote bootstrap and asset materialization complete through `PrepareAsync`
+before the scene is mounted. `Connect`, `Mount`, input, refresh, and disposal
+cannot synchronously wait on CultMesh. A bounded command outbox owns delivery;
+continuous movement/look values may be replaced by a newer value, but transport
+send completion cannot retire any command. Only the provider's canonical
+receipt retires its idempotency key. Unacknowledged work is retried fairly; it
+cannot become client-authored success or starve unrelated commands.
+
+Viewport-sized shader inputs are likewise presentation state. A provider may
+relate a logical vector port to a logical native texture port through
+`viewportTextureScaleBindings`; EveUnity derives the vector from the active
+camera viewport and resolved texture dimensions on every render. A provider
+literal is not allowed to impersonate those runtime dimensions, and an
+unresolvable relation fails closed.
+
+The provider selects camera semantics and framing from its authoritative mode.
+`planar.top-down-follow.v1` derives a downward presentation from the advertised
+target and framing values. `perspective.entity-forward-follow.v1` derives its
+view direction from the presented entity rotation and applies the same generic
+distance, screen-position, damping, and lens contract. When the provider also
+advertises `aim.convergence-point.v1`, the camera and aim marker consume one
+derived convergence point from the `aim.presentation` node. The native camera
+rotation and position are solved together so the optical axis reaches that
+point while the followed entity remains at the advertised screen coordinate.
+EveUnity owns only this native projection. It cannot collapse distinct provider
+modes into one camera opinion or infer a product camera from entity kind.
 
 ## Shared Paths
 
-Initial connect discovers a Verse endpoint and selects a provider surface by
-semantic kind. Refresh, reconnect, and terminal-receipt reconciliation consume
-that provider's surface documents. Movement, focus, target, and action input all
-become `gamecult.eve.command_invocation.v1` through the provider-advertised
-command boundary.
+Initial preparation asks one rendezvous for Verses, selects an advertised
+authority runtime and provider surface by semantic kind, then leases it through
+the explicit Verse/authority-runtime target. The Eve provider ID remains a
+separate surface-owner identity.
+Refresh, route rotation, reconnect, and terminal-receipt reconciliation remain
+inside the same identity-owned session. Movement, focus, target, and action
+input all become `gamecult.eve.command_invocation.v1` through the
+provider-advertised command boundary.
 
 ## Cut Line
 

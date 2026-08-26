@@ -289,6 +289,53 @@ namespace GameCult.Eve.UnityScene.Tests
             Assert.That(observed, Is.Empty);
         }
 
+        [TestCase("provider", "other.provider")]
+        [TestCase("surface", "other.surface")]
+        [TestCase("authority", "other.runtime")]
+        [TestCase("state", "mysterious")]
+        public void UntrustedReceiptCannotRetireOrPublishTheCommand(string field, string value)
+        {
+            using var transport = new EveUnityCultMeshLiveProviderTransport(
+                "test-cache",
+                "cultnet+tcp://127.0.0.1:1",
+                "test.verse",
+                "test.runtime",
+                "test.provider",
+                "test.surface");
+            var request = Request("launch-untrusted", "launch");
+            var type = typeof(EveUnityCultMeshLiveProviderTransport);
+            var pending = (IDictionary<string, EveSurfaceCommandRequest>)type.GetField(
+                "_pendingCommands",
+                BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(transport)!;
+            var publish = type.GetMethod("PublishReceipt", BindingFlags.NonPublic | BindingFlags.Instance)!;
+            pending.Add(request.CommandId, request);
+            var observed = new List<EveUnitySceneCommandReceipt>();
+            transport.CommandReceiptAvailable += observed.Add;
+
+            var providerId = field == "provider" ? value : request.ProviderId;
+            var surfaceId = field == "surface" ? value : request.SurfaceId;
+            var authority = field == "authority" ? value : "test.runtime";
+            var state = field == "state" ? value : "accepted";
+            var receipt = new EveCommandReceiptDocument(
+                "receipt-untrusted-" + field,
+                request.CommandId,
+                request.Command,
+                state,
+                "AetheriaEve",
+                authority,
+                providerId,
+                surfaceId,
+                "",
+                DateTimeOffset.UtcNow.ToString("O"),
+                1,
+                invocationHash: EveCommandInvocationHash.Compute(request));
+
+            publish.Invoke(transport, new object[] { receipt });
+
+            Assert.That(pending.ContainsKey(request.CommandId), Is.True);
+            Assert.That(observed, Is.Empty);
+        }
+
         [Test]
         public void ProviderSelectionCarriesStableIdentityWithoutExposingAPhysicalRoute()
         {
